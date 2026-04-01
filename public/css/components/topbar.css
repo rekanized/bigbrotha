@@ -189,6 +189,12 @@
     gap: 14px;
 }
 
+.workspace-topbar__auth {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .workspace-topbar__controls {
     display: flex;
     flex-wrap: wrap;
@@ -251,6 +257,10 @@
     .workspace-topbar__controls {
         width: 100%;
         justify-content: flex-start;
+    }
+
+    .workspace-topbar__auth {
+        flex-wrap: wrap;
     }
 }
 

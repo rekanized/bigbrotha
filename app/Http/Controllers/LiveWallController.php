@@ -28,7 +28,9 @@ class LiveWallController extends Controller
                 return [
                     'camera' => $camera,
                     'liveSelection' => $streamService->selectWallProfile($camera),
-                    'webrtcPlayerUrl' => $relayConfig->browserPlayerUrl($camera, $request),
+                    'playerPageUrl' => route('live-wall.player', ['camera' => $camera]),
+                    'sessionUrl' => route('live-wall.session', ['camera' => $camera]),
+                    'webrtcWhepUrl' => $relayConfig->browserWhepUrl($camera, $request),
                     'webrtcPath' => $relayConfig->cameraPathName($camera),
                 ];
             });

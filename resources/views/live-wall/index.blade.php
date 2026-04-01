@@ -8,7 +8,7 @@
 
 @section('page_title', 'Live wall')
 
-@section('page_lead', 'The wall now uses a shared WebRTC relay so multiple viewers can watch the same camera without spawning one ffmpeg job per browser tab.')
+@section('page_lead', 'The wall now uses a shared WebRTC relay with Laravel-issued session tokens, so authenticated operators can watch the same camera without exposing raw player pages to the public internet.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
@@ -51,7 +51,8 @@
                         $liveSelection = $tile['liveSelection'];
                         $selectedProfile = $liveSelection['profile'] ?? null;
                         $selectedProfileIndex = $liveSelection['index'] ?? null;
-                        $webrtcPlayerUrl = $tile['webrtcPlayerUrl'] ?? null;
+                        $playerPageUrl = $tile['playerPageUrl'] ?? null;
+                        $sessionUrl = $tile['sessionUrl'] ?? null;
                         $webrtcPath = $tile['webrtcPath'] ?? null;
                         $latestPreview = $camera->latestRtspPreview();
                         $previewIndex = $latestPreview['index'] ?? null;
@@ -76,16 +77,12 @@
                             <span class="wall-tile__network">{{ $camera->local_ip }}</span>
                         </div>
 
-                        @if (is_array($selectedProfile) && is_string($webrtcPlayerUrl) && $webrtcPlayerUrl !== '')
+                        @if (is_array($selectedProfile) && is_string($sessionUrl) && $sessionUrl !== '')
                             <div class="wall-tile__stream">
-                                <iframe
-                                    class="wall-tile__stream-frame"
-                                    src="{{ $webrtcPlayerUrl }}"
-                                    title="WebRTC feed for {{ $camera->name }}"
-                                    loading="lazy"
-                                    allow="autoplay; fullscreen; picture-in-picture"
-                                    referrerpolicy="no-referrer"
-                                ></iframe>
+                                <div class="webrtc-player" data-webrtc-player data-session-url="{{ $sessionUrl }}" data-player-label="{{ $camera->name }}">
+                                    <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>
+                                    <div class="webrtc-player__message" data-role="message">Loading secure stream…</div>
+                                </div>
                             </div>
                         @elseif (is_array($previewProfile) && $previewIndex !== null)
                             <a class="wall-tile__stream" href="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}" target="_blank" rel="noreferrer">
@@ -108,8 +105,8 @@
                         </div>
 
                         <div class="wall-tile__actions">
-                            @if (is_string($webrtcPlayerUrl) && $webrtcPlayerUrl !== '')
-                                <a class="button button--soft" href="{{ $webrtcPlayerUrl }}" target="_blank" rel="noreferrer">Open WebRTC player</a>
+                            @if (is_string($playerPageUrl) && $playerPageUrl !== '')
+                                <a class="button button--soft" href="{{ $playerPageUrl }}" wire:navigate>Open secure player</a>
                             @endif
 
                             @if (is_array($selectedProfile))
@@ -136,3 +133,7 @@
         @endif
     </section>
 @endsection
+
+@push('scripts')
+    <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer></script>
+@endpush

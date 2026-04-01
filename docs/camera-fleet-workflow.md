@@ -126,9 +126,12 @@ Current behavior:
 
 1. the wall picks a lower-cost RTSP profile when a camera exposes one.
 2. the selected profile is mapped to a shared MediaMTX path and transcoded on demand into a WebRTC-safe stream.
-3. the browser-facing tile embeds the MediaMTX WebRTC player page directly.
-4. each tile still exposes a `Copy relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
-5. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras or RTSP selections change.
+3. the browser-facing tile renders a Laravel-owned player shell instead of the stock public MediaMTX page.
+4. the player requests `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token and the proxied WHEP URL for the selected camera path.
+5. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
+6. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
+7. each tile still exposes a `Copy relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
+8. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, or relay auth settings change.
 
 This gives operators a shared live view path for multiple simultaneous viewers while keeping a separate no-transcode path available for consumers that do not need WebRTC.
 
@@ -139,7 +142,9 @@ When the operator UI is published behind Nginx on a host like `monitor.scholline
 1. Laravel serves the main application from the normal web root.
 2. Nginx proxies MediaMTX HTTP player and WHEP requests under a public prefix such as `/__webrtc/`.
 3. MediaMTX advertises that public prefix through `MEDIAMTX_WEBRTC_PUBLIC_URL` and `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`.
-4. ICE transport still needs direct host or firewall exposure on the configured WebRTC ports.
+4. the proxy should preserve the prefixed WHEP session URLs with `X-Forwarded-Prefix` and `proxy_redirect`, otherwise WHEP `PATCH` and `DELETE` calls will fall back to unprefixed session URLs and fail.
+5. ICE transport still needs direct host or firewall exposure on the configured WebRTC ports.
+6. the MediaMTX auth callback URL and internal publisher credentials must be in sync with Laravel config before secure playback can work.
 
 The same-host deployment model should expose MediaMTX directly on `8189` rather than trying to proxy that same port back through a site-level Nginx `stream` block.
 

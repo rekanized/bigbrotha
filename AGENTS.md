@@ -16,7 +16,7 @@ Read these files first when you need project context:
 
 ## Project Summary
 
-This is a Laravel 13 camera operations platform for ONVIF and RTSP devices. The current implementation covers discovery, manual ONVIF verification, camera fleet management, RTSP retrieval, stream diagnostics, preview capture, and shared live-wall playback through a Composer-managed MediaMTX WebRTC relay.
+This is a Laravel 13 camera operations platform for ONVIF and RTSP devices. The current implementation covers discovery, manual ONVIF verification, camera fleet management, RTSP retrieval, stream diagnostics, preview capture, Google-authenticated operator access, and shared live-wall playback through a Composer-managed MediaMTX WebRTC relay with Laravel-backed auth.
 
 ## Non-Negotiable Constraints
 
@@ -32,6 +32,8 @@ This is a Laravel 13 camera operations platform for ONVIF and RTSP devices. The 
 - RTSP profile retrieval and diagnostics.
 - Preview storage and serving.
 - Shared MediaMTX live wall behavior.
+- Google OAuth and Laravel session auth for operator routes.
+- MediaMTX auth callback behavior for WebRTC reads and internal RTSP publishing.
 - Reverse-proxy and WebRTC deployment behavior.
 - HTTP IP restriction behavior versus discovery behavior.
 

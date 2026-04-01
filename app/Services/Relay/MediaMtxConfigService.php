@@ -53,6 +53,17 @@ class MediaMtxConfigService
         return rtrim($baseUrl, '/').'/'.$definition['path'].'/'.($query !== '' ? '?'.$query : '');
     }
 
+    public function browserWhepUrl(Camera $camera, ?Request $request = null): ?string
+    {
+        $definition = $this->cameraRelayDefinition($camera);
+
+        if ($definition === null) {
+            return null;
+        }
+
+        return rtrim($this->browserBaseUrl($request), '/').'/'.$definition['path'].'/whep';
+    }
+
     public function internalPlayerUrl(string $path): string
     {
         return rtrim((string) config('mediamtx.webrtc.internal_base_url'), '/').'/'.$path;
@@ -93,6 +104,15 @@ class MediaMtxConfigService
             foreach ($additionalHosts as $host) {
                 $lines[] = '  - '.$host;
             }
+        }
+
+        if ((bool) config('mediamtx.auth.enabled', true)) {
+            $lines[] = 'authMethod: http';
+            $lines[] = 'authHTTPAddress: '.$this->singleQuotedScalar($this->authCallbackUrl());
+            $lines[] = 'authHTTPExclude:';
+            $lines[] = '  - action: api';
+            $lines[] = '  - action: metrics';
+            $lines[] = '  - action: pprof';
         }
 
         $lines[] = 'pathDefaults:';
@@ -154,7 +174,7 @@ class MediaMtxConfigService
     private function buildRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
     {
         $gop = (int) config('mediamtx.transcode.gop', 30);
-        $publishTarget = rtrim((string) config('mediamtx.rtsp.internal_base_url'), '/').'/$MTX_PATH';
+        $publishTarget = $this->internalPublishUrl('$MTX_PATH');
 
         return implode(' ', [
             escapeshellarg($ffmpegBinary),
@@ -199,6 +219,19 @@ class MediaMtxConfigService
         ]);
     }
 
+    private function internalPublishUrl(string $path): string
+    {
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url'), '/');
+        $publisherUser = rawurlencode((string) config('mediamtx.auth.publisher_user', 'publisher'));
+        $publisherPass = rawurlencode((string) config('mediamtx.auth.publisher_pass', ''));
+
+        if ($publisherUser === '' || $publisherPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
+            return $baseUrl.'/'.$path;
+        }
+
+        return 'rtsp://'.$publisherUser.':'.$publisherPass.'@'.substr($baseUrl, strlen('rtsp://')).'/'.$path;
+    }
+
     /**
      * @param  array<int, string>  $values
      */
@@ -212,5 +245,24 @@ class MediaMtxConfigService
     private function nullableScalar(string $value): string
     {
         return trim($value) === '' ? "''" : $value;
+    }
+
+    private function authCallbackUrl(): string
+    {
+        $configured = trim((string) config('mediamtx.auth.callback_url', ''));
+        $secret = trim((string) config('mediamtx.auth.callback_secret', ''));
+
+        if ($configured === '' || $secret === '') {
+            return $configured;
+        }
+
+        $separator = str_contains($configured, '?') ? '&' : '?';
+
+        return $configured.$separator.http_build_query(['secret' => $secret]);
+    }
+
+    private function singleQuotedScalar(string $value): string
+    {
+        return "'".str_replace("'", "''", $value)."'";
     }
 }

@@ -3,6 +3,17 @@
 $defaultInstallRoot = storage_path('app/private/mediamtx');
 $defaultVersion = env('MEDIAMTX_VERSION', '1.17.1');
 $defaultInstallDirectory = $defaultInstallRoot.'/releases/'.$defaultVersion;
+$configuredWebRtcPublicUrl = trim((string) env('MEDIAMTX_WEBRTC_PUBLIC_URL', ''));
+$defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl): string {
+    $sourceUrl = $configuredWebRtcPublicUrl !== '' ? $configuredWebRtcPublicUrl : (string) env('APP_URL', 'http://localhost');
+    $scheme = parse_url($sourceUrl, PHP_URL_SCHEME) ?? 'http';
+    $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'localhost';
+    $port = parse_url($sourceUrl, PHP_URL_PORT);
+
+    return $scheme.'://'.$host.($port !== null ? ':'.$port : '');
+})();
+$configuredAuthCallbackUrl = trim((string) env('MEDIAMTX_AUTH_CALLBACK_URL', ''));
+$defaultAuthCallbackUrl = ($configuredAuthCallbackUrl !== '' ? $configuredAuthCallbackUrl : $defaultCallbackOrigin.'/relay/auth/mediamtx');
 
 return [
     'version' => $defaultVersion,
@@ -54,6 +65,16 @@ return [
             'playsInline' => 'true',
             'disablepictureinpicture' => 'true',
         ]),
+    ],
+
+    'auth' => [
+        'enabled' => filter_var(env('MEDIAMTX_AUTH_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'callback_url' => $defaultAuthCallbackUrl,
+        'callback_secret' => env('MEDIAMTX_AUTH_CALLBACK_SECRET', hash('sha256', (string) env('APP_KEY', 'mediamtx-auth-callback'))),
+        'token_secret' => env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY')),
+        'token_ttl' => max(30, (int) env('MEDIAMTX_AUTH_TOKEN_TTL', 180)),
+        'publisher_user' => env('MEDIAMTX_PUBLISHER_USER', 'publisher'),
+        'publisher_pass' => env('MEDIAMTX_PUBLISHER_PASS', substr(hash('sha256', (string) env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY', 'mediamtx-publisher'))), 0, 32)),
     ],
 
     'transcode' => [

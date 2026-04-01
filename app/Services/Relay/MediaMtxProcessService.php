@@ -139,7 +139,7 @@ class MediaMtxProcessService
     {
         $storedPid = $this->storedPid();
 
-        if ($storedPid !== null && $this->processIsRunning($storedPid)) {
+        if ($storedPid !== null && $this->processMatchesExpectedInstance($storedPid)) {
             return $storedPid;
         }
 
@@ -208,13 +208,25 @@ class MediaMtxProcessService
         }
 
         if (function_exists('posix_kill')) {
-            return @posix_kill($pid, 0);
+            if (@posix_kill($pid, 0)) {
+                return true;
+            }
+
+            if (posix_get_last_error() === 1) {
+                return $this->readProcessArgs($pid) !== null;
+            }
+
+            return false;
         }
 
         $process = new Process(['sh', '-lc', 'kill -0 '.(int) $pid.' >/dev/null 2>&1']);
         $process->run();
 
-        return $process->isSuccessful();
+        if ($process->isSuccessful()) {
+            return true;
+        }
+
+        return $this->readProcessArgs($pid) !== null;
     }
 
     private function discoverRunningPid(): ?int
@@ -251,5 +263,46 @@ class MediaMtxProcessService
         }
 
         return null;
+    }
+
+    private function processMatchesExpectedInstance(int $pid): bool
+    {
+        $args = $this->readProcessArgs($pid);
+
+        if ($args === null) {
+            return false;
+        }
+
+        return str_contains($args, $this->installer->binaryPath())
+            && str_contains($args, (string) config('mediamtx.config_path'));
+    }
+
+    private function readProcessArgs(int $pid): ?string
+    {
+        if ($pid < 1) {
+            return null;
+        }
+
+        $procPath = '/proc/'.$pid.'/cmdline';
+
+        if (is_file($procPath) && is_readable($procPath)) {
+            $contents = file_get_contents($procPath);
+
+            if (is_string($contents) && $contents !== '') {
+                return str_replace("\0", ' ', trim($contents));
+            }
+        }
+
+        $process = new Process(['ps', '-p', (string) $pid, '-o', 'args=']);
+        $process->setTimeout(2);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            return null;
+        }
+
+        $args = trim($process->getOutput());
+
+        return $args !== '' ? $args : null;
     }
 }

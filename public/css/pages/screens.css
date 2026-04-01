@@ -332,6 +332,74 @@
     background: #0d1b2b;
 }
 
+.webrtc-player {
+    position: relative;
+    width: 100%;
+    min-height: 240px;
+    aspect-ratio: 16 / 9;
+    background: radial-gradient(circle at top, rgba(72, 129, 255, 0.18), transparent 45%), #09111c;
+}
+
+.webrtc-player--single {
+    min-height: min(72vh, 720px);
+}
+
+.webrtc-player__video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #09111c;
+}
+
+.webrtc-player__message {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    color: rgba(241, 245, 255, 0.96);
+    text-align: center;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.6;
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(180deg, rgba(8, 17, 28, 0.18), rgba(8, 17, 28, 0.55));
+    transition: opacity 180ms ease;
+}
+
+.webrtc-player__message:empty {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.player-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.6fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.player-panel,
+.player-sidebar {
+    display: grid;
+    gap: 16px;
+}
+
+.player-sidebar__meta {
+    display: grid;
+    gap: 10px;
+}
+
+.player-sidebar__meta strong {
+    color: var(--text);
+}
+
+.player-sidebar__meta span {
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
 .wall-tile__empty {
     display: grid;
     gap: 8px;
@@ -520,6 +588,7 @@
 }
 
 @media (max-width: 960px) {
+    .player-layout,
     .camera-form-grid,
     .data-table__head,
     .data-table__row {

@@ -13,6 +13,14 @@
     </head>
     <body class="@yield('body_class')">
         @php
+            $currentUser = auth()->user();
+            $currentUserInitials = $currentUser
+                ? collect(preg_split('/\s+/', trim($currentUser->name)))
+                    ->filter()
+                    ->take(2)
+                    ->map(fn (string $segment): string => strtoupper(substr($segment, 0, 1)))
+                    ->implode('')
+                : 'BB';
             $navigation = [
                 'Control Room' => [
                     ['label' => 'Overview', 'icon' => 'OV', 'href' => route('dashboard'), 'active' => request()->routeIs('dashboard')],
@@ -85,13 +93,22 @@
                             @yield('page_actions')
                         </div>
 
-                        <div class="operator-chip" aria-label="Current operator">
-                            <span class="operator-chip__avatar">CS</span>
-                            <span class="operator-chip__meta">
-                                <strong>Control Shift</strong>
-                                <small>Supervisor</small>
-                            </span>
-                        </div>
+                        @if ($currentUser)
+                            <div class="workspace-topbar__auth">
+                                <div class="operator-chip" aria-label="Current operator">
+                                    <span class="operator-chip__avatar">{{ $currentUserInitials }}</span>
+                                    <span class="operator-chip__meta">
+                                        <strong>{{ $currentUser->name }}</strong>
+                                        <small>{{ $currentUser->email }}</small>
+                                    </span>
+                                </div>
+
+                                <form method="POST" action="{{ route('logout') }}">
+                                    @csrf
+                                    <button class="button button--soft" type="submit">Sign out</button>
+                                </form>
+                            </div>
+                        @endif
                     </div>
                 </header>
 
