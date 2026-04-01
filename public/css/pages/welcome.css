@@ -1,0 +1,37 @@
+.welcome-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.welcome-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.welcome-metric {
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.56);
+}
+
+.welcome-metric__label {
+    margin-bottom: 6px;
+    font-size: 0.76rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.welcome-metric__value {
+    margin-bottom: 0;
+    color: var(--text);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+@media (max-width: 640px) {
+    .welcome-metrics {
+        grid-template-columns: 1fr;
+    }
+}
