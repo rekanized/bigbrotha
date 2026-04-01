@@ -2,18 +2,21 @@
 
 namespace Tests\Feature;
 
-// use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_requests_from_the_allowed_ip_are_served(): void
     {
-        $response = $this
-            ->withServerVariables(['REMOTE_ADDR' => '78.68.180.104'])
-            ->get('/');
+        $server = ['REMOTE_ADDR' => '192.168.1.1'];
 
-        $response->assertStatus(200);
+        $this->withServerVariables($server)->get('/')->assertOk();
+        $this->withServerVariables($server)->get('/camera-fleet')->assertOk();
+        $this->withServerVariables($server)->get('/live-wall')->assertOk();
+        $this->withServerVariables($server)->get('/discovery/onvif-sweep')->assertOk();
     }
 
     public function test_requests_from_other_ips_are_forbidden(): void

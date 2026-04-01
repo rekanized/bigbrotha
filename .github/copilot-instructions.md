@@ -20,6 +20,11 @@
 - Core features include live viewing, multi-feed layouts, recording workflows, and related operational screens.
 - Prefer backend and UI designs that support camera management, stream display, recording, playback, and layout organization.
 
+## Project Context Docs
+
+- Durable project context lives in AGENTS.md and the docs under docs/.
+- When architecture or workflows change, update those repo files so future sessions can recover context without relying on chat memory alone.
+
 ## Working Defaults
 
 - Assume no Node.js tooling is allowed in this repository.

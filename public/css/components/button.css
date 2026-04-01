@@ -2,14 +2,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 48px;
-    padding: 12px 18px;
+    min-height: 46px;
+    padding: 11px 18px;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-pill);
-    background: transparent;
+    background: var(--surface-strong);
     color: var(--text);
     text-decoration: none;
-    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease;
+    box-shadow: var(--shadow-soft);
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease;
 }
 
 .button:hover {
@@ -17,11 +19,11 @@
 }
 
 .button--primary {
-    background: var(--accent-strong);
-    border-color: var(--accent-strong);
-    color: #fffaf4;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
 }
 
 .button--soft {
-    background: rgba(255, 255, 255, 0.42);
+    background: rgba(255, 255, 255, 0.68);
 }
