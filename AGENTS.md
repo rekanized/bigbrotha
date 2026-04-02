@@ -10,9 +10,12 @@ Read these files first when you need project context:
 2. `docs/video-platform-architecture.md`
 3. `docs/camera-fleet-workflow.md`
 4. `docs/known-issues-and-constraints.md`
-5. `.github/copilot-instructions.md`
-6. `.github/instructions/no-build-frontend.instructions.md`
-7. `.github/instructions/video-platform.instructions.md`
+5. `UI-rules.md`
+6. `.github/copilot-instructions.md`
+7. `.github/instructions/no-build-frontend.instructions.md`
+8. `.github/instructions/video-platform.instructions.md`
+
+`UI-rules.md` defines the page-structure and component layout rules to follow when building or updating operator-facing screens.
 
 ## Project Summary
 
@@ -23,6 +26,7 @@ This is a Laravel 13 camera operations platform for ONVIF and RTSP devices. The 
 - Composer-only project.
 - No npm, Node build tooling, Vite, Tailwind, Bootstrap, Sass, Less, or frontend asset pipeline.
 - Prefer Blade, Livewire, standard CSS, and plain JavaScript only when necessary.
+- Follow `UI-rules.md` when structuring pages and building reusable UI components.
 - Preserve operator-facing workflows for discovery, fleet management, previewing, and live monitoring.
 
 ## Current High-Value Areas

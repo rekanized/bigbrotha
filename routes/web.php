@@ -12,6 +12,7 @@ use App\Http\Controllers\LiveWallPlayerController;
 use App\Http\Controllers\LiveWallSessionController;
 use App\Http\Controllers\LiveWallStreamController;
 use App\Http\Controllers\Relay\MediaMtxAuthController;
+use App\Http\Controllers\WallTilesController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function (): void {
@@ -28,6 +29,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
     Route::get('/live-wall', LiveWallController::class)->name('live-wall.index');
+    Route::get('/wall-tiles', WallTilesController::class)->name('wall-tiles.index');
     Route::get('/live-wall/{camera}/player', LiveWallPlayerController::class)->name('live-wall.player');
     Route::get('/live-wall/{camera}/session', LiveWallSessionController::class)->name('live-wall.session');
     Route::get('/live-wall/{camera}/stream', [LiveWallStreamController::class, 'mjpeg'])->name('live-wall.stream');

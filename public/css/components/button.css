@@ -9,21 +9,51 @@
     background: var(--surface-strong);
     color: var(--text);
     text-decoration: none;
+    font-weight: 700;
     box-shadow: var(--shadow-soft);
     cursor: pointer;
-    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
 .button:hover {
     transform: translateY(-1px);
+    box-shadow: var(--shadow-raised);
+}
+
+.button:active {
+    transform: translateY(0);
 }
 
 .button--primary {
     background: var(--accent);
-    border-color: var(--accent);
-    color: #ffffff;
+    border-color: var(--accent-600);
+    color: hsl(0 0% 100%);
+}
+
+.button--primary:hover {
+    background: var(--accent-600);
+    border-color: var(--accent-700);
 }
 
 .button--soft {
-    background: rgba(255, 255, 255, 0.68);
+    background: hsla(0 0% 100% / 0.7);
+}
+
+.button--soft:hover {
+    background: hsla(0 0% 100% / 0.92);
+}
+
+.button:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring), var(--shadow-raised);
+}
+
+.button:disabled,
+.button[aria-disabled="true"],
+.button.is-disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+    box-shadow: none;
 }

@@ -7,8 +7,10 @@ use App\Services\CameraStorageService;
 use App\Services\Onvif\OnvifRtspStreamService;
 use App\Services\Onvif\RtspStreamDiagnosticsService;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Throwable;
 
@@ -102,8 +104,8 @@ class Manager extends Component
             'form.model' => ['nullable', 'string', 'max:255'],
             'form.serial_number' => ['nullable', 'string', 'max:255'],
             'form.http_port' => ['required', 'integer', 'between:1,65535'],
-            'form.onvif_port' => ['required', 'integer', 'between:1,65535'],
-            'form.onvif_path' => ['required', 'string', 'max:255'],
+            'form.onvif_port' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'integer', 'between:1,65535'],
+            'form.onvif_path' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'string', 'max:255'],
             'form.rtsp_port' => ['required', 'integer', 'between:1,65535'],
             'form.rtsp_path' => ['nullable', 'string', 'max:255'],
             'form.rtsp_transport' => ['required', 'in:tcp,udp'],
@@ -119,6 +121,8 @@ class Manager extends Component
             : new Camera();
 
         $password = $validated['password'];
+        $onvifPort = $validated['onvif_port'] ?? $camera->onvif_port ?? 80;
+        $onvifPath = $validated['onvif_path'] ?? $camera->onvif_path ?? '/onvif/device_service';
 
         $camera->fill([
             'name' => trim($validated['name']),
@@ -128,8 +132,8 @@ class Manager extends Component
             'model' => $this->nullableString($validated['model']),
             'serial_number' => $this->nullableString($validated['serial_number']),
             'http_port' => (int) $validated['http_port'],
-            'onvif_port' => (int) $validated['onvif_port'],
-            'onvif_path' => Str::start(trim($validated['onvif_path']), '/'),
+            'onvif_port' => (int) $onvifPort,
+            'onvif_path' => Str::start(trim((string) $onvifPath), '/'),
             'rtsp_port' => (int) $validated['rtsp_port'],
             'rtsp_path' => $this->normalizeRtspPath($validated['rtsp_path']),
             'rtsp_transport' => $validated['rtsp_transport'],
@@ -196,8 +200,21 @@ class Manager extends Component
         $camera = Camera::query()->findOrFail($cameraId ?? $this->editingCameraId);
 
         try {
+            if (!$camera->supports_onvif || $camera->onvifEndpoint() === null) {
+                $camera = $this->syncSavedRtspEndpoint($camera);
+
+                if ($this->editingCameraId === $camera->id) {
+                    $this->editCamera($camera->id);
+                }
+
+                $this->rtspProfiles = $camera->rtspProfiles();
+                $this->rtspStatusMessage = 'Saved the configured RTSP endpoint for '.$camera->name.' without requiring ONVIF.';
+
+                return;
+            }
+
             $discovery = app(OnvifRtspStreamService::class)->discover($camera);
-            $profiles = $discovery['profiles'];
+            $profiles = $this->mergeDiscoveredProfilesWithSavedState($discovery['profiles'], $camera->rtspProfiles());
             $metadata = is_array($camera->metadata) ? $camera->metadata : [];
             $onvifMetadata = is_array($metadata['onvif'] ?? null) ? $metadata['onvif'] : [];
 
@@ -374,5 +391,127 @@ class Manager extends Component
         }
 
         return Str::start($path, '/');
+    }
+
+    private function syncSavedRtspEndpoint(Camera $camera): Camera
+    {
+        $endpoint = $camera->rtspEndpoint();
+
+        if ($endpoint === null) {
+            throw new \RuntimeException('This camera needs a saved RTSP port and path before it can use RTSP without ONVIF.');
+        }
+
+        $existingProfiles = array_values(array_filter(
+            $camera->rtspProfiles(),
+            static fn (mixed $profile): bool => is_array($profile),
+        ));
+
+        $existingManualProfile = collect($existingProfiles)->first(function (array $profile) use ($endpoint): bool {
+            return ($profile['source'] ?? null) === 'manual'
+                || ($profile['name'] ?? null) === 'Saved endpoint'
+                || ($profile['uri'] ?? null) === $endpoint;
+        });
+
+        $manualProfile = array_merge(is_array($existingManualProfile) ? $existingManualProfile : [], [
+            'name' => 'Saved endpoint',
+            'token' => 'manual',
+            'uri' => $endpoint,
+            'path' => $this->parseRtspPathFromUri($endpoint),
+            'transport' => strtoupper($camera->rtsp_transport),
+            'source' => 'manual',
+        ]);
+
+        $metadata = is_array($camera->metadata) ? $camera->metadata : [];
+        $metadata['rtsp_profiles'] = array_values(array_merge([
+            $manualProfile,
+        ], array_filter($existingProfiles, function (array $profile) use ($endpoint): bool {
+            return ($profile['source'] ?? null) !== 'manual'
+                && ($profile['name'] ?? null) !== 'Saved endpoint'
+                && ($profile['uri'] ?? null) !== $endpoint;
+        })));
+
+        $camera->metadata = $metadata;
+        $camera->supports_rtsp = true;
+        $camera->last_seen_at = now();
+        $camera->save();
+
+        return $camera->refresh();
+    }
+
+    /**
+     * @param  array<int, array<string, string|null>>  $profiles
+     * @param  array<int, array<string, string|null>>  $savedProfiles
+     * @return array<int, array<string, string|null>>
+     */
+    private function mergeDiscoveredProfilesWithSavedState(array $profiles, array $savedProfiles): array
+    {
+        return array_values(array_map(function (array $profile) use ($savedProfiles): array {
+            $savedProfile = $this->matchSavedProfile($profile, $savedProfiles);
+
+            if ($savedProfile === null) {
+                return $profile;
+            }
+
+            return array_merge($profile, Arr::only($savedProfile, [
+                'probe_status',
+                'probe_checked_at',
+                'probe_message',
+                'video_codec',
+                'video_resolution',
+                'preview_path',
+                'preview_generated_at',
+                'preview_message',
+                'transport',
+            ]));
+        }, $profiles));
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     * @param  array<int, array<string, string|null>>  $savedProfiles
+     * @return array<string, string|null>|null
+     */
+    private function matchSavedProfile(array $profile, array $savedProfiles): ?array
+    {
+        $token = $this->nullableString($profile['token'] ?? null);
+        $uri = $this->nullableString($profile['uri'] ?? null);
+        $path = $this->nullableString($profile['path'] ?? null);
+        $name = $this->nullableString($profile['name'] ?? null);
+
+        foreach ($savedProfiles as $savedProfile) {
+            if (!is_array($savedProfile)) {
+                continue;
+            }
+
+            $savedToken = $this->nullableString($savedProfile['token'] ?? null);
+            $savedUri = $this->nullableString($savedProfile['uri'] ?? null);
+            $savedPath = $this->nullableString($savedProfile['path'] ?? null);
+            $savedName = $this->nullableString($savedProfile['name'] ?? null);
+
+            if ($token !== null && $savedToken !== null && $token === $savedToken) {
+                return $savedProfile;
+            }
+
+            if ($uri !== null && $savedUri !== null && $uri === $savedUri) {
+                return $savedProfile;
+            }
+
+            if ($path !== null && $savedPath !== null && $path === $savedPath && $name !== null && $savedName !== null && $name === $savedName) {
+                return $savedProfile;
+            }
+        }
+
+        return null;
+    }
+
+    private function parseRtspPathFromUri(string $uri): ?string
+    {
+        $parts = parse_url($uri);
+
+        if (!is_array($parts)) {
+            return null;
+        }
+
+        return $this->nullableString(((string) Arr::get($parts, 'path', '')).(isset($parts['query']) ? '?'.$parts['query'] : ''));
     }
 }

@@ -3,33 +3,62 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#eef2f7">
+        <meta name="theme-color" content="#edf2f6">
 
         <title>{{ config('app.name', 'BigBrothas') }} | Sign in</title>
 
         <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     </head>
     <body class="auth-page">
-        <main class="auth-shell">
+        <main class="auth-layout">
+            <section class="auth-brief page-card">
+                <div class="auth-brief__brand">
+                    <div class="auth-card__mark">BB</div>
+                    <div>
+                        <div class="auth-card__eyebrow">Camera operations platform</div>
+                        <strong>{{ config('app.name', 'BigBrothas') }}</strong>
+                    </div>
+                </div>
+
+                <div class="auth-brief__intro">
+                    <h1 class="auth-brief__title">Secure the control room before any feed starts.</h1>
+                    <p class="auth-card__copy">Sign in once to manage discovery, camera inventory, RTSP validation, and shared WebRTC playback. The same Laravel session authorizes short-lived read tokens for the wall.</p>
+                </div>
+
+                <div class="auth-signal-grid">
+                    <article class="auth-signal">
+                        <span class="auth-signal__label">Discovery</span>
+                        <strong class="auth-signal__title">Sweep the subnet or probe a known endpoint.</strong>
+                        <p>Use ONVIF multicast when the network allows it, then fall back to direct SOAP authentication when it does not.</p>
+                    </article>
+
+                    <article class="auth-signal">
+                        <span class="auth-signal__label">Stream trust</span>
+                        <strong class="auth-signal__title">Laravel controls every wall session.</strong>
+                        <p>Authenticated operators receive short-lived MediaMTX tokens only when a wall or player session is requested.</p>
+                    </article>
+                </div>
+
+                <ul class="auth-card__list">
+                    <li>Google OAuth establishes the operator session.</li>
+                    <li>Laravel issues signed stream tokens per secure wall connection.</li>
+                    <li>MediaMTX validates those reads before serving camera video.</li>
+                </ul>
+            </section>
+
             <section class="auth-card page-card">
                 <div class="auth-card__brand">
                     <div class="auth-card__mark">BB</div>
                     <div>
                         <div class="auth-card__eyebrow">Secure operator access</div>
-                        <strong>{{ config('app.name', 'BigBrothas') }}</strong>
+                        <strong>Operator sign-in</strong>
                     </div>
                 </div>
 
                 <div class="auth-card__intro">
-                    <h1 class="auth-card__title">Control room sign-in</h1>
-                    <p class="auth-card__copy">Authenticate with Google to open the operator workspace. Your Laravel session also authorizes short-lived WebRTC reads for the Live Wall.</p>
+                    <h2 class="auth-card__title">Open the operator workspace</h2>
+                    <p class="auth-card__copy">Authenticate with Google to continue into the dashboard and secure player views.</p>
                 </div>
-
-                <ul class="auth-card__list">
-                    <li>Google OAuth establishes the site session.</li>
-                    <li>Laravel issues short-lived stream tokens to authenticated users only.</li>
-                    <li>MediaMTX validates each WebRTC read against Laravel before serving the stream.</li>
-                </ul>
 
                 @if (session('auth_error'))
                     <div class="auth-card__alert">{{ session('auth_error') }}</div>
@@ -41,13 +70,17 @@
                         && filled(config('services.google.redirect'));
                 @endphp
 
-                <a
-                    class="button button--primary auth-card__button"
-                    href="{{ $googleReady ? route('auth.google.redirect') : '#' }}"
-                    @if (! $googleReady) aria-disabled="true" @endif
-                >
-                    {{ $googleReady ? 'Continue with Google' : 'Google OAuth is not configured yet' }}
-                </a>
+                @if ($googleReady)
+                    <a class="button button--primary auth-card__button" href="{{ route('auth.google.redirect') }}">
+                        Continue with Google
+                    </a>
+                @else
+                    <span class="button button--soft auth-card__button is-disabled" aria-disabled="true">
+                        Google OAuth is not configured yet
+                    </span>
+                @endif
+
+                <p class="auth-card__footnote">OAuth configuration comes from Laravel service settings. When those values are missing, sign-in stays unavailable by design.</p>
             </section>
         </main>
     </body>

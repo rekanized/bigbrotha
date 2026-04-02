@@ -55,6 +55,12 @@ class DashboardController extends Controller
             'metricCards' => $metricCards,
             'recorderStatus' => $recorderStatus,
             'recentCameras' => $recentCameras,
+            'fleetSummary' => [
+                'total' => $totalCameras,
+                'enabled' => $activeCameras,
+                'onvif' => $onvifCapable,
+                'rtsp' => $rtspCapable,
+            ],
             'healthBreakdown' => [
                 'recently_seen' => $recentlySeen,
                 'offline' => $offline,

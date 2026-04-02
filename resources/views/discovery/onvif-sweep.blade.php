@@ -8,7 +8,7 @@
 
 @section('page_title', 'ONVIF sweep')
 
-@section('page_lead', 'Start small with WS-Discovery: send a multicast probe, listen for ONVIF devices publishing themselves on the local network, and inspect the endpoints they return.')
+@section('page_lead', 'Start with multicast discovery, then fall back to a direct ONVIF probe when you already know the endpoint.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
@@ -16,16 +16,5 @@
 @endsection
 
 @section('content')
-    <section class="screen-grid">
-        <section class="screen-card screen-card--spacious">
-            <div class="panel-heading">
-                <div>
-                    <h2 class="panel-title">WS-Discovery probe</h2>
-                    <p class="panel-copy">The sweep sends a multicast probe to 239.255.255.250:3702 for ONVIF NetworkVideoTransmitter devices and lists the responses it receives back.</p>
-                </div>
-            </div>
-
-            <livewire:discovery.onvif-sweep />
-        </section>
-    </section>
+    <livewire:discovery.onvif-sweep />
 @endsection

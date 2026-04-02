@@ -14,6 +14,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - Standard CSS under `public/css`.
 - ffmpeg and ffprobe for RTSP diagnostics and preview generation.
 - MediaMTX for shared WebRTC fan-out from RTSP camera sources.
+- Scheduled preview refreshes can be run with Laravel's scheduler so saved thumbnails stay current even when operators are not actively testing a stream.
 
 ## Important Constraints
 
@@ -28,6 +29,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - `/login` Google sign-in entry.
 - `/` dashboard.
 - `/camera-fleet` camera inventory and management.
+- `/wall-tiles` named wall and tile layout builder.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` private preview image endpoint.
 - `/live-wall` live wall entry.
 - `/live-wall/{camera}/player` Laravel-served secure player page.
@@ -41,12 +43,14 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 ## Live Wall Flow
 
 1. An operator signs in through Google OAuth and receives a normal Laravel session.
-2. `/live-wall` and `/live-wall/{camera}/player` render Laravel-owned player shells instead of exposing the stock public MediaMTX iframe page.
-3. The browser calls `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token plus the WHEP URL for the selected camera path.
-4. `public/js/live-wall-player.js` loads the official per-path MediaMTX `reader.js` and passes the signed token as a bearer token.
-5. MediaMTX calls `/relay/auth/mediamtx` before allowing a WebRTC read.
-6. If the path is idle, MediaMTX starts ffmpeg through `runOnDemand`, ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to `rtsp://publisher:...@127.0.0.1:8554/$MTX_PATH`.
-7. The auth callback accepts that local RTSP publish only when it matches the configured internal publisher credentials and comes from loopback.
+2. `/wall-tiles` is used to create named walls, assign camera tiles, and choose tile orientation or span.
+3. `/live-wall` resolves the selected or default active wall and only renders cameras assigned to enabled tiles on that wall.
+4. `/live-wall/{camera}/player` still renders a Laravel-owned player shell instead of exposing the stock public MediaMTX iframe page.
+5. The browser calls `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token plus the WHEP URL for the selected camera path.
+6. `public/js/live-wall-player.js` loads the official per-path MediaMTX `reader.js` and passes the signed token as a bearer token.
+7. MediaMTX calls `/relay/auth/mediamtx` before allowing a WebRTC read.
+8. If the path is idle, MediaMTX starts ffmpeg through `runOnDemand`, ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to `rtsp://publisher:...@127.0.0.1:8554/$MTX_PATH`.
+9. The auth callback accepts that local RTSP publish only when it matches the configured internal publisher credentials and comes from loopback.
 
 ## Relay Settings
 
@@ -86,6 +90,7 @@ In normal operation this is enough. A `php-fpm` restart is only needed if the ho
 php artisan test
 php artisan test tests/Feature/CameraFleetManagerTest.php
 php artisan test tests/Feature/RtspStreamDiagnosticsServiceTest.php
+php artisan camera-fleet:refresh-previews
 composer relay:install
 php artisan config:clear
 php artisan view:clear
@@ -93,6 +98,8 @@ php artisan relay:sync
 php artisan relay:start
 php artisan relay:status
 ```
+
+Run `php artisan schedule:run` from cron every minute so the built-in `camera-fleet:refresh-previews` task can recapture saved camera previews every 30 minutes.
 
 ## Resume Guidance
 

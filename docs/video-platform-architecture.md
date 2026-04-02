@@ -19,6 +19,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - `/login` for Google sign-in.
 - `/` via `App\Http\Controllers\DashboardController`.
 - `/camera-fleet` via `App\Http\Controllers\CameraFleetController` and `App\Livewire\CameraFleet\Manager`.
+- `/wall-tiles` via `App\Http\Controllers\WallTilesController` and `App\Livewire\LiveWall\TilesManager`.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` via `App\Http\Controllers\CameraFleetStreamPreviewController`.
 - `/live-wall` via `App\Http\Controllers\LiveWallController`.
 - `/live-wall/{camera}/player` via `App\Http\Controllers\LiveWallPlayerController`.
@@ -30,7 +31,9 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 
 ## Core Domain Object
 
-`App\Models\Camera` is the central persistence model.
+`App\Models\Camera` is the central persistence model for camera identity, credentials, and saved RTSP metadata.
+
+`App\Models\LiveWall` and `App\Models\LiveWallTile` now persist named monitoring layouts and the explicit camera-to-tile assignments that control what operators actually see on `/live-wall`.
 
 It stores:
 
@@ -92,12 +95,18 @@ Current behavior includes:
 
 ## Live Wall Delivery
 
-`App\Http\Controllers\LiveWallController` now prepares each enabled camera with a preferred wall profile before rendering the Blade view at `resources/views/live-wall/index.blade.php`.
+`App\Http\Controllers\LiveWallController` now resolves the selected active wall, loads its enabled tile assignments, and prepares each assigned camera with a preferred wall profile before rendering the Blade view at `resources/views/live-wall/index.blade.php`.
+
+`App\Livewire\LiveWall\TilesManager` is the operator-facing builder for named walls and camera tiles.
 
 Current live viewing behavior:
 
+- only displays cameras assigned to enabled tiles on the selected active wall.
+- allows multiple named walls with separate grid column counts and tile orientation or span settings.
 - prefers a lower-cost RTSP profile such as a minor or sub stream when available.
 - uses a shared MediaMTX WebRTC relay for operator wall playback.
+- preserves optional camera audio in the shared relay by publishing an Opus audio track alongside the browser-safe H.264 wall video.
+- lets operators select exactly one wall tile for live audio output at a time, with a shared wall volume control in the bottom dock and the active audio source marked directly on the wall.
 - transcodes once per active camera into WebRTC-safe H.264 baseline output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer.
 - serves a Laravel-rendered player shell and an authenticated session bootstrap endpoint instead of embedding the stock public MediaMTX iframe page.
 - uses `public/js/live-wall-player.js` to fetch session bootstrap data and then load the official per-path MediaMTX `reader.js` implementation.
@@ -110,16 +119,17 @@ Current live viewing behavior:
 
 The current secure playback sequence is:
 
-1. `App\Http\Controllers\LiveWallController` renders wall tiles with Laravel session bootstrap URLs.
-2. `App\Http\Controllers\LiveWallPlayerController` renders the single-camera secure player page.
-3. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token }`.
-4. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
-5. MediaMTX calls `App\Http\Controllers\Relay\MediaMtxAuthController` with `action=read` and `protocol=webrtc`.
-6. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
-7. ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to the same MediaMTX path over RTSP.
-8. MediaMTX calls the same auth controller with `action=publish` and `protocol=rtsp` for that internal republish.
-9. The auth controller accepts that local publish only when the configured publisher credentials match and the request IP is loopback.
-10. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.
+1. `App\Livewire\LiveWall\TilesManager` saves named walls and explicit camera tile assignments.
+2. `App\Http\Controllers\LiveWallController` renders only the selected wall's enabled tiles with Laravel session bootstrap URLs.
+3. `App\Http\Controllers\LiveWallPlayerController` renders the single-camera secure player page.
+4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token }`.
+5. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
+6. MediaMTX calls `App\Http\Controllers\Relay\MediaMtxAuthController` with `action=read` and `protocol=webrtc`.
+7. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
+8. ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to the same MediaMTX path over RTSP.
+9. MediaMTX calls the same auth controller with `action=publish` and `protocol=rtsp` for that internal republish.
+10. The auth controller accepts that local publish only when the configured publisher credentials match and the request IP is loopback.
+11. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.
 
 ## MediaMTX Authentication Model
 

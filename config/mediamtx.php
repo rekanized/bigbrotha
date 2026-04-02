@@ -80,6 +80,10 @@ return [
     'transcode' => [
         'preset' => env('MEDIAMTX_TRANSCODE_PRESET', 'ultrafast'),
         'video_bitrate' => env('MEDIAMTX_TRANSCODE_VIDEO_BITRATE', '1200k'),
+        'audio_codec' => env('MEDIAMTX_TRANSCODE_AUDIO_CODEC', 'libopus'),
+        'audio_bitrate' => env('MEDIAMTX_TRANSCODE_AUDIO_BITRATE', '96k'),
+        'audio_channels' => max(1, (int) env('MEDIAMTX_TRANSCODE_AUDIO_CHANNELS', 1)),
+        'audio_sample_rate' => max(8000, (int) env('MEDIAMTX_TRANSCODE_AUDIO_SAMPLE_RATE', 48000)),
         'gop' => max(15, (int) env('MEDIAMTX_TRANSCODE_GOP', 30)),
         'start_timeout' => env('MEDIAMTX_RUN_ON_DEMAND_START_TIMEOUT', '20s'),
         'close_after' => env('MEDIAMTX_RUN_ON_DEMAND_CLOSE_AFTER', '15s'),

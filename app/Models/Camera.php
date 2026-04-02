@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Services\CameraStorageService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 #[Fillable([
@@ -36,6 +38,11 @@ use Illuminate\Support\Str;
 class Camera extends Model
 {
     use HasFactory, HasUuids;
+
+    public function liveWallTiles(): HasMany
+    {
+        return $this->hasMany(LiveWallTile::class);
+    }
 
     /**
      * @return array<int, string>
@@ -92,9 +99,12 @@ class Camera extends Model
     {
         $latestPreview = null;
         $latestTimestamp = null;
+        $storage = app(CameraStorageService::class);
 
         foreach ($this->rtspProfiles() as $index => $profile) {
-            if (!is_array($profile) || !is_string($profile['preview_path'] ?? null) || ($profile['preview_path'] ?? '') === '') {
+            $previewPath = is_array($profile) ? ($profile['preview_path'] ?? null) : null;
+
+            if (!is_array($profile) || !is_string($previewPath) || $previewPath === '' || !$storage->hasUsablePreview($previewPath)) {
                 continue;
             }
 
@@ -110,6 +120,31 @@ class Camera extends Model
         }
 
         return $latestPreview;
+    }
+
+    /**
+     * @return array{index: int, profile: array<string, string|null>}|null
+     */
+    public function rtspPreviewRefreshTarget(): ?array
+    {
+        $latestPreview = $this->latestRtspPreview();
+
+        if ($latestPreview !== null) {
+            return $latestPreview;
+        }
+
+        foreach ($this->rtspProfiles() as $index => $profile) {
+            if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+                continue;
+            }
+
+            return [
+                'index' => $index,
+                'profile' => $profile,
+            ];
+        }
+
+        return null;
     }
 
     /**

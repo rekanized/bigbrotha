@@ -1,12 +1,12 @@
 .eyebrow {
     display: inline-block;
-    padding: 7px 12px;
+    padding: 8px 12px;
     border-radius: var(--radius-pill);
     background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 0.76rem;
+    color: var(--accent-strong);
+    font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
 }
 
@@ -14,22 +14,27 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    min-height: 36px;
+    min-height: 34px;
     padding: 8px 12px;
     border-radius: var(--radius-pill);
-    background: var(--surface-muted);
+    background: hsla(0 0% 100% / 0.8);
     border: 1px solid var(--border);
-    color: var(--text);
-    font-size: 0.82rem;
+    color: var(--muted-strong);
+    font-size: 0.8rem;
     font-weight: 600;
+    line-height: 1;
 }
 
 .status-pill::before {
     content: '';
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: currentColor;
+}
+
+.status-pill--neutral {
+    color: var(--muted-strong);
 }
 
 .status-pill--good {
@@ -53,27 +58,68 @@
 
 .panel-title {
     margin-bottom: 6px;
-    font-family: var(--font-sans);
-    font-size: 1.05rem;
-    line-height: 1.2;
+    font-family: var(--font-serif);
+    font-size: 1.18rem;
+    line-height: 1.08;
+}
+
+.panel-title--xl {
+    max-width: 20ch;
+    font-size: clamp(1.8rem, 3.2vw, 3rem);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
 }
 
 .panel-copy {
-    max-width: 34rem;
+    max-width: 42rem;
     margin-bottom: 0;
-    font-size: 0.95rem;
-    line-height: 1.6;
+    color: var(--text-soft);
+    font-size: 0.96rem;
+    line-height: 1.68;
 }
 
 .panel-stat {
-    color: var(--accent);
-    font-size: 1.05rem;
+    color: var(--accent-strong);
+    font-size: 0.96rem;
     font-weight: 700;
     white-space: nowrap;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-4);
+}
+
+.detail-card {
+    display: grid;
+    gap: 10px;
+    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: linear-gradient(180deg, hsla(0 0% 100% / 0.94) 0%, hsla(204 35% 97% / 0.86) 100%);
+}
+
+.detail-card__label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.detail-card strong {
+    color: var(--text);
+    line-height: 1.45;
+    word-break: break-word;
 }
 
 @media (max-width: 640px) {
     .panel-heading {
         flex-direction: column;
+    }
+
+    .panel-stat {
+        white-space: normal;
     }
 }

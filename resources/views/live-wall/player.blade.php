@@ -8,7 +8,7 @@
 
 @section('page_title', $camera->name)
 
-@section('page_lead', 'This player is served by Laravel and requests a short-lived WebRTC access token before each MediaMTX session.')
+@section('page_lead', 'This player is served by Laravel and requests a short-lived WebRTC token before each MediaMTX session bootstrap.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Back to wall</a>
@@ -22,7 +22,7 @@
                 @if (!($relayStatus['installed'] ?? false))
                     <div class="empty-state">
                         <strong>Media relay not installed yet.</strong>
-                        <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared WebRTC relay.</p>
+                        <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared relay.</p>
                     </div>
                 @elseif (!($relayStatus['running'] ?? false))
                     <div class="empty-state">
@@ -32,13 +32,13 @@
                 @elseif (!is_array($liveSelection) || !is_string($sessionUrl) || $sessionUrl === '')
                     <div class="empty-state">
                         <strong>No live RTSP stream is ready.</strong>
-                        <p>Refresh RTSP profiles or run a connection test from Camera Fleet to populate a playable stream.</p>
+                        <p>Refresh stream profiles or run a stream test from Camera Fleet to populate a playable stream.</p>
                     </div>
                 @else
                     <div class="wall-tile__stream">
                         <div class="webrtc-player webrtc-player--single" data-webrtc-player data-session-url="{{ $sessionUrl }}" data-player-label="{{ $camera->name }}">
                             <video class="webrtc-player__video" data-role="video" autoplay muted playsinline controls></video>
-                            <div class="webrtc-player__message" data-role="message">Loading secure stream…</div>
+                            <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
                         </div>
                     </div>
                 @endif
@@ -49,26 +49,54 @@
                     <div class="panel-heading">
                         <div>
                             <h2 class="panel-title">Player session</h2>
-                            <p class="panel-copy">Google-authenticated users receive Laravel-issued stream tokens per connection attempt.</p>
+                            <p class="panel-copy">Google-authenticated users receive Laravel-issued stream tokens per connection attempt and camera path.</p>
                         </div>
                     </div>
 
-                    <div class="player-sidebar__meta">
-                        <strong>{{ $camera->name }}</strong>
-                        <span>{{ $camera->manufacturer ?: 'Unknown vendor' }}{{ $camera->model ? ' · '.$camera->model : '' }}</span>
-                        <span>{{ $camera->local_ip }}</span>
+                    <div class="key-value-list key-value-list--dense">
+                        <div class="key-value-row">
+                            <span>Camera</span>
+                            <strong>{{ $camera->name }}</strong>
+                        </div>
+
+                        <div class="key-value-row">
+                            <span>Identity</span>
+                            <strong>{{ $camera->manufacturer ?: 'Unknown vendor' }}{{ $camera->model ? ' · '.$camera->model : '' }}</strong>
+                        </div>
+
+                        <div class="key-value-row">
+                            <span>Local IP</span>
+                            <strong>{{ $camera->local_ip }}</strong>
+                        </div>
+
                         @if (is_array($liveSelection))
-                            <span>{{ $liveSelection['profile']['name'] ?? 'RTSP profile' }} · {{ $liveSelection['profile']['uri'] ?? $camera->rtspEndpoint() }}</span>
+                            <div class="key-value-row">
+                                <span>Profile</span>
+                                <strong>{{ $liveSelection['profile']['name'] ?? 'RTSP profile' }}</strong>
+                            </div>
+
+                            <div class="key-value-row">
+                                <span>Selected URI</span>
+                                <strong>{{ $liveSelection['profile']['uri'] ?? $camera->rtspEndpoint() }}</strong>
+                            </div>
                         @endif
-                        <span>Relay path {{ $webrtcPath }}</span>
+
+                        <div class="key-value-row">
+                            <span>Relay path</span>
+                            <strong>{{ $webrtcPath }}</strong>
+                        </div>
+
                         @if (is_string($webrtcWhepUrl) && $webrtcWhepUrl !== '')
-                            <span>WHEP {{ $webrtcWhepUrl }}</span>
+                            <div class="key-value-row">
+                                <span>WHEP URL</span>
+                                <strong>{{ $webrtcWhepUrl }}</strong>
+                            </div>
                         @endif
                     </div>
 
                     <div class="wall-tile__actions">
                         @if (is_array($liveSelection))
-                            <a class="button button--soft" href="{{ route('live-wall.relay', ['camera' => $camera, 'profileIndex' => $liveSelection['index'] ?? null]) }}" target="_blank" rel="noreferrer">Copy relay</a>
+                            <a class="button button--soft" href="{{ route('live-wall.relay', ['camera' => $camera, 'profileIndex' => $liveSelection['index'] ?? null]) }}" target="_blank" rel="noreferrer">Open relay</a>
                         @endif
 
                         <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Manage camera</a>
@@ -80,5 +108,5 @@
 @endsection
 
 @push('scripts')
-    <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer></script>
+    <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
 @endpush

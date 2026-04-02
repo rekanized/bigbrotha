@@ -1,30 +1,139 @@
 .app-shell {
-    width: calc(100% - 28px);
+    width: calc(100% - 32px);
     margin: 0 auto;
-    padding: 14px 0 28px;
+    padding: 20px 0 40px;
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 20px;
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: var(--space-5);
     align-items: start;
 }
 
 .app-content,
 .app-main {
     display: grid;
-    gap: 20px;
+    gap: var(--space-5);
     min-width: 0;
 }
 
+.page-live-wall .app-shell {
+    width: calc(100% - 16px);
+    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+    gap: 12px;
+}
+
+.page-live-wall .app-shell--immersive {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+}
+
+.app-shell--immersive {
+    width: 100%;
+    min-height: 100vh;
+    padding: 0;
+    grid-template-columns: 1fr;
+    gap: 0;
+}
+
+.app-content--immersive,
+.app-main--immersive {
+    gap: 0;
+}
+
+.page-live-wall .app-content,
+.page-live-wall .app-main {
+    gap: 12px;
+}
+
+.page-live-wall .app-content--immersive,
+.page-live-wall .app-main--immersive {
+    width: 100%;
+    max-width: 100%;
+    gap: 0;
+}
+
+.page-live-wall {
+    background: hsl(220 24% 6%);
+}
+
+.page-live-wall .workspace-hero {
+    padding: 18px;
+    background:
+        radial-gradient(circle at top left, hsla(193 69% 53% / 0.1), transparent 34%),
+        linear-gradient(180deg, hsla(220 28% 13% / 0.98) 0%, hsla(218 24% 10% / 0.98) 100%);
+    border-color: hsla(35 51% 55% / 0.14);
+}
+
+.page-live-wall .workspace-topbar__eyebrow,
+.page-live-wall .workspace-topbar__title,
+.page-live-wall .workspace-topbar__lead {
+    color: hsla(0 0% 100% / 0.94);
+}
+
+.page-live-wall .workspace-highlights {
+    gap: 10px;
+}
+
+.page-live-wall .quick-stat {
+    background: hsla(220 18% 14% / 0.76);
+    border-color: hsla(35 51% 55% / 0.12);
+}
+
+.page-live-wall .quick-stat__label,
+.page-live-wall .quick-stat__value,
+.page-live-wall .quick-stat__detail {
+    color: hsla(0 0% 100% / 0.88);
+}
+
+.page-live-wall .app-content--immersive,
+.page-live-wall .app-main--immersive {
+    min-height: 100vh;
+}
+
 .page-card {
-    background: var(--surface);
+    background: linear-gradient(180deg, hsla(0 0% 100% / 0.92) 0%, hsla(204 30% 99% / 0.84) 100%);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-3);
     box-shadow: var(--shadow-panel);
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(18px);
+}
+
+.app-rail {
+    position: sticky;
+    top: 20px;
+    overflow: hidden;
+    background:
+        linear-gradient(180deg, hsla(220 38% 14% / 0.98) 0%, hsla(217 33% 18% / 0.96) 100%),
+        radial-gradient(circle at top, hsla(193 69% 53% / 0.12), transparent 44%);
+    border-color: hsla(0 0% 100% / 0.08);
+    box-shadow: 0 24px 60px hsla(220 45% 10% / 0.28);
+}
+
+.app-rail__inner {
+    display: grid;
+    gap: var(--space-5);
+    padding: var(--space-5) var(--space-4);
+}
+
+.rail-section {
+    display: grid;
+    gap: var(--space-3);
+}
+
+.rail-kicker {
+    margin-bottom: 0;
+    color: hsla(206 40% 91% / 0.64);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
 }
 
 .page-card__body {
-    padding: 32px;
+    padding: var(--space-6);
 }
 
 .stack-md {
@@ -37,20 +146,37 @@
     gap: 28px;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1120px) {
     .app-shell {
         grid-template-columns: 1fr;
     }
+
+    .page-live-wall .app-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .app-shell--immersive {
+        min-height: auto;
+    }
+
+    .app-rail {
+        position: static;
+    }
+
+    .app-rail__inner {
+        min-height: auto;
+    }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
     .app-shell {
         width: calc(100% - 20px);
         padding-top: 12px;
-        padding-bottom: 18px;
+        padding-bottom: 24px;
     }
 
+    .app-rail__inner,
     .page-card__body {
-        padding: 24px;
+        padding: var(--space-5);
     }
 }

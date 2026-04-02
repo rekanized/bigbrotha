@@ -1,9 +1,60 @@
 <div class="discovery-stack">
+    <section class="screen-card screen-card--accent screen-summary-strip">
+        <div class="screen-summary-strip__body">
+            <div>
+                <span class="eyebrow">Discovery paths</span>
+                <p class="screen-summary-strip__copy">Sweep first, probe directly when multicast or network layout gets in the way.</p>
+            </div>
+
+            <div class="badge-row">
+                <span class="status-pill status-pill--neutral">{{ $deviceCount }} device{{ $deviceCount === 1 ? '' : 's' }} listed</span>
+                @if ($lastSweepAt)
+                    <span class="status-pill">Last sweep {{ $lastSweepAt }}</span>
+                @endif
+            </div>
+        </div>
+
+        <div class="screen-summary-strip__steps" aria-label="Discovery workflow">
+            <article class="screen-summary-strip__step">
+                <span class="screen-summary-strip__step-number">01</span>
+                <strong>Run WS-Discovery</strong>
+            </article>
+
+            <article class="screen-summary-strip__step">
+                <span class="screen-summary-strip__step-number">02</span>
+                <strong>Probe known endpoint</strong>
+            </article>
+
+            <article class="screen-summary-strip__step">
+                <span class="screen-summary-strip__step-number">03</span>
+                <strong>Save verified result</strong>
+            </article>
+        </div>
+    </section>
+
+    <div class="sweep-toolbar">
+        <label class="field-stack" for="timeoutMs">
+            <span>Listen window</span>
+            <select id="timeoutMs" class="form-select" wire:model.live="timeoutMs">
+                @foreach ($timeoutOptions as $timeoutOption)
+                    <option value="{{ $timeoutOption }}">{{ number_format($timeoutOption / 1000, 1) }} seconds</option>
+                @endforeach
+            </select>
+        </label>
+
+        <div class="sweep-toolbar__actions">
+            <button class="button button--primary" type="button" wire:click="discover" wire:loading.attr="disabled" wire:target="discover">
+                <span wire:loading.remove wire:target="discover">Run WS-Discovery sweep</span>
+                    <span wire:loading wire:target="discover">Sweeping network...</span>
+            </button>
+        </div>
+    </div>
+
     <section class="manual-probe-panel">
         <div class="panel-heading">
             <div>
                 <h3 class="panel-title">Manual ONVIF authentication test</h3>
-                <p class="panel-copy">Paste a device service URL, add credentials, and send a GetDeviceInformation request directly to the endpoint. This bypasses multicast discovery and tells you whether the camera answers ONVIF requests from this host.</p>
+                <p class="panel-copy">Paste a device service URL, add credentials, and send a GetDeviceInformation request directly to the endpoint. This bypasses multicast discovery and confirms whether the camera answers ONVIF requests from this host.</p>
             </div>
         </div>
 
@@ -34,8 +85,8 @@
 
             <div class="probe-form-grid__actions">
                 <button class="button button--primary" type="button" wire:click="probeDeviceService" wire:loading.attr="disabled" wire:target="probeDeviceService">
-                    <span wire:loading.remove wire:target="probeDeviceService">Test ONVIF endpoint</span>
-                    <span wire:loading wire:target="probeDeviceService">Testing endpoint...</span>
+                    <span wire:loading.remove wire:target="probeDeviceService">Probe endpoint</span>
+                    <span wire:loading wire:target="probeDeviceService">Probing endpoint...</span>
                 </button>
             </div>
         </div>
@@ -47,13 +98,15 @@
             @endif
         </div>
 
-        @if ($manualProbeError)
-            <div class="notice notice--danger">{{ $manualProbeError }}</div>
-        @endif
+        <div class="notice-stack" aria-live="polite">
+            @if ($manualProbeError)
+                <div class="notice notice--danger">{{ $manualProbeError }}</div>
+            @endif
 
-        @if ($manualProbeSavedMessage)
-            <div class="notice notice--success">{{ $manualProbeSavedMessage }}</div>
-        @endif
+            @if ($manualProbeSavedMessage)
+                <div class="notice notice--success">{{ $manualProbeSavedMessage }}</div>
+            @endif
+        </div>
 
         @if ($manualProbeResponse !== [])
             <article class="device-card">
@@ -74,7 +127,7 @@
 
                     <div class="key-value-row">
                         <span>Authentication</span>
-                        <strong>{{ !empty($manualProbeResponse['authenticated']) ? 'Username token sent' : 'No credentials sent' }}</strong>
+                        <strong>{{ !empty($manualProbeResponse['authenticated']) ? 'Username token sent' : 'No credentials used' }}</strong>
                     </div>
 
                     <div class="key-value-row">
@@ -117,38 +170,15 @@
 
                 <div class="probe-actions">
                     <button class="button button--soft" type="button" wire:click="saveManualProbeToFleet" wire:loading.attr="disabled" wire:target="saveManualProbeToFleet">
-                        <span wire:loading.remove wire:target="saveManualProbeToFleet">Save to camera fleet</span>
+                        <span wire:loading.remove wire:target="saveManualProbeToFleet">Save to fleet</span>
                         <span wire:loading wire:target="saveManualProbeToFleet">Saving camera...</span>
                     </button>
 
-                    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Review fleet</a>
+                    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Open fleet</a>
                 </div>
             </article>
         @endif
     </section>
-
-    <div class="sweep-toolbar">
-        <label class="field-stack" for="timeoutMs">
-            <span>Listen window</span>
-            <select id="timeoutMs" class="form-select" wire:model.live="timeoutMs">
-                @foreach ($timeoutOptions as $timeoutOption)
-                    <option value="{{ $timeoutOption }}">{{ number_format($timeoutOption / 1000, 1) }} seconds</option>
-                @endforeach
-            </select>
-        </label>
-
-        <div class="sweep-toolbar__actions">
-            <button class="button button--primary" type="button" wire:click="discover" wire:loading.attr="disabled" wire:target="discover">
-                <span wire:loading.remove wire:target="discover">Run WS-Discovery sweep</span>
-                <span wire:loading wire:target="discover">Sweeping network...</span>
-            </button>
-
-            <span class="status-pill">{{ $deviceCount }} device{{ $deviceCount === 1 ? '' : 's' }} found</span>
-            @if ($lastSweepAt)
-                <span class="status-pill">Last sweep {{ $lastSweepAt }}</span>
-            @endif
-        </div>
-    </div>
 
     @if ($error)
         <div class="notice notice--danger">{{ $error }}</div>
@@ -157,7 +187,7 @@
     @if ($devices === [])
         <div class="empty-state empty-state--compact">
             <strong>No ONVIF devices discovered yet.</strong>
-            <p>Run the sweep to send a multicast probe across the local network. If nothing appears, confirm that the host can reach the broadcast domain and that cameras have ONVIF discovery enabled.</p>
+            <p>Run the sweep across the local network. If nothing appears, confirm broadcast-domain reachability, then switch to the manual probe path above.</p>
         </div>
     @else
         <div class="device-grid">

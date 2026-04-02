@@ -69,6 +69,7 @@ It supports:
 - toggling ONVIF and RTSP support.
 - saving camera changes.
 - refreshing RTSP profiles from ONVIF.
+- saving a direct RTSP endpoint for cameras that do not support ONVIF.
 
 Password behavior:
 
@@ -79,11 +80,13 @@ Password behavior:
 
 When RTSP profiles are refreshed:
 
-1. `OnvifRtspStreamService` locates the media service with `GetCapabilities`.
+1. If ONVIF is enabled and usable, `OnvifRtspStreamService` locates the media service with `GetCapabilities`.
 2. It loads media profiles with `GetProfiles`.
 3. It resolves RTSP URIs with `GetStreamUri`.
 4. It saves results under `metadata['rtsp_profiles']`.
 5. It updates the primary RTSP path and port on the camera when possible.
+6. If ONVIF is unavailable but a direct RTSP path is saved, Camera Fleet stores that saved endpoint as a manual RTSP profile instead of blocking the workflow.
+7. When a refreshed ONVIF profile matches an existing saved profile, the workflow now preserves preview and probe metadata instead of discarding the last captured thumbnail.
 
 ## RTSP Test And Preview
 
@@ -118,20 +121,56 @@ Preview images appear:
 
 If a saved preview file is not a valid image, the preview route serves a placeholder instead of a broken icon.
 
-## Live Wall Playback
+`latestRtspPreview()` now ignores missing or invalid image files so fleet cards do not keep pointing at stale thumbnails after storage drift.
 
-Use `/live-wall` to view enabled cameras in the operator wall.
+## Scheduled Preview Refresh
+
+Preview freshness no longer depends entirely on a human running a stream test.
 
 Current behavior:
 
-1. the wall picks a lower-cost RTSP profile when a camera exposes one.
-2. the selected profile is mapped to a shared MediaMTX path and transcoded on demand into a WebRTC-safe stream.
-3. the browser-facing tile renders a Laravel-owned player shell instead of the stock public MediaMTX page.
-4. the player requests `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token and the proxied WHEP URL for the selected camera path.
-5. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
-6. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
-7. each tile still exposes a `Copy relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
-8. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, or relay auth settings change.
+1. `camera-fleet:refresh-previews` scans enabled cameras with saved RTSP profiles.
+2. Each eligible camera dispatches a preview refresh job that re-tests the preferred profile and captures a fresh thumbnail.
+3. The command is scheduled every 30 minutes through Laravel's scheduler.
+4. Existing preview metadata is retained when a profile refresh returns the same ONVIF stream definition.
+
+Deployments should run `php artisan schedule:run` every minute from cron or an equivalent scheduler so these preview refreshes continue automatically.
+
+## Live Wall Playback
+
+Use `/wall-tiles` to choose what the wall should show, then open `/live-wall` to monitor the configured result.
+
+## Wall Tiles Builder
+
+Use `/wall-tiles` to build named monitoring layouts.
+
+Current behavior:
+
+1. create one or more named walls for different operators, rooms, or viewing objectives.
+2. assign specific cameras to wall tiles instead of sending every enabled camera to the wall.
+3. drag tile rows to reorder how cameras are packed across the live wall.
+4. choose tile orientation per assignment with landscape, portrait, or square framing.
+5. choose tile span so priority cameras can occupy more grid space.
+6. mark one wall as the default wall used by `/live-wall` when no query string override is provided.
+
+Disabled cameras can still remain assigned in the builder, but `/live-wall` only renders enabled camera records attached to enabled wall tiles.
+
+## Live Wall Playback
+
+Use `/live-wall` to view the selected or default active wall.
+
+Current behavior:
+
+1. the wall resolves the selected active layout and renders only its enabled camera tiles.
+2. each tile picks a lower-cost RTSP profile when the camera exposes one.
+3. the selected profile is mapped to a shared MediaMTX path and transcoded on demand into a WebRTC-safe stream.
+4. the browser-facing tile renders a Laravel-owned player shell instead of the stock public MediaMTX page.
+5. the player requests `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token and the proxied WHEP URL for the selected camera path.
+6. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
+7. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
+8. operators can promote one live tile at a time to output wall audio, while every other tile stays muted, the selected source is visibly marked, and a shared wall volume slider sits in the bottom dock.
+9. each tile still exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
+10. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, or relay auth settings change.
 
 This gives operators a shared live view path for multiple simultaneous viewers while keeping a separate no-transcode path available for consumers that do not need WebRTC.
 

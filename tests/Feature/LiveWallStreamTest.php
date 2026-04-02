@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Camera;
+use App\Models\LiveWall;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -54,15 +55,233 @@ class LiveWallStreamTest extends TestCase
             ],
         ]);
 
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
         $response = $this->actingAs(User::factory()->create())
             ->get(route('live-wall.index'));
 
         $response
             ->assertOk()
-            ->assertSee(route('live-wall.player', ['camera' => $camera]), false)
             ->assertSee(route('live-wall.session', ['camera' => $camera]), false)
-            ->assertSee(route('live-wall.relay', ['camera' => $camera, 'profileIndex' => 1]), false)
-            ->assertSee('minorStream');
+            ->assertSee('data-profile-index="1"', false)
+            ->assertSee('data-camera-name="Tapo C200"', false)
+            ->assertSee('data-reader-url="http://relay.example:8889/camera-'.$camera->id.'-live/reader.js"', false)
+            ->assertSee('data-whep-url="http://relay.example:8889/camera-'.$camera->id.'-live/whep"', false)
+            ->assertSee('data-role="audio-toggle"', false)
+            ->assertSee('aria-label="Listen to Tapo C200"', false)
+            ->assertSee('data-role="audio-indicator"', false)
+            ->assertSee('data-role="master-volume-slider"', false)
+            ->assertSee('data-role="master-volume-value"', false)
+            ->assertDontSee('data-role="volume-slider"', false)
+                ->assertSee('data-live-wall-grid', false)
+            ->assertSee('data-navigate-once', false)
+            ->assertSee(route('wall-tiles.index'), false);
+    }
+
+    public function test_live_wall_only_renders_cameras_assigned_to_the_selected_wall(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
+        $this->mockRelayProcess(running: true);
+
+        $frontDoor = Camera::query()->create([
+            'name' => 'Front Door',
+            'local_ip' => '192.168.1.70',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'FrontDoorMinor',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.70:554/front-door-sub',
+                    ],
+                ],
+            ],
+        ]);
+
+        $warehouse = Camera::query()->create([
+            'name' => 'Warehouse',
+            'local_ip' => '192.168.1.71',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'WarehousePortrait',
+                        'encoding' => 'H264',
+                        'resolution' => '720x1280',
+                        'uri' => 'rtsp://192.168.1.71:554/warehouse-portrait',
+                    ],
+                ],
+            ],
+        ]);
+
+        $defaultWall = LiveWall::query()->firstOrFail();
+        $defaultWall->update([
+            'name' => 'Primary Wall',
+            'slug' => 'primary-wall',
+        ]);
+        $defaultWall->tiles()->create([
+            'camera_id' => $frontDoor->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $portraitWall = LiveWall::query()->create([
+            'name' => 'Portrait Wall',
+            'slug' => 'portrait-wall',
+            'grid_columns' => 2,
+            'default_tile_orientation' => 'portrait',
+            'is_default' => false,
+            'is_active' => true,
+        ]);
+        $portraitWall->tiles()->create([
+            'camera_id' => $warehouse->id,
+            'position' => 1,
+            'orientation' => 'portrait',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get(route('live-wall.index'))
+            ->assertOk()
+            ->assertSee('data-camera-name="Front Door"', false)
+            ->assertDontSee('data-camera-name="Warehouse"', false);
+
+        $this->actingAs($user)
+            ->get(route('live-wall.index', ['wall' => $portraitWall->slug]))
+            ->assertOk()
+            ->assertSee('data-camera-name="Warehouse"', false)
+            ->assertSee(route('live-wall.session', ['camera' => $warehouse]), false)
+            ->assertDontSee('data-camera-name="Front Door"', false);
+    }
+
+    public function test_live_wall_bottom_navigation_loops_between_available_walls(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
+        $this->mockRelayProcess(running: true);
+
+        $camera = Camera::query()->create([
+            'name' => 'Loop Camera',
+            'local_ip' => '192.168.1.80',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'LoopMinor',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.80:554/loop-minor',
+                    ],
+                ],
+            ],
+        ]);
+
+        $wallOne = LiveWall::query()->firstOrFail();
+        $wallOne->update(['name' => 'Wall One', 'slug' => 'wall-one']);
+        $wallOne->tiles()->create([
+            'camera_id' => $camera->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $wallTwo = LiveWall::query()->create([
+            'name' => 'Wall Two',
+            'slug' => 'wall-two',
+            'grid_columns' => 2,
+            'default_tile_orientation' => 'landscape',
+            'is_default' => false,
+            'is_active' => true,
+        ]);
+
+        $wallThree = LiveWall::query()->create([
+            'name' => 'Wall Three',
+            'slug' => 'wall-three',
+            'grid_columns' => 2,
+            'default_tile_orientation' => 'landscape',
+            'is_default' => false,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('live-wall.index', ['wall' => $wallThree->slug]));
+
+        $response
+            ->assertOk()
+            ->assertSee(route('live-wall.index', ['wall' => $wallTwo->slug]), false)
+            ->assertSee(route('live-wall.index', ['wall' => $wallOne->slug]), false)
+            ->assertSee('Wall 2 of 3');
+    }
+
+    public function test_single_camera_player_marks_the_live_wall_script_to_load_once_with_wire_navigate(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
+        $this->mockRelayProcess(running: true);
+
+        $camera = Camera::query()->create([
+            'name' => 'Loading Dock',
+            'local_ip' => '192.168.1.68',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.68:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('live-wall.player', ['camera' => $camera]));
+
+        $response
+            ->assertOk()
+            ->assertSee('data-navigate-once', false)
+            ->assertSee(route('live-wall.session', ['camera' => $camera]), false);
     }
 
     public function test_guest_users_are_redirected_to_login_for_the_live_wall(): void

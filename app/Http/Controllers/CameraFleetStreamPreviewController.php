@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Camera;
+use App\Services\CameraStorageService;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -18,8 +19,9 @@ class CameraFleetStreamPreviewController extends Controller
             return $this->placeholderResponse();
         }
 
-        $absolutePath = $this->resolveAbsolutePath($previewPath);
-        $imageMimeType = $absolutePath !== null ? $this->detectImageMimeType($absolutePath) : null;
+        $storage = app(CameraStorageService::class);
+        $absolutePath = $storage->resolvePreviewAbsolutePath($previewPath);
+        $imageMimeType = $storage->detectPreviewMimeType($previewPath);
 
         if ($absolutePath === null || $imageMimeType === null) {
             return $this->placeholderResponse();
@@ -30,39 +32,6 @@ class CameraFleetStreamPreviewController extends Controller
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'Pragma' => 'no-cache',
         ]);
-    }
-
-    private function resolveAbsolutePath(string $previewPath): ?string
-    {
-        $normalizedPath = ltrim(str_replace('\\', '/', $previewPath), '/');
-        $candidates = [$normalizedPath];
-
-        if (str_starts_with($normalizedPath, 'app/private/')) {
-            $candidates[] = substr($normalizedPath, strlen('app/private/'));
-        }
-
-        foreach (array_unique(array_filter($candidates)) as $candidate) {
-            $absolutePath = str_starts_with($candidate, 'app/')
-                ? storage_path($candidate)
-                : storage_path('app/private/'.$candidate);
-
-            if (is_file($absolutePath)) {
-                return $absolutePath;
-            }
-        }
-
-        return null;
-    }
-
-    private function detectImageMimeType(string $absolutePath): ?string
-    {
-        $imageInfo = @getimagesize($absolutePath);
-
-        if (!is_array($imageInfo) || !is_string($imageInfo['mime'] ?? null)) {
-            return null;
-        }
-
-        return $imageInfo['mime'];
     }
 
     private function placeholderResponse(): Response

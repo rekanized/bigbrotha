@@ -1,9 +1,12 @@
 <?php
 
+use App\Jobs\RefreshCameraPreviewJob;
+use App\Models\Camera;
 use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -61,3 +64,30 @@ Artisan::command('relay:status', function (): int {
 
     return 0;
 })->purpose('Show the MediaMTX relay status');
+
+Artisan::command('camera-fleet:refresh-previews', function (): int {
+    $refreshed = 0;
+
+    Camera::query()
+        ->where('is_enabled', true)
+        ->where('supports_rtsp', true)
+        ->orderBy('id')
+        ->chunkById(50, function ($cameras) use (&$refreshed): void {
+            foreach ($cameras as $camera) {
+                if ($camera->rtspPreviewRefreshTarget() === null) {
+                    continue;
+                }
+
+                RefreshCameraPreviewJob::dispatchSync($camera->id);
+                $refreshed++;
+            }
+        });
+
+    $this->components->info('Refreshed preview snapshots for '.$refreshed.' camera'.($refreshed === 1 ? '' : 's').'.');
+
+    return 0;
+})->purpose('Refresh saved RTSP preview snapshots for eligible cameras');
+
+Schedule::command('camera-fleet:refresh-previews')
+    ->everyThirtyMinutes()
+    ->withoutOverlapping();

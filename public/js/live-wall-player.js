@@ -1,163 +1,576 @@
-class BigBrothasWhepPlayer {
-    constructor(root) {
-        this.root = root;
-        this.bootstrapUrl = root.dataset.sessionUrl || '';
-        this.label = root.dataset.playerLabel || 'camera';
-        this.video = root.querySelector('[data-role="video"]');
-        this.message = root.querySelector('[data-role="message"]');
-        this.reader = null;
-        this.closed = false;
+(() => {
+    if (window.BigBrothasLiveWallPlayerModule) {
+        window.BigBrothasLiveWallPlayerModule.bootstrap();
+
+        return;
     }
 
-    start() {
-        if (this.bootstrapUrl === '' || this.video === null || this.message === null) {
+    const state = {
+        activeAudioPlayer: null,
+        focusedTile: null,
+        lastTap: {
+            tile: null,
+            time: 0,
+        },
+        masterVolume: 1,
+        players: [],
+    };
+
+    const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
+
+    const clearFocusedTile = () => {
+        if (!(state.focusedTile instanceof HTMLElement)) {
+            state.focusedTile = null;
+        }
+
+        document.querySelectorAll(focusableTileSelector).forEach((tile) => {
+            tile.dataset.layoutState = 'grid';
+        });
+
+        document.querySelectorAll('[data-live-wall-grid]').forEach((grid) => {
+            grid.dataset.layoutMode = 'grid';
+        });
+
+        document.body.classList.remove('live-wall-focus-mode');
+        state.focusedTile = null;
+    };
+
+    const setFocusedTile = (tile) => {
+        if (!(tile instanceof HTMLElement)) {
+            clearFocusedTile();
+
             return;
         }
 
-        this.connect().catch((error) => {
-            this.handleFailure(error);
-        });
-    }
-
-    async connect() {
-        this.destroyConnection();
-        this.setMessage('Loading secure stream…');
-
-        const session = await this.fetchSession();
-        const readerUrl = session.reader_url || this.deriveReaderUrl(session.whep_url);
-        await this.loadReaderScript(readerUrl);
-
-        if (typeof window.MediaMTXWebRTCReader !== 'function') {
-            throw new Error('The MediaMTX WebRTC reader could not be loaded.');
-        }
-
-        this.reader = new window.MediaMTXWebRTCReader({
-            url: session.whep_url,
-            token: session.access_token,
-            onError: (error) => {
-                if (!this.closed) {
-                    this.handleFailure(new Error(error));
-                }
-            },
-            onTrack: (event) => {
-                this.handleTrack(event);
-            },
-        });
-    }
-
-    async fetchSession() {
-        const response = await fetch(this.bootstrapUrl, {
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            credentials: 'same-origin',
+        document.querySelectorAll(focusableTileSelector).forEach((candidate) => {
+            candidate.dataset.layoutState = candidate === tile ? 'focused' : 'dimmed';
         });
 
-        if (!response.ok) {
-            throw new Error(await this.readError(response, 'The secure player session could not be started.'));
-        }
+        document.querySelectorAll('[data-live-wall-grid]').forEach((grid) => {
+            grid.dataset.layoutMode = 'focused';
+        });
 
-        return response.json();
-    }
+        document.body.classList.add('live-wall-focus-mode');
+        state.focusedTile = tile;
+    };
 
-    handleTrack(event) {
-        this.video.srcObject = event.streams[0];
-        this.video.play().catch(() => undefined);
-        this.setMessage('');
-    }
-
-    handleFailure(error) {
-        if (this.closed) {
+    const toggleFocusedTile = (tile) => {
+        if (!(tile instanceof HTMLElement)) {
             return;
         }
 
-        this.setMessage(error instanceof Error ? error.message : `Unable to play ${this.label}.`);
-    }
+        if (state.focusedTile === tile) {
+            clearFocusedTile();
 
-    destroyConnection() {
-        if (this.reader && typeof this.reader.close === 'function') {
-            this.reader.close();
+            return;
+        }
+
+        setFocusedTile(tile);
+    };
+
+    const isInteractiveTarget = (target) => {
+        if (!(target instanceof Element)) {
+            return false;
+        }
+
+        return Boolean(target.closest('button, a, input, label, summary, details'));
+    };
+
+    const handleTileDoubleClick = (event) => {
+        const tile = event.target instanceof Element ? event.target.closest('.wall-monitor-tile') : null;
+
+        if (!(tile instanceof HTMLElement) || isInteractiveTarget(event.target)) {
+            return;
+        }
+
+        toggleFocusedTile(tile);
+    };
+
+    const handleTilePointerUp = (event) => {
+        const pointerType = typeof event.pointerType === 'string' ? event.pointerType : '';
+
+        if (pointerType !== 'touch' && pointerType !== 'pen') {
+            return;
+        }
+
+        const tile = event.target instanceof Element ? event.target.closest('.wall-monitor-tile') : null;
+
+        if (!(tile instanceof HTMLElement) || isInteractiveTarget(event.target)) {
+            return;
+        }
+
+        const now = Date.now();
+        const isRepeatedTap = state.lastTap.tile === tile && (now - state.lastTap.time) <= 320;
+
+        state.lastTap = {
+            tile,
+            time: now,
+        };
+
+        if (isRepeatedTap) {
+            toggleFocusedTile(tile);
+            state.lastTap = {
+                tile: null,
+                time: 0,
+            };
+        }
+    };
+
+    const handleKeyDown = (event) => {
+        if (event.key === 'Escape') {
+            clearFocusedTile();
+        }
+    };
+
+    const clampVolume = (value) => {
+        const normalized = Number(value);
+
+        if (!Number.isFinite(normalized)) {
+            return 1;
+        }
+
+        return Math.min(1, Math.max(0, normalized));
+    };
+
+    const syncAudioSelection = () => {
+        state.players.forEach((player) => player.applyAudioSelection());
+    };
+
+    const setActiveAudioPlayer = (player) => {
+        if (state.activeAudioPlayer === player) {
+            return;
+        }
+
+        state.activeAudioPlayer = player;
+        syncAudioSelection();
+    };
+
+    const setMasterVolume = (value) => {
+        state.masterVolume = clampVolume(value);
+        updateMasterVolumeUi();
+        syncAudioSelection();
+    };
+
+    const updateMasterVolumeUi = () => {
+        const volumePercent = Math.round(state.masterVolume * 100);
+
+        document.querySelectorAll('[data-role="master-volume-slider"]').forEach((element) => {
+            if (element instanceof HTMLInputElement) {
+                element.value = String(volumePercent);
+            }
+        });
+
+        document.querySelectorAll('[data-role="master-volume-value"]').forEach((element) => {
+            element.textContent = `${volumePercent}%`;
+        });
+    };
+
+    const handleMasterVolumeInput = (event) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLInputElement) || target.dataset.role !== 'master-volume-slider') {
+            return;
+        }
+
+        setMasterVolume(Number(target.value) / 100);
+    };
+
+    class BigBrothasWhepPlayer {
+        constructor(root) {
+            this.root = root;
+            this.bootstrapUrl = root.dataset.sessionUrl || '';
+            this.bootstrapReaderUrl = root.dataset.readerUrl || '';
+            this.bootstrapWhepUrl = root.dataset.whepUrl || '';
+            this.bootstrapAccessToken = root.dataset.accessToken || '';
+            this.label = root.dataset.playerLabel || 'camera';
+            this.video = root.querySelector('[data-role="video"]');
+            this.message = root.querySelector('[data-role="message"]');
+            this.tile = root.closest('.wall-monitor-tile');
+            this.audioToggle = root.querySelector('[data-role="audio-toggle"]');
+            this.audioIndicator = root.querySelector('[data-role="audio-indicator"]');
+            this.isAudioSelectable = this.audioToggle !== null && this.audioIndicator !== null;
+            this.hasStream = false;
+            this.hasAudioTrack = false;
+            this.mediaStream = new MediaStream();
             this.reader = null;
+            this.closed = false;
+
+            this.handleAudioToggle = this.handleAudioToggle.bind(this);
+
+            if (this.isAudioSelectable) {
+                this.audioToggle.addEventListener('click', this.handleAudioToggle);
+            }
         }
 
-        if (this.video && this.video.srcObject) {
-            this.video.srcObject = null;
+        start() {
+            if (this.bootstrapUrl === '' || this.video === null || this.message === null) {
+                return;
+            }
+
+            this.closed = false;
+
+                if (this.isAudioSelectable) {
+                this.video.defaultMuted = true;
+                this.hasStream = false;
+                this.hasAudioTrack = false;
+                this.video.muted = true;
+                this.syncAudioUi();
+            }
+
+            this.connect().catch((error) => {
+                this.handleFailure(error);
+            });
         }
-    }
 
-    close() {
-        this.closed = true;
-        this.destroyConnection();
-    }
+        async connect() {
+            this.destroyConnection();
+            this.setMessage('Loading secure stream…');
 
-    deriveReaderUrl(whepUrl) {
-        return new URL('./reader.js', whepUrl).toString();
-    }
+            const bootstrapSession = this.readBootstrapSession();
+            const hintedReaderUrl = bootstrapSession?.reader_url || this.bootstrapReaderUrl;
+            const hintedReaderLoad = hintedReaderUrl !== ''
+                ? this.loadReaderScript(hintedReaderUrl)
+                : Promise.resolve();
 
-    async loadReaderScript(readerUrl) {
-        if (typeof window.MediaMTXWebRTCReader === 'function') {
-            return;
+            const session = bootstrapSession || await this.fetchSession();
+
+            if (this.closed) {
+                return;
+            }
+
+            const readerUrl = session.reader_url || this.deriveReaderUrl(session.whep_url);
+
+            if (hintedReaderUrl === '' || hintedReaderUrl !== readerUrl) {
+                await this.loadReaderScript(readerUrl);
+            } else {
+                await hintedReaderLoad;
+            }
+
+            if (this.closed) {
+                return;
+            }
+
+            if (typeof window.MediaMTXWebRTCReader !== 'function') {
+                throw new Error('The MediaMTX WebRTC reader could not be loaded.');
+            }
+
+            this.reader = new window.MediaMTXWebRTCReader({
+                url: session.whep_url,
+                token: session.access_token,
+                onError: (error) => {
+                    if (!this.closed) {
+                        this.handleFailure(new Error(error));
+                    }
+                },
+                onTrack: (event) => {
+                    this.handleTrack(event);
+                },
+            });
         }
 
-        const existing = document.querySelector(`script[data-mediamtx-reader="${readerUrl}"]`);
-
-        if (existing) {
-            await new Promise((resolve, reject) => {
-                if (existing.dataset.loaded === 'true') {
-                    resolve();
-
-                    return;
-                }
-
-                existing.addEventListener('load', () => resolve(), { once: true });
-                existing.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
+        async fetchSession() {
+            const response = await fetch(this.bootstrapUrl, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
             });
 
-            return;
+            if (!response.ok) {
+                throw new Error(await this.readError(response, 'The secure player session could not be started.'));
+            }
+
+            return response.json();
         }
 
-        await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = readerUrl;
-            script.defer = true;
-            script.dataset.mediamtxReader = readerUrl;
-            script.addEventListener('load', () => {
-                script.dataset.loaded = 'true';
-                resolve();
-            }, { once: true });
-            script.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
-            document.head.appendChild(script);
-        });
+        readBootstrapSession() {
+            if (this.bootstrapWhepUrl === '' || this.bootstrapAccessToken === '') {
+                return null;
+            }
+
+            return {
+                whep_url: this.bootstrapWhepUrl,
+                reader_url: this.bootstrapReaderUrl || this.deriveReaderUrl(this.bootstrapWhepUrl),
+                access_token: this.bootstrapAccessToken,
+            };
+        }
+
+        handleTrack(event) {
+            if (this.closed || this.video === null) {
+                return;
+            }
+
+            this.mergeIncomingTrack(event);
+
+            if (this.video.srcObject !== this.mediaStream) {
+                this.video.srcObject = this.mediaStream;
+            }
+
+            this.refreshTrackState();
+
+            if (this.isAudioSelectable) {
+                this.applyAudioSelection();
+            } else {
+                this.video.play().catch(() => undefined);
+            }
+
+            this.setMessage('');
+        }
+
+        handleAudioToggle() {
+            if (!this.isAudioSelectable || this.video === null || !this.hasAudioTrack) {
+                return;
+            }
+
+            if (state.activeAudioPlayer === this) {
+                setActiveAudioPlayer(null);
+
+                return;
+            }
+
+            setActiveAudioPlayer(this);
+            this.video.play().catch(() => undefined);
+        }
+
+        mergeIncomingTrack(event) {
+            const incomingTracks = [];
+
+            if (event.track instanceof MediaStreamTrack) {
+                incomingTracks.push(event.track);
+            }
+
+            if (Array.isArray(event.streams)) {
+                event.streams.forEach((stream) => {
+                    stream.getTracks().forEach((track) => incomingTracks.push(track));
+                });
+            }
+
+            incomingTracks.forEach((track) => {
+                const alreadyAttached = this.mediaStream.getTracks().some((existingTrack) => existingTrack.id === track.id);
+
+                if (!alreadyAttached) {
+                    this.mediaStream.addTrack(track);
+                    track.addEventListener('ended', () => {
+                        this.removeTrack(track.id);
+                    }, { once: true });
+                }
+            });
+        }
+
+        removeTrack(trackId) {
+            const track = this.mediaStream.getTracks().find((currentTrack) => currentTrack.id === trackId);
+
+            if (track) {
+                this.mediaStream.removeTrack(track);
+            }
+
+            this.refreshTrackState();
+            this.applyAudioSelection();
+        }
+
+        refreshTrackState() {
+            const tracks = this.mediaStream.getTracks();
+
+            this.hasStream = tracks.length > 0;
+            this.hasAudioTrack = tracks.some((track) => track.kind === 'audio' && track.readyState === 'live');
+
+            if (state.activeAudioPlayer === this && !this.hasAudioTrack) {
+                state.activeAudioPlayer = null;
+            }
+        }
+
+        applyAudioSelection() {
+            if (!this.isAudioSelectable || this.video === null) {
+                return;
+            }
+
+            const isActive = state.activeAudioPlayer === this && this.hasAudioTrack;
+
+            this.video.defaultMuted = !isActive;
+            this.video.muted = !isActive;
+            this.video.volume = isActive ? state.masterVolume : 0;
+
+            if (isActive) {
+                this.video.play().catch(() => undefined);
+            }
+
+            this.syncAudioUi();
+        }
+
+        syncAudioUi() {
+            if (!this.isAudioSelectable || this.audioToggle === null || this.audioIndicator === null) {
+                return;
+            }
+
+            const isActive = state.activeAudioPlayer === this && this.hasAudioTrack;
+            const nextState = isActive ? 'active' : 'muted';
+
+            this.root.dataset.audioState = nextState;
+
+            if (this.tile) {
+                this.tile.dataset.audioState = nextState;
+            }
+
+            if (!this.hasStream) {
+                this.audioIndicator.textContent = 'Connecting';
+            } else if (!this.hasAudioTrack) {
+                this.audioIndicator.textContent = 'No audio';
+            } else {
+                this.audioIndicator.textContent = isActive ? 'Audio selected' : 'Muted';
+            }
+
+            this.audioToggle.disabled = !this.hasAudioTrack;
+            this.audioToggle.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            this.audioToggle.setAttribute('aria-label', isActive ? `Stop listening to ${this.label}` : `Listen to ${this.label}`);
+        }
+
+        handleFailure(error) {
+            if (this.closed) {
+                return;
+            }
+
+            this.setMessage(error instanceof Error ? error.message : `Unable to play ${this.label}.`);
+        }
+
+        destroyConnection() {
+            if (this.reader && typeof this.reader.close === 'function') {
+                this.reader.close();
+                this.reader = null;
+            }
+
+            if (this.video && this.video.srcObject) {
+                this.video.srcObject = null;
+            }
+
+            this.mediaStream.getTracks().forEach((track) => {
+                this.mediaStream.removeTrack(track);
+            });
+
+            this.hasStream = false;
+            this.hasAudioTrack = false;
+        }
+
+        close() {
+            this.closed = true;
+
+            if (this.isAudioSelectable) {
+                this.audioToggle.removeEventListener('click', this.handleAudioToggle);
+            }
+
+            if (state.activeAudioPlayer === this) {
+                state.activeAudioPlayer = null;
+            }
+
+            this.destroyConnection();
+            this.syncAudioUi();
+        }
+
+        deriveReaderUrl(whepUrl) {
+            return new URL('./reader.js', whepUrl).toString();
+        }
+
+        async loadReaderScript(readerUrl) {
+            if (typeof window.MediaMTXWebRTCReader === 'function') {
+                return;
+            }
+
+            const existing = document.querySelector(`script[data-mediamtx-reader="${readerUrl}"]`);
+
+            if (existing) {
+                await new Promise((resolve, reject) => {
+                    if (existing.dataset.loaded === 'true') {
+                        resolve();
+
+                        return;
+                    }
+
+                    existing.addEventListener('load', () => resolve(), { once: true });
+                    existing.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
+                });
+
+                return;
+            }
+
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = readerUrl;
+                script.defer = true;
+                script.dataset.mediamtxReader = readerUrl;
+                script.addEventListener('load', () => {
+                    script.dataset.loaded = 'true';
+                    resolve();
+                }, { once: true });
+                script.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
+                document.head.appendChild(script);
+            });
+        }
+
+        setMessage(message) {
+            if (this.message) {
+                this.message.textContent = message;
+            }
+        }
+
+        async readError(response, fallbackMessage) {
+            if (response.status === 401 || response.status === 419) {
+                return 'Your sign-in session has expired. Sign in again to resume the stream.';
+            }
+
+            if (response.status === 503) {
+                return 'The shared media relay is not running right now.';
+            }
+
+            const body = (await response.text()).trim();
+
+            return body !== '' ? body : fallbackMessage;
+        }
     }
 
-    setMessage(message) {
-        if (this.message) {
-            this.message.textContent = message;
-        }
+    const closePlayers = () => {
+        clearFocusedTile();
+        state.players.forEach((player) => player.close());
+        state.players = [];
+        state.activeAudioPlayer = null;
+        state.lastTap = {
+            tile: null,
+            time: 0,
+        };
+    };
+
+    const bootstrapPlayers = () => {
+        closePlayers();
+
+        state.players = Array.from(document.querySelectorAll('[data-webrtc-player]')).map((element) => new BigBrothasWhepPlayer(element));
+
+        updateMasterVolumeUi();
+        state.players.forEach((player) => player.start());
+    };
+
+    const initialize = () => {
+        document.addEventListener('input', handleMasterVolumeInput);
+        document.addEventListener('dblclick', handleTileDoubleClick);
+        document.addEventListener('pointerup', handleTilePointerUp);
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('livewire:navigating', closePlayers);
+        document.addEventListener('livewire:navigated', bootstrapPlayers);
+        window.addEventListener('beforeunload', closePlayers);
+
+        updateMasterVolumeUi();
+        bootstrapPlayers();
+    };
+
+    window.BigBrothasWhepPlayer = BigBrothasWhepPlayer;
+    window.BigBrothasLiveWallPlayerModule = {
+        bootstrap: bootstrapPlayers,
+        close: closePlayers,
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize, { once: true });
+
+        return;
     }
 
-    async readError(response, fallbackMessage) {
-        if (response.status === 401 || response.status === 419) {
-            return 'Your sign-in session has expired. Sign in again to resume the stream.';
-        }
-
-        if (response.status === 503) {
-            return 'The shared media relay is not running right now.';
-        }
-
-        const body = (await response.text()).trim();
-
-        return body !== '' ? body : fallbackMessage;
-    }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const players = Array.from(document.querySelectorAll('[data-webrtc-player]')).map((element) => new BigBrothasWhepPlayer(element));
-
-    players.forEach((player) => player.start());
-
-    window.addEventListener('beforeunload', () => {
-        players.forEach((player) => player.close());
-    });
-});
+    initialize();
+})();

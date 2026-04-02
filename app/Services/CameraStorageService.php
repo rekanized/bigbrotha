@@ -40,6 +40,54 @@ class CameraStorageService
         return 'cameras/'.(string) $cameraId.'/previews/'.$fileName;
     }
 
+    public function resolvePreviewAbsolutePath(?string $previewPath): ?string
+    {
+        if (!is_string($previewPath) || trim($previewPath) === '') {
+            return null;
+        }
+
+        $normalizedPath = ltrim(str_replace('\\', '/', $previewPath), '/');
+        $candidates = [$normalizedPath];
+
+        if (str_starts_with($normalizedPath, 'app/private/')) {
+            $candidates[] = substr($normalizedPath, strlen('app/private/'));
+        }
+
+        foreach (array_unique(array_filter($candidates)) as $candidate) {
+            $absolutePath = str_starts_with($candidate, 'app/')
+                ? storage_path($candidate)
+                : storage_path('app/private/'.$candidate);
+
+            if (is_file($absolutePath)) {
+                return $absolutePath;
+            }
+        }
+
+        return null;
+    }
+
+    public function detectPreviewMimeType(?string $previewPath): ?string
+    {
+        $absolutePath = $this->resolvePreviewAbsolutePath($previewPath);
+
+        if ($absolutePath === null) {
+            return null;
+        }
+
+        $imageInfo = @getimagesize($absolutePath);
+
+        if (!is_array($imageInfo) || !is_string($imageInfo['mime'] ?? null)) {
+            return null;
+        }
+
+        return $imageInfo['mime'];
+    }
+
+    public function hasUsablePreview(?string $previewPath): bool
+    {
+        return $this->detectPreviewMimeType($previewPath) !== null;
+    }
+
     public function deleteCameraDirectories(Camera $camera): void
     {
         $cameraId = $camera->getKey();

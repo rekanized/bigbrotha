@@ -8,7 +8,7 @@
 
 @section('page_title', 'Operations dashboard')
 
-@section('page_lead', 'Live counts now come directly from the saved camera fleet and the recorder runtime instead of static placeholders.')
+@section('page_lead', 'Track fleet readiness, recorder health, and the next operator move from one board.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
@@ -16,18 +16,39 @@
 @endsection
 
 @section('content')
-    <section class="dashboard-frame page-card">
-        <div class="dashboard-frame__header">
-            <div class="dashboard-frame__headline">
-                <span class="eyebrow">Live overview</span>
-                <h2 class="dashboard-frame__title">Current readiness snapshot</h2>
+    <section class="screen-grid">
+        <section class="screen-card screen-card--accent screen-summary-strip">
+            <div class="screen-summary-strip__body">
+                <div>
+                    <span class="eyebrow">Operator loop</span>
+                    <p class="screen-summary-strip__copy">Discovery, fleet updates, stream validation, and monitoring still happen in that order.</p>
+                </div>
+
+                <span class="status-pill status-pill--neutral">{{ $recentCameras->count() }} recent updates</span>
             </div>
 
-            <div class="dashboard-frame__meta">
-                <span class="status-pill status-pill--{{ $recorderStatus['is_ready'] ? 'good' : 'warn' }}">Recorder {{ strtolower($recorderStatus['summary']) }}</span>
-                <span class="status-pill">{{ $recentCameras->count() }} recently updated camera records</span>
+            <div class="screen-summary-strip__steps" aria-label="Operations workflow">
+                <a class="screen-summary-strip__step" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>
+                    <span class="screen-summary-strip__step-number">01</span>
+                    <strong>Discover endpoints</strong>
+                </a>
+
+                <a class="screen-summary-strip__step" href="{{ route('camera-fleet.index') }}" wire:navigate>
+                    <span class="screen-summary-strip__step-number">02</span>
+                    <strong>Save the fleet</strong>
+                </a>
+
+                <a class="screen-summary-strip__step" href="{{ route('camera-fleet.index') }}" wire:navigate>
+                    <span class="screen-summary-strip__step-number">03</span>
+                    <strong>Validate streams</strong>
+                </a>
+
+                <a class="screen-summary-strip__step" href="{{ route('live-wall.index') }}" wire:navigate>
+                    <span class="screen-summary-strip__step-number">04</span>
+                    <strong>Open live wall</strong>
+                </a>
             </div>
-        </div>
+        </section>
 
         <div class="dashboard-stats">
             @foreach ($metricCards as $card)
@@ -44,11 +65,11 @@
         </div>
 
         <div class="dashboard-secondary">
-            <article class="dashboard-panel">
+            <article class="dashboard-panel dashboard-panel--wide">
                 <div class="panel-heading">
                     <div>
-                        <h3 class="panel-title">Recorder status</h3>
-                        <p class="panel-copy">The recorder check is based on the current ffmpeg and ffprobe binary resolution plus the writable temp workspace used for processing.</p>
+                        <h3 class="panel-title">Recorder runtime</h3>
+                        <p class="panel-copy">This check uses resolved ffmpeg and ffprobe binaries plus the writable temp workspace used for diagnostics and previews.</p>
                     </div>
 
                     <span class="status-pill status-pill--{{ $recorderStatus['is_ready'] ? 'good' : 'warn' }}">{{ $recorderStatus['summary'] }}</span>
@@ -80,8 +101,39 @@
             <article class="dashboard-panel">
                 <div class="panel-heading">
                     <div>
+                        <h3 class="panel-title">Fleet coverage</h3>
+                        <p class="panel-copy">Saved camera records are the source of truth for discovery outcomes, stream defaults, and player availability.</p>
+                    </div>
+                </div>
+
+                <div class="key-value-list">
+                    <div class="key-value-row">
+                        <span>Total saved cameras</span>
+                        <strong>{{ $fleetSummary['total'] }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>Enabled cameras</span>
+                        <strong>{{ $fleetSummary['enabled'] }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>ONVIF capable</span>
+                        <strong>{{ $fleetSummary['onvif'] }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>RTSP ready</span>
+                        <strong>{{ $fleetSummary['rtsp'] }}</strong>
+                    </div>
+                </div>
+            </article>
+
+            <article class="dashboard-panel">
+                <div class="panel-heading">
+                    <div>
                         <h3 class="panel-title">Camera health</h3>
-                        <p class="panel-copy">Seen state is calculated from the persisted last-seen timestamps on camera records, so this becomes useful as soon as discovery or sync starts saving data.</p>
+                        <p class="panel-copy">Seen state comes from saved last-seen timestamps, so it improves as discovery, validation, and playback touch the fleet.</p>
                     </div>
                 </div>
 
@@ -107,14 +159,14 @@
                 <div class="panel-heading">
                     <div>
                         <h3 class="panel-title">Latest camera records</h3>
-                        <p class="panel-copy">Recent changes from the camera fleet table. This view will fill in as devices are discovered and saved.</p>
+                        <p class="panel-copy">Recent changes from the fleet table. Discovery saves, camera edits, and stream tests surface here.</p>
                     </div>
                 </div>
 
                 @if ($recentCameras->isEmpty())
                     <div class="empty-state">
                         <strong>No cameras are saved yet.</strong>
-                        <p>Run the ONVIF sweep first, then start saving discovered devices into the fleet.</p>
+                        <p>Run discovery, verify a device, then save it to the fleet before worrying about wall playback.</p>
                         <a class="button button--primary" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Open ONVIF sweep</a>
                     </div>
                 @else
@@ -131,21 +183,6 @@
                         @endforeach
                     </div>
                 @endif
-            </article>
-
-            <article class="dashboard-panel">
-                <div class="panel-heading">
-                    <div>
-                        <h3 class="panel-title">Next operator step</h3>
-                        <p class="panel-copy">The first discovery workflow is now available. Once devices are visible on the network, the next step is saving them into the fleet and wiring stream validation.</p>
-                    </div>
-                </div>
-
-                <div class="action-stack">
-                    <a class="button button--primary" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discover ONVIF devices</a>
-                    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Review camera fleet</a>
-                    <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Open live wall</a>
-                </div>
             </article>
         </div>
     </section>

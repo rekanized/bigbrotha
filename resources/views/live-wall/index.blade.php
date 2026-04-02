@@ -2,138 +2,199 @@
 
 @section('title', config('app.name', 'BigBrothas').' | Live Wall')
 
-@section('body_class', 'page-dashboard')
+@section('layout_mode', 'immersive')
 
-@section('page_eyebrow', 'Monitoring')
-
-@section('page_title', 'Live wall')
-
-@section('page_lead', 'The wall now uses a shared WebRTC relay with Laravel-issued session tokens, so authenticated operators can watch the same camera without exposing raw player pages to the public internet.')
-
-@section('page_actions')
-    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-    <a class="button button--primary" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discover devices</a>
-@endsection
+@section('body_class', 'page-live-wall')
 
 @section('content')
-    <section class="screen-card screen-card--spacious">
-        <div class="panel-heading">
-            <div>
-                <h2 class="panel-title">Shared WebRTC wall</h2>
-                <p class="panel-copy">Each enabled camera is mapped onto a shared MediaMTX relay path. The wall prefers lower-cost RTSP substreams where available, then transcodes once per active camera into a browser-safe WebRTC feed.</p>
-            </div>
-        </div>
+    @php
+        $wallCount = $availableWalls->count();
+        $selectedWallIndex = $selectedWall ? $availableWalls->search(fn ($wall) => $wall->id === $selectedWall->id) : false;
+        $selectedWallIndex = is_int($selectedWallIndex) ? $selectedWallIndex : 0;
+        $previousWall = $wallCount > 0 ? $availableWalls->get(($selectedWallIndex - 1 + $wallCount) % $wallCount) : null;
+        $nextWall = $wallCount > 0 ? $availableWalls->get(($selectedWallIndex + 1) % $wallCount) : null;
+    @endphp
 
+    <section class="live-wall-canvas" aria-label="Live wall camera monitor">
         @if (!($relayStatus['installed'] ?? false))
-            <div class="empty-state">
+            <div class="empty-state live-wall-canvas__empty">
                 <strong>Media relay not installed yet.</strong>
-                <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared WebRTC relay.</p>
+                <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared relay.</p>
             </div>
         @elseif (!($relayStatus['running'] ?? false))
-            <div class="empty-state">
+            <div class="empty-state live-wall-canvas__empty">
                 <strong>Media relay is configured but not running.</strong>
-                <p>The wall will show players as soon as MediaMTX is running. Start it with <code>php artisan relay:start</code> or reload after checking the relay log.</p>
+                <p>The wall will populate as soon as MediaMTX is running. Start it with <code>php artisan relay:start</code> or reload after checking the relay log.</p>
             </div>
-        @endif
-
-        @if ($tiles->isEmpty())
-            <div class="empty-state">
-                <strong>No enabled cameras are available for the wall.</strong>
-                <p>Add camera records or run discovery first so the wall has devices to render.</p>
-                <a class="button button--primary" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Run ONVIF sweep</a>
+        @elseif ($availableWalls->isEmpty())
+            <div class="empty-state live-wall-canvas__empty">
+                <strong>No active walls are available yet.</strong>
+                <p>Create or activate a wall layout first, then assign cameras to enabled tiles before opening monitoring.</p>
+                <a class="button button--primary" href="{{ route('wall-tiles.index') }}" wire:navigate>Open wall tiles</a>
+            </div>
+        @elseif (!$selectedWall)
+            <div class="empty-state live-wall-canvas__empty">
+                <strong>No wall is currently selected.</strong>
+                <p>Choose an active wall or set one as the default from the wall builder.</p>
+                <a class="button button--primary" href="{{ route('wall-tiles.index') }}" wire:navigate>Manage wall tiles</a>
+            </div>
+        @elseif ($tiles->isEmpty())
+            <div class="empty-state live-wall-canvas__empty">
+                <strong>This wall has no enabled camera tiles ready to render.</strong>
+                <p>Assign cameras to the wall, or enable the existing tile assignments from the wall builder.</p>
+                <a class="button button--primary" href="{{ route('wall-tiles.index') }}" wire:navigate>Configure wall tiles</a>
             </div>
         @else
-            <div class="live-wall-grid">
+            <div class="live-wall-grid live-wall-grid--configured live-wall-grid--monitor" style="--wall-grid-columns: {{ max(1, min($selectedWall->grid_columns, max(1, $tiles->count()))) }};" data-live-wall-grid>
                 @foreach ($tiles as $tile)
                     @php
                         /** @var \App\Models\Camera $camera */
                         $camera = $tile['camera'];
+                        $tileOrientation = $tile['orientation'] ?? 'landscape';
+                        $tileStyle = 'grid-column: span '.($tile['columnSpan'] ?? 1).'; grid-row: span '.($tile['rowSpan'] ?? 1).';';
                         $liveSelection = $tile['liveSelection'];
                         $selectedProfile = $liveSelection['profile'] ?? null;
                         $selectedProfileIndex = $liveSelection['index'] ?? null;
                         $playerPageUrl = $tile['playerPageUrl'] ?? null;
                         $sessionUrl = $tile['sessionUrl'] ?? null;
+                        $readerUrl = $tile['readerUrl'] ?? null;
+                        $sessionBootstrap = $tile['sessionBootstrap'] ?? null;
                         $webrtcPath = $tile['webrtcPath'] ?? null;
+                        $whepUrl = $tile['webrtcWhepUrl'] ?? null;
                         $latestPreview = $camera->latestRtspPreview();
                         $previewIndex = $latestPreview['index'] ?? null;
                         $previewProfile = $latestPreview['profile'] ?? null;
                     @endphp
-                    <article class="wall-tile">
-                        <div class="wall-tile__header">
-                            <div>
-                                <span class="status-pill status-pill--good">{{ $camera->name }}</span>
-                                <div class="badge-row wall-tile__meta-row">
-                                    @if (is_array($selectedProfile))
-                                        <span class="status-pill status-pill--neutral">{{ $selectedProfile['name'] ?? 'RTSP profile' }}</span>
-                                        @if (($selectedProfile['video_resolution'] ?? $selectedProfile['resolution'] ?? null))
-                                            <span class="status-pill status-pill--neutral">{{ $selectedProfile['video_resolution'] ?? $selectedProfile['resolution'] }}</span>
-                                        @endif
-                                        @if (($selectedProfile['video_codec'] ?? $selectedProfile['encoding'] ?? null))
-                                            <span class="status-pill status-pill--neutral">{{ strtoupper($selectedProfile['video_codec'] ?? $selectedProfile['encoding']) }}</span>
-                                        @endif
-                                    @endif
+                    <article
+                        class="wall-monitor-tile wall-tile--{{ $tileOrientation }}"
+                        style="{{ $tileStyle }}"
+                        data-camera-name="{{ e($camera->name) }}"
+                        data-camera-id="{{ $camera->getKey() }}"
+                        data-profile-index="{{ $selectedProfileIndex ?? '' }}"
+                        data-session-url="{{ $sessionUrl ?? '' }}"
+                        data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
+                        data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
+                        data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
+                        @if (is_string($webrtcPath) && $webrtcPath !== '') data-webrtc-path="{{ $webrtcPath }}" @endif
+                    >
+                        <div class="wall-monitor-tile__feed">
+                            @if (is_array($selectedProfile) && is_string($sessionUrl) && $sessionUrl !== '')
+                                <div class="wall-monitor-tile__stream wall-tile__stream">
+                                    <div class="webrtc-player" data-webrtc-player data-session-url="{{ $sessionUrl }}" data-player-label="{{ $camera->name }}">
+                                        <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>
+                                        <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
+                                        <div class="wall-monitor-tile__overlay">
+                                            <div class="wall-monitor-tile__identity">
+                                                <span class="wall-monitor-tile__label">Live</span>
+                                                <strong class="wall-monitor-tile__name">{{ $camera->name }}</strong>
+                                            </div>
+
+                                            <div class="wall-monitor-tile__audio-controls">
+                                                <button
+                                                    class="wall-monitor-tile__audio-toggle"
+                                                    type="button"
+                                                    data-role="audio-toggle"
+                                                    aria-pressed="false"
+                                                    aria-label="Listen to {{ $camera->name }}"
+                                                >
+                                                    <span class="wall-monitor-tile__audio-icon" aria-hidden="true">
+                                                        <svg class="wall-monitor-tile__audio-svg wall-monitor-tile__audio-svg--inactive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M11 5L6 9H3v6h3l5 4V5z"></path>
+                                                            <line x1="16.5" y1="9.5" x2="21" y2="14"></line>
+                                                            <line x1="21" y1="9.5" x2="16.5" y2="14"></line>
+                                                        </svg>
+                                                        <svg class="wall-monitor-tile__audio-svg wall-monitor-tile__audio-svg--active" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M11 5L6 9H3v6h3l5 4V5z"></path>
+                                                            <path d="M15.5 9a4.5 4.5 0 0 1 0 6"></path>
+                                                            <path d="M18.5 6.5a8 8 0 0 1 0 11"></path>
+                                                        </svg>
+                                                    </span>
+                                                    <span class="wall-monitor-tile__audio-indicator" data-role="audio-indicator" aria-live="polite">Muted</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <span class="wall-tile__network">{{ $camera->local_ip }}</span>
-                        </div>
-
-                        @if (is_array($selectedProfile) && is_string($sessionUrl) && $sessionUrl !== '')
-                            <div class="wall-tile__stream">
-                                <div class="webrtc-player" data-webrtc-player data-session-url="{{ $sessionUrl }}" data-player-label="{{ $camera->name }}">
-                                    <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>
-                                    <div class="webrtc-player__message" data-role="message">Loading secure stream…</div>
+                            @elseif (is_array($previewProfile) && $previewIndex !== null)
+                                <a class="wall-monitor-tile__stream wall-tile__stream" href="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}" target="_blank" rel="noreferrer">
+                                    <img
+                                        class="wall-tile__stream-image"
+                                        src="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}"
+                                        alt="Latest saved preview for {{ $camera->name }}"
+                                    >
+                                </a>
+                            @else
+                                <div class="wall-tile__empty wall-monitor-tile__stream">
+                                    <strong>No live RTSP stream is ready.</strong>
+                                    <p>Refresh stream profiles or run a stream test from Camera Fleet to populate a stream and preview.</p>
                                 </div>
-                            </div>
-                        @elseif (is_array($previewProfile) && $previewIndex !== null)
-                            <a class="wall-tile__stream" href="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}" target="_blank" rel="noreferrer">
-                                <img
-                                    class="wall-tile__stream-image"
-                                    src="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}"
-                                    alt="Latest saved preview for {{ $camera->name }}"
-                                >
-                            </a>
-                        @else
-                            <div class="wall-tile__empty">
-                                <strong>No live RTSP stream is ready.</strong>
-                                <p>Refresh RTSP profiles or run a connection test from Camera Fleet to populate a stream and preview.</p>
-                            </div>
-                        @endif
-
-                        <div class="wall-tile__body">
-                            <p>{{ $camera->manufacturer ?: 'Unknown vendor' }}{{ $camera->model ? ' · '.$camera->model : '' }}</p>
-                            <strong>{{ $selectedProfile['uri'] ?? $camera->rtspEndpoint() ?? 'No RTSP endpoint saved' }}</strong>
-                        </div>
-
-                        <div class="wall-tile__actions">
-                            @if (is_string($playerPageUrl) && $playerPageUrl !== '')
-                                <a class="button button--soft" href="{{ $playerPageUrl }}" wire:navigate>Open secure player</a>
                             @endif
-
-                            @if (is_array($selectedProfile))
-                                <a class="button button--soft" href="{{ route('live-wall.relay', ['camera' => $camera, 'profileIndex' => $selectedProfileIndex]) }}" target="_blank" rel="noreferrer">Copy relay</a>
-                            @endif
-
-                            @if (is_array($previewProfile) && $previewIndex !== null)
-                                <a class="button button--soft" href="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}" target="_blank" rel="noreferrer">Latest snapshot</a>
-                            @endif
-
-                            <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Manage camera</a>
-                        </div>
-
-                        <div class="wall-tile__footer">
-                            <span>{{ $camera->onvifEndpoint() ?? 'No ONVIF endpoint saved' }}</span>
-                            <span>{{ $camera->last_seen_at?->diffForHumans() ?? 'Never seen' }}</span>
-                            @if (is_array($selectedProfile))
-                                <span>Relay path {{ $webrtcPath ?? 'unavailable' }} transcodes once for WebRTC and can fan out to multiple viewers.</span>
-                            @endif
+                            <div class="wall-monitor-tile__gridline" aria-hidden="true"></div>
                         </div>
                     </article>
                 @endforeach
             </div>
         @endif
+
+        @if ($selectedWall && $wallCount > 0)
+            <nav class="live-wall-wall-switcher" aria-label="Switch walls and live wall controls">
+                <a
+                    class="live-wall-wall-switcher__arrow"
+                    href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
+                    wire:navigate
+                    aria-label="Open previous wall"
+                >
+                    <span aria-hidden="true">&#8249;</span>
+                </a>
+
+                <div class="live-wall-wall-switcher__status">
+                    <strong>{{ $selectedWall->name }}</strong>
+                    <span>Wall {{ $selectedWallIndex + 1 }} of {{ $wallCount }}</span>
+                </div>
+
+                <div class="live-wall-wall-switcher__controls">
+                    <label class="live-wall-wall-switcher__volume" aria-label="Live wall volume">
+                        <span class="live-wall-wall-switcher__volume-label">Volume</span>
+                        <input
+                            class="live-wall-wall-switcher__volume-slider"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value="100"
+                            data-role="master-volume-slider"
+                            aria-label="Set live wall volume"
+                        >
+                        <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
+                    </label>
+
+                    <details class="live-wall-wall-switcher__menu">
+                        <summary class="live-wall-wall-switcher__menu-toggle" aria-label="Open live wall navigation" data-role="live-wall-menu-toggle">
+                            <span>Menu</span>
+                        </summary>
+
+                        <div class="live-wall-wall-switcher__menu-panel">
+                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
+                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
+                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
+                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
+                        </div>
+                    </details>
+                </div>
+
+                <a
+                    class="live-wall-wall-switcher__arrow"
+                    href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
+                    wire:navigate
+                    aria-label="Open next wall"
+                >
+                    <span aria-hidden="true">&#8250;</span>
+                </a>
+            </nav>
+        @endif
     </section>
 @endsection
 
 @push('scripts')
-    <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer></script>
+    <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
 @endpush
