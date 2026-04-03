@@ -33,11 +33,35 @@ use Illuminate\Support\Str;
     'is_enabled',
     'last_seen_at',
     'metadata',
+    'recording_mode',
+    'recording_profile_index',
+    'recording_retention_days',
+    'motion_sensitivity',
+    'recording_motion_area',
+    'recording_last_motion_at',
+    'recording_last_recorded_at',
 ])]
 #[Hidden(['password'])]
 class Camera extends Model
 {
     use HasFactory, HasUuids;
+
+    public const RECORDING_MODE_OFF = 'off';
+
+    public const RECORDING_MODE_CONTINUOUS = 'continuous';
+
+    public const RECORDING_MODE_MOTION = 'motion';
+
+    public const RECORDING_MODES = [
+        self::RECORDING_MODE_OFF,
+        self::RECORDING_MODE_CONTINUOUS,
+        self::RECORDING_MODE_MOTION,
+    ];
+
+    public function recordings(): HasMany
+    {
+        return $this->hasMany(CameraRecording::class);
+    }
 
     public function liveWallTiles(): HasMany
     {
@@ -147,6 +171,40 @@ class Camera extends Model
         return null;
     }
 
+    public function hasRecordingEnabled(): bool
+    {
+        return $this->is_enabled
+            && $this->supports_rtsp
+            && in_array($this->recording_mode, [self::RECORDING_MODE_CONTINUOUS, self::RECORDING_MODE_MOTION], true);
+    }
+
+    /**
+     * @return array{x: int, y: int, width: int, height: int}
+     */
+    public function recordingMotionArea(): array
+    {
+        $defaults = [
+            'x' => 0,
+            'y' => 0,
+            'width' => 100,
+            'height' => 100,
+        ];
+        $area = is_array($this->recording_motion_area) ? $this->recording_motion_area : [];
+        $normalized = [];
+
+        foreach ($defaults as $key => $defaultValue) {
+            $value = $area[$key] ?? $defaultValue;
+            $normalized[$key] = is_numeric($value) ? (int) $value : $defaultValue;
+        }
+
+        $normalized['x'] = max(0, min(95, $normalized['x']));
+        $normalized['y'] = max(0, min(95, $normalized['y']));
+        $normalized['width'] = max(5, min(100 - $normalized['x'], $normalized['width']));
+        $normalized['height'] = max(5, min(100 - $normalized['y'], $normalized['height']));
+
+        return $normalized;
+    }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -161,6 +219,12 @@ class Camera extends Model
             'supports_onvif' => 'boolean',
             'supports_rtsp' => 'boolean',
             'is_enabled' => 'boolean',
+            'recording_profile_index' => 'integer',
+            'recording_retention_days' => 'integer',
+            'motion_sensitivity' => 'integer',
+            'recording_motion_area' => 'array',
+            'recording_last_motion_at' => 'datetime',
+            'recording_last_recorded_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'metadata' => 'array',
             'password' => 'encrypted',

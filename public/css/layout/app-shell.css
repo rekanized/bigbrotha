@@ -30,6 +30,15 @@
     gap: 0;
 }
 
+.page-recording-review .app-shell--immersive {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+}
+
 .app-shell--immersive {
     width: 100%;
     min-height: 100vh;
@@ -56,6 +65,10 @@
 }
 
 .page-live-wall {
+    background: hsl(220 24% 6%);
+}
+
+.page-recording-review {
     background: hsl(220 24% 6%);
 }
 
@@ -91,6 +104,14 @@
 .page-live-wall .app-content--immersive,
 .page-live-wall .app-main--immersive {
     min-height: 100vh;
+}
+
+.page-recording-review .app-content--immersive,
+.page-recording-review .app-main--immersive {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100vh;
+    gap: 0;
 }
 
 .page-card {

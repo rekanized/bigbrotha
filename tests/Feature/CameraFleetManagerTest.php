@@ -252,6 +252,41 @@ BASH);
         $this->assertSame('Healthy', $camera->rtspProfiles()[0]['probe_status']);
     }
 
+    public function test_it_can_save_recording_policy_settings_from_the_gui(): void
+    {
+        Livewire::test(Manager::class)
+            ->call('newCamera')
+            ->set('form.name', 'Warehouse Entrance')
+            ->set('form.local_ip', '192.168.1.90')
+            ->set('form.supports_onvif', false)
+            ->set('form.onvif_port', null)
+            ->set('form.onvif_path', '')
+            ->set('form.supports_rtsp', true)
+            ->set('form.rtsp_port', 554)
+            ->set('form.rtsp_path', '/record-stream')
+            ->set('form.recording_mode', Camera::RECORDING_MODE_MOTION)
+            ->set('form.recording_retention_days', 1)
+            ->set('form.motion_sensitivity', 64)
+            ->set('form.recording_motion_x', 10)
+            ->set('form.recording_motion_y', 12)
+            ->set('form.recording_motion_width', 55)
+            ->set('form.recording_motion_height', 45)
+            ->call('saveCamera')
+            ->assertHasNoErrors();
+
+        $camera = Camera::query()->firstOrFail();
+
+        $this->assertSame(Camera::RECORDING_MODE_MOTION, $camera->recording_mode);
+        $this->assertSame(1, $camera->recording_retention_days);
+        $this->assertSame(64, $camera->motion_sensitivity);
+        $this->assertSame([
+            'x' => 10,
+            'y' => 12,
+            'width' => 55,
+            'height' => 45,
+        ], $camera->recordingMotionArea());
+    }
+
     public function test_it_falls_back_to_a_placeholder_image_when_a_saved_preview_is_invalid(): void
     {
         $operator = User::factory()->create();

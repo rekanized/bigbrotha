@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This application is an operator-facing camera platform for ONVIF and RTSP devices. The implemented foundation covers discovery, provisioning, camera management, RTSP URL retrieval, backend stream checks, preview capture, and shared WebRTC live-wall delivery.
+This application is an operator-facing camera platform for ONVIF and RTSP devices. The implemented foundation covers discovery, provisioning, camera management, RTSP URL retrieval, backend stream checks, preview capture, scheduler-driven recording, and shared WebRTC live-wall delivery.
 
 ## Runtime Stack
 
@@ -12,6 +12,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Blade templates and standard CSS.
 - Google OAuth via Laravel Socialite for operator sign-in.
 - ffmpeg and ffprobe configured through `config/ffmpeg.php` and service bindings in `app/Providers/AppServiceProvider.php`.
+- Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
 - MediaMTX as the shared WebRTC relay managed from Laravel and installed through Composer-driven commands.
 
 ## Route Map
@@ -19,8 +20,11 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - `/login` for Google sign-in.
 - `/` via `App\Http\Controllers\DashboardController`.
 - `/camera-fleet` via `App\Http\Controllers\CameraFleetController` and `App\Livewire\CameraFleet\Manager`.
+- `/recordings` plus `/recordings/{recording}` via `App\Http\Controllers\RecordingController`.
 - `/wall-tiles` via `App\Http\Controllers\WallTilesController` and `App\Livewire\LiveWall\TilesManager`.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` via `App\Http\Controllers\CameraFleetStreamPreviewController`.
+- `/recordings/{recording}/stream` via `App\Http\Controllers\RecordingController@stream`.
+- `/recordings/{recording}/download` via `App\Http\Controllers\RecordingController@download`.
 - `/live-wall` via `App\Http\Controllers\LiveWallController`.
 - `/live-wall/{camera}/player` via `App\Http\Controllers\LiveWallPlayerController`.
 - `/live-wall/{camera}/session` via `App\Http\Controllers\LiveWallSessionController`.
@@ -35,12 +39,15 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 
 `App\Models\LiveWall` and `App\Models\LiveWallTile` now persist named monitoring layouts and the explicit camera-to-tile assignments that control what operators actually see on `/live-wall`.
 
+`App\Models\CameraRecording` persists scheduled recording segments, capture outcome, file metadata, and retention targets for each camera feed.
+
 It stores:
 
 - identity and network fields.
 - ONVIF and RTSP endpoint parts.
 - credentials.
 - ONVIF and RTSP capability flags.
+- recording mode, recording retention, and motion-analysis area settings.
 - metadata for ONVIF verification and RTSP profiles.
 - enable state and last-seen timestamps.
 
@@ -63,6 +70,7 @@ Important model helpers:
 - `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity and captures preview frames.
 - `App\Services\CameraStorageService` manages per-camera storage folders.
 - `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
+- `App\Services\CameraRecordingService` queues per-camera segment capture, runs motion analysis on a cropped low-fps grayscale window, writes direct-to-disk ffmpeg copy segments, and prunes expired footage.
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
 - `App\Services\Relay\MediaMtxInstaller` downloads the pinned MediaMTX release into private storage.
@@ -91,7 +99,21 @@ Current behavior includes:
 - RTSP profile refresh from ONVIF.
 - per-profile RTSP connection testing.
 - preview capture and preview display.
+- recording mode, retention, motion sensitivity, and motion-region editing.
+- recent recording queue and retention status directly in the editor.
 - latest preview thumbnail directly in each fleet row.
+
+## Recording Browser And Playback
+
+The operator review surface for saved footage is `App\Http\Controllers\RecordingController` with Blade views under `resources/views/recordings`.
+
+Current behavior includes:
+
+- browser-side filtering by camera, recorder status, capture mode, date range, and free-text search.
+- a dedicated playback page per saved segment.
+- private playback remuxing through Laravel using ffmpeg stream copy from the saved container into fragmented MP4.
+- direct download of the original private segment file for archival or external review.
+- review of failed and skipped motion decisions alongside successful recordings so operators can troubleshoot policy behavior.
 
 ## Live Wall Delivery
 
@@ -154,6 +176,22 @@ Current relay management behavior:
 - relay liveness checks match the expected MediaMTX binary and config path from process arguments instead of relying only on `kill -0`, since the web worker may run as `www-data` while the relay process is owned by another user.
 - `routes/console.php` exposes `relay:install`, `relay:sync`, `relay:start`, `relay:stop`, and `relay:status`.
 
+Current recording management behavior:
+
+- `routes/console.php` exposes `camera-recordings:tick` and `camera-recordings:prune`.
+- `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit and `camera-recordings:ensure-worker`, which can be scheduled every minute to verify the bounded recording worker is present and to start the configured systemd unit when the worker is absent.
+- the scheduler queues recording work every minute for enabled cameras whose `recording_mode` is `continuous` or `motion`.
+- recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
+- recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
+- motion mode first runs a short ffmpeg analysis pass against the configured crop region using low FPS, grayscale conversion, and ffmpeg `scene` filtering.
+- successful recordings are stored as per-camera segment files under private storage and expired files are removed by the hourly prune task.
+- stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever.
+- terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
+- `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
+- the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.
+- the review screen still loads a padded multi-day span for the selected cameras, but the JavaScript layer is now limited to transient rail dragging, scrub-preview overlays, and stage seek synchronization across Livewire rerenders.
+- saved segments can generate private review assets under their `_review` directory, including a preview MP4, poster thumbnail, and scrub sprite sheet used for in-rail hover previews.
+
 The WebRTC wall is intended for operator viewing with shared fan-out. The copy relay remains available for downstream consumers that want copied camera video without a re-encode step.
 
 ## Access Model
@@ -181,9 +219,17 @@ Current preview storage layout:
 
 `storage/app/private/cameras/{id}/previews`
 
+Current recording storage layout:
+
+`storage/app/private/cameras/{id}/recordings/{YYYY}/{MM}/{DD}`
+
 Preview metadata stores relative paths like:
 
 `cameras/{id}/previews/{slug}.jpg`
+
+Recording metadata stores relative paths like:
+
+`cameras/{id}/recordings/{YYYY}/{MM}/{DD}/{timestamp}-{mode}.mkv`
 
 Older `storage/app/private/stream-previews` folders may still exist from previous iterations, but new preview writes should use the per-camera layout above.
 

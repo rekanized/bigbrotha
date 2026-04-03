@@ -1,7 +1,12 @@
 <?php
 
+use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Jobs\RefreshCameraPreviewJob;
 use App\Models\Camera;
+use App\Models\CameraRecording;
+use App\Services\CameraRecordingService;
+use App\Services\RecordingWorkerService;
+use App\Services\RecordingReviewAssetService;
 use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
@@ -88,6 +93,143 @@ Artisan::command('camera-fleet:refresh-previews', function (): int {
     return 0;
 })->purpose('Refresh saved RTSP preview snapshots for eligible cameras');
 
+Artisan::command('camera-recordings:tick', function (): int {
+    $scheduledFor = now()->utc()->startOfMinute();
+    $recordings = app(CameraRecordingService::class);
+    $recovered = $recordings->recoverStalePendingRecordings();
+    $queued = 0;
+
+    Camera::query()
+        ->where('is_enabled', true)
+        ->where('supports_rtsp', true)
+        ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
+        ->orderBy('id')
+        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, $recordings): void {
+            foreach ($cameras as $camera) {
+                if (!$camera->hasRecordingEnabled()) {
+                    continue;
+                }
+
+                $recording = CameraRecording::query()->firstOrCreate([
+                    'camera_id' => $camera->id,
+                    'scheduled_for' => $scheduledFor,
+                ], [
+                    'capture_mode' => $camera->recording_mode,
+                    'status' => CameraRecording::STATUS_QUEUED,
+                    'message' => 'Queued by scheduler.',
+                ]);
+
+                if (!$recording->wasRecentlyCreated) {
+                    continue;
+                }
+
+                if ($recordings->dispatchRecording($recording, 'Queued by scheduler for '.$scheduledFor->format('Y-m-d H:i').' UTC.')) {
+                    $queued++;
+                }
+            }
+        });
+
+    $message = 'Queued '.$queued.' camera recording job'.($queued === 1 ? '' : 's').' for '.$scheduledFor->format('Y-m-d H:i').' UTC.';
+
+    if ($recovered > 0) {
+        $message .= ' Recovered '.$recovered.' stale pending segment'.($recovered === 1 ? '' : 's').'.';
+    }
+
+    $this->components->info($message);
+
+    return 0;
+})->purpose('Queue recording work for cameras with active recording policies');
+
+Artisan::command('camera-recordings:ensure-worker', function (): int {
+    $result = app(RecordingWorkerService::class)->ensureRunning();
+
+    if ($result['ok']) {
+        $this->components->info($result['message']);
+
+        return 0;
+    }
+
+    $this->components->error($result['message']);
+
+    return 1;
+})->purpose('Ensure the bounded recordings queue worker is running');
+
+Artisan::command('camera-recordings:install-worker-service {--no-start} {--graceful}', function (): int {
+    $result = app(RecordingWorkerService::class)->installSystemdUserService(!$this->option('no-start'));
+
+    if ($result['ok']) {
+        $this->components->info($result['message'].' Path: '.$result['path']);
+
+        return 0;
+    }
+
+    if ($this->option('graceful')) {
+        $this->components->warn($result['message'].' Path: '.$result['path']);
+
+        return 0;
+    }
+
+    $this->components->error($result['message'].' Path: '.$result['path']);
+
+    return 1;
+})->purpose('Install and optionally start the recordings worker user systemd unit');
+
+Artisan::command('camera-recordings:prune', function (): int {
+    $deleted = app(CameraRecordingService::class)->pruneExpiredRecordings();
+
+    $this->components->info('Pruned '.$deleted.' expired recording segment'.($deleted === 1 ? '' : 's').'.');
+
+    return 0;
+})->purpose('Delete expired camera recording segments based on per-camera retention policies');
+
+Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missing}', function (): int {
+    $reviewAssets = app(RecordingReviewAssetService::class);
+    $generated = 0;
+    $skipped = 0;
+
+    CameraRecording::query()
+        ->where('status', CameraRecording::STATUS_RECORDED)
+        ->whereNotNull('relative_path')
+        ->when($this->option('camera_id'), function ($query): void {
+            $query->where('camera_id', (int) $this->option('camera_id'));
+        })
+        ->orderBy('id')
+        ->chunkById(50, function ($recordings) use (&$generated, &$skipped, $reviewAssets): void {
+            foreach ($recordings as $recording) {
+                if ($this->option('missing') && $reviewAssets->assetState($recording)['ready']) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
+                $generated++;
+            }
+        });
+
+    $message = 'Generated review assets for '.$generated.' recording'.($generated === 1 ? '' : 's').'.';
+
+    if ($skipped > 0) {
+        $message .= ' Skipped '.$skipped.' recording'.($skipped === 1 ? '' : 's').' with ready assets.';
+    }
+
+    $this->components->info($message);
+
+    return 0;
+})->purpose('Build scrub preview assets for saved recording segments');
+
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
+    ->withoutOverlapping();
+
+Schedule::command('camera-recordings:ensure-worker')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::command('camera-recordings:tick')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+Schedule::command('camera-recordings:prune')
+    ->hourly()
     ->withoutOverlapping();

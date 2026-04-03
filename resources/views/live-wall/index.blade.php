@@ -138,58 +138,124 @@
 
         @if ($selectedWall && $wallCount > 0)
             <nav class="live-wall-wall-switcher" aria-label="Switch walls and live wall controls">
-                <a
-                    class="live-wall-wall-switcher__arrow"
-                    href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
-                    wire:navigate
-                    aria-label="Open previous wall"
-                >
-                    <span aria-hidden="true">&#8249;</span>
-                </a>
+                <div class="live-wall-wall-switcher__desktop">
+                    <a
+                        class="live-wall-wall-switcher__arrow"
+                        href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
+                        wire:navigate
+                        aria-label="Open previous wall"
+                    >
+                        <span aria-hidden="true">&#8249;</span>
+                    </a>
 
-                <div class="live-wall-wall-switcher__status">
-                    <strong>{{ $selectedWall->name }}</strong>
-                    <span>Wall {{ $selectedWallIndex + 1 }} of {{ $wallCount }}</span>
+                    <div class="live-wall-wall-switcher__status">
+                        <strong class="live-wall-wall-switcher__wall-name">{{ $selectedWall->name }}</strong>
+                        <span class="live-wall-wall-switcher__wall-meta">Wall {{ $selectedWallIndex + 1 }} of {{ $wallCount }}</span>
+                    </div>
+
+                    <div class="live-wall-wall-switcher__controls">
+                        <label class="live-wall-wall-switcher__volume" aria-label="Live wall volume">
+                            <span class="live-wall-wall-switcher__volume-label">Volume</span>
+                            <input
+                                class="live-wall-wall-switcher__volume-slider"
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value="100"
+                                data-role="master-volume-slider"
+                                aria-label="Set live wall volume"
+                            >
+                            <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
+                        </label>
+
+                        <details class="live-wall-wall-switcher__menu">
+                            <summary class="live-wall-wall-switcher__menu-toggle" aria-label="Open live wall navigation" data-role="live-wall-menu-toggle">
+                                <span>Menu</span>
+                            </summary>
+
+                            <div class="live-wall-wall-switcher__menu-panel">
+                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
+                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
+                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
+                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
+                            </div>
+                        </details>
+                    </div>
+
+                    <a
+                        class="live-wall-wall-switcher__arrow"
+                        href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
+                        wire:navigate
+                        aria-label="Open next wall"
+                    >
+                        <span aria-hidden="true">&#8250;</span>
+                    </a>
                 </div>
 
-                <div class="live-wall-wall-switcher__controls">
-                    <label class="live-wall-wall-switcher__volume" aria-label="Live wall volume">
-                        <span class="live-wall-wall-switcher__volume-label">Volume</span>
-                        <input
-                            class="live-wall-wall-switcher__volume-slider"
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value="100"
-                            data-role="master-volume-slider"
-                            aria-label="Set live wall volume"
+                <div class="live-wall-wall-switcher__mobile">
+                    <div class="live-wall-wall-switcher__mobile-bar">
+                        <a
+                            class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
+                            href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
+                            wire:navigate
+                            aria-label="Open previous wall"
                         >
-                        <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
-                    </label>
+                            <span aria-hidden="true">&#8249;</span>
+                        </a>
 
-                    <details class="live-wall-wall-switcher__menu">
-                        <summary class="live-wall-wall-switcher__menu-toggle" aria-label="Open live wall navigation" data-role="live-wall-menu-toggle">
-                            <span>Menu</span>
-                        </summary>
-
-                        <div class="live-wall-wall-switcher__menu-panel">
-                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
-                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
-                            <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
+                        <div class="live-wall-wall-switcher__mobile-status">
+                            <span class="live-wall-wall-switcher__mobile-eyebrow">Live wall</span>
+                            <strong class="live-wall-wall-switcher__wall-name">{{ $selectedWall->name }}</strong>
+                            <span class="live-wall-wall-switcher__wall-meta">Wall {{ $selectedWallIndex + 1 }} of {{ $wallCount }}</span>
                         </div>
-                    </details>
-                </div>
 
-                <a
-                    class="live-wall-wall-switcher__arrow"
-                    href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
-                    wire:navigate
-                    aria-label="Open next wall"
-                >
-                    <span aria-hidden="true">&#8250;</span>
-                </a>
+                        <a
+                            class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
+                            href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
+                            wire:navigate
+                            aria-label="Open next wall"
+                        >
+                            <span aria-hidden="true">&#8250;</span>
+                        </a>
+
+                        <details class="live-wall-wall-switcher__mobile-drawer">
+                            <summary class="live-wall-wall-switcher__mobile-toggle" aria-label="Open live wall controls">
+                                <span>Controls</span>
+                            </summary>
+
+                            <div class="live-wall-wall-switcher__mobile-panel">
+                                <div class="live-wall-wall-switcher__mobile-panel-header">
+                                    <span class="live-wall-wall-switcher__mobile-eyebrow">Wall controls</span>
+                                    <strong class="live-wall-wall-switcher__wall-name">{{ $selectedWall->name }}</strong>
+                                    <span>Volume and navigation shortcuts</span>
+                                </div>
+
+                                <label class="live-wall-wall-switcher__volume live-wall-wall-switcher__volume--mobile" aria-label="Live wall volume">
+                                    <span class="live-wall-wall-switcher__volume-label">Volume</span>
+                                    <input
+                                        class="live-wall-wall-switcher__volume-slider"
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        step="1"
+                                        value="100"
+                                        data-role="master-volume-slider"
+                                        aria-label="Set live wall volume"
+                                    >
+                                    <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
+                                </label>
+
+                                <div class="live-wall-wall-switcher__mobile-links">
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
             </nav>
         @endif
     </section>

@@ -78,6 +78,14 @@ class Manager extends Component
             'supports_onvif' => $camera->supports_onvif,
             'supports_rtsp' => $camera->supports_rtsp,
             'is_enabled' => $camera->is_enabled,
+            'recording_mode' => $camera->recording_mode,
+            'recording_profile_index' => $camera->recording_profile_index,
+            'recording_retention_days' => $camera->recording_retention_days,
+            'motion_sensitivity' => $camera->motion_sensitivity,
+            'recording_motion_x' => $camera->recordingMotionArea()['x'],
+            'recording_motion_y' => $camera->recordingMotionArea()['y'],
+            'recording_motion_width' => $camera->recordingMotionArea()['width'],
+            'recording_motion_height' => $camera->recordingMotionArea()['height'],
         ];
         $this->rtspProfiles = $camera->rtspProfiles();
         $this->statusMessage = null;
@@ -94,7 +102,7 @@ class Manager extends Component
         $this->errorMessage = null;
         $this->resetErrorBag();
 
-        $validated = Validator::make([
+        $validator = Validator::make([
             'form' => $this->form,
         ], [
             'form.name' => ['required', 'string', 'max:255'],
@@ -114,7 +122,39 @@ class Manager extends Component
             'form.supports_onvif' => ['boolean'],
             'form.supports_rtsp' => ['boolean'],
             'form.is_enabled' => ['boolean'],
-        ])->validate()['form'];
+            'form.recording_mode' => ['required', Rule::in(Camera::RECORDING_MODES)],
+            'form.recording_profile_index' => ['nullable', 'integer', 'min:0'],
+            'form.recording_retention_days' => ['required', 'integer', 'between:1,365'],
+            'form.motion_sensitivity' => ['required', 'integer', 'between:1,100'],
+            'form.recording_motion_x' => ['required', 'integer', 'between:0,95'],
+            'form.recording_motion_y' => ['required', 'integer', 'between:0,95'],
+            'form.recording_motion_width' => ['required', 'integer', 'between:5,100'],
+            'form.recording_motion_height' => ['required', 'integer', 'between:5,100'],
+        ]);
+
+        $validator->after(function ($validator): void {
+            $recordingMode = $this->form['recording_mode'] ?? Camera::RECORDING_MODE_OFF;
+            $profileIndex = $this->nullableInteger($this->form['recording_profile_index'] ?? null);
+            $motionArea = $this->recordingMotionAreaPayload($this->form);
+
+            if ($recordingMode !== Camera::RECORDING_MODE_OFF && !(bool) ($this->form['supports_rtsp'] ?? false)) {
+                $validator->errors()->add('form.recording_mode', 'Recording requires RTSP support to be enabled for this camera.');
+            }
+
+            if ($profileIndex !== null && !array_key_exists($profileIndex, $this->rtspProfiles)) {
+                $validator->errors()->add('form.recording_profile_index', 'Choose a saved RTSP profile or leave the recording source on automatic selection.');
+            }
+
+            if (($motionArea['x'] + $motionArea['width']) > 100) {
+                $validator->errors()->add('form.recording_motion_width', 'The motion area width extends beyond the right edge of the feed.');
+            }
+
+            if (($motionArea['y'] + $motionArea['height']) > 100) {
+                $validator->errors()->add('form.recording_motion_height', 'The motion area height extends beyond the bottom edge of the feed.');
+            }
+        });
+
+        $validated = $validator->validate()['form'];
 
         $camera = $this->editingCameraId !== null
             ? Camera::query()->findOrFail($this->editingCameraId)
@@ -141,6 +181,11 @@ class Manager extends Component
             'supports_onvif' => (bool) $validated['supports_onvif'],
             'supports_rtsp' => (bool) $validated['supports_rtsp'],
             'is_enabled' => (bool) $validated['is_enabled'],
+            'recording_mode' => $validated['recording_mode'],
+            'recording_profile_index' => $this->nullableInteger($validated['recording_profile_index']),
+            'recording_retention_days' => (int) $validated['recording_retention_days'],
+            'motion_sensitivity' => (int) $validated['motion_sensitivity'],
+            'recording_motion_area' => $this->recordingMotionAreaPayload($validated),
         ]);
 
         if ($camera->exists) {
@@ -323,9 +368,15 @@ class Manager extends Component
                 'rtsp' => $cameras->where('supports_rtsp', true)->count(),
             ],
             'selectedCamera' => $selectedCamera,
+            'selectedCameraRecentRecordings' => $selectedCamera?->recordings()->latest('scheduled_for')->limit(5)->get() ?? collect(),
             'hasStoredPassword' => $selectedCamera?->getRawOriginal('password') !== null,
             'selectedCameraId' => $selectedCamera?->id,
             'transportOptions' => ['tcp', 'udp'],
+            'recordingModes' => [
+                Camera::RECORDING_MODE_OFF => 'Off',
+                Camera::RECORDING_MODE_CONTINUOUS => 'Constantly recording',
+                Camera::RECORDING_MODE_MOTION => 'Record on movement',
+            ],
         ]);
     }
 
@@ -364,6 +415,14 @@ class Manager extends Component
             'supports_onvif' => true,
             'supports_rtsp' => false,
             'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_OFF,
+            'recording_profile_index' => null,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 35,
+            'recording_motion_x' => 0,
+            'recording_motion_y' => 0,
+            'recording_motion_width' => 100,
+            'recording_motion_height' => 100,
         ];
     }
 
@@ -391,6 +450,29 @@ class Manager extends Component
         }
 
         return Str::start($path, '/');
+    }
+
+    private function nullableInteger(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @return array{x: int, y: int, width: int, height: int}
+     */
+    private function recordingMotionAreaPayload(array $values): array
+    {
+        return [
+            'x' => (int) ($values['recording_motion_x'] ?? 0),
+            'y' => (int) ($values['recording_motion_y'] ?? 0),
+            'width' => (int) ($values['recording_motion_width'] ?? 100),
+            'height' => (int) ($values['recording_motion_height'] ?? 100),
+        ];
     }
 
     private function syncSavedRtspEndpoint(Camera $camera): Camera

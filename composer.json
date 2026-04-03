@@ -53,6 +53,9 @@
         "relay:start": [
             "@php artisan relay:start"
         ],
+        "recordings:worker:install": [
+            "@php artisan camera-recordings:install-worker-service"
+        ],
         "relay:stop": [
             "@php artisan relay:stop"
         ],

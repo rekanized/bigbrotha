@@ -3,7 +3,7 @@
         <div class="fleet-manager__workflow-header">
             <div>
                 <span class="eyebrow">Fleet workflow</span>
-                <p class="fleet-manager__workflow-copy">Save the camera, refresh RTSP profiles, then capture a preview before operators rely on wall playback.</p>
+                <p class="fleet-manager__workflow-copy">Save the camera, refresh RTSP profiles, capture a preview, then apply a recording policy before operators rely on the feed.</p>
             </div>
         </div>
 
@@ -21,6 +21,11 @@
             <article class="fleet-manager__workflow-step">
                 <span class="fleet-manager__workflow-step-number">03</span>
                 <strong>Test and capture proof</strong>
+            </article>
+
+            <article class="fleet-manager__workflow-step">
+                <span class="fleet-manager__workflow-step-number">04</span>
+                <strong>Apply recording policy</strong>
             </article>
         </div>
     </section>
@@ -108,6 +113,7 @@
                 @foreach ($cameras as $camera)
                     @php($latestPreview = $camera->latestRtspPreview())
                     @php($serialNumber = is_string($camera->serial_number) && trim(strtolower($camera->serial_number)) !== 'null' ? trim($camera->serial_number) : null)
+                    @php($recordingModeLabel = $camera->recording_mode === 'continuous' ? 'Constantly recording' : ($camera->recording_mode === 'motion' ? 'Record on movement' : 'Recording off'))
                     <article class="camera-row{{ $editingCameraId === $camera->id ? ' camera-row--selected' : '' }}">
                         <div class="camera-row__header">
                             <div class="camera-row__identity">
@@ -153,6 +159,16 @@
                                         <strong>{{ $latestPreview['profile']['probe_status'] ?? 'Not tested yet' }}</strong>
                                     </div>
 
+                                    <div class="camera-row__fact">
+                                        <span>Recording</span>
+                                        <strong>{{ $recordingModeLabel }}</strong>
+                                    </div>
+
+                                    <div class="camera-row__fact">
+                                        <span>Last recording</span>
+                                        <strong>{{ $camera->recording_last_recorded_at?->diffForHumans() ?? 'No saved segment yet' }}</strong>
+                                    </div>
+
                                     <div class="camera-row__fact camera-row__fact--wide">
                                         <span>ONVIF</span>
                                         <strong>{{ $camera->onvifEndpoint() ?? 'Not configured' }}</strong>
@@ -167,6 +183,10 @@
                                 <div class="badge-row camera-row__meta-tags">
                                     <span class="status-pill status-pill--{{ $camera->supports_onvif ? 'good' : 'neutral' }}">{{ $camera->supports_onvif ? 'ONVIF' : 'No ONVIF' }}</span>
                                     <span class="status-pill status-pill--{{ $camera->supports_rtsp ? 'good' : 'warn' }}">{{ $camera->supports_rtsp ? 'RTSP' : 'No RTSP' }}</span>
+                                    <span class="status-pill status-pill--{{ $camera->recording_mode === 'off' ? 'neutral' : 'good' }}">{{ $recordingModeLabel }}</span>
+                                    @if ($camera->recording_mode !== 'off')
+                                        <span class="status-pill">Retention {{ $camera->recording_retention_days }} day{{ $camera->recording_retention_days === 1 ? '' : 's' }}</span>
+                                    @endif
                                     @if ($serialNumber)
                                         <span class="status-pill">SN {{ $serialNumber }}</span>
                                     @endif
@@ -195,7 +215,7 @@
                 <div class="panel-heading">
                     <div>
                         <h2 id="camera-editor-title" class="panel-title">{{ $editingCameraId ? 'Edit camera' : 'Add camera' }}</h2>
-                        <p class="panel-copy">Maintain network identity, ONVIF endpoint, credentials, and RTSP defaults for the selected camera record.</p>
+                        <p class="panel-copy">Maintain network identity, ONVIF endpoint, credentials, RTSP defaults, and recording policy for the selected camera record.</p>
                     </div>
 
                     <div class="probe-actions">
@@ -240,6 +260,16 @@
                         <article class="detail-card">
                             <span class="detail-card__label">Stored credentials</span>
                             <strong>{{ $hasStoredPassword ? 'Username and password saved' : 'No saved password' }}</strong>
+                        </article>
+
+                        <article class="detail-card">
+                            <span class="detail-card__label">Recording policy</span>
+                            <strong>{{ $recordingModes[$selectedCamera->recording_mode] ?? 'Off' }}</strong>
+                        </article>
+
+                        <article class="detail-card">
+                            <span class="detail-card__label">Latest recorded segment</span>
+                            <strong>{{ $selectedCamera->recording_last_recorded_at?->diffForHumans() ?? 'No segment saved yet' }}</strong>
                         </article>
                     </div>
                 @endif
@@ -389,6 +419,94 @@
                 <section class="form-section">
                     <div class="form-section__header">
                         <div>
+                            <h3 class="panel-title">Recording policy</h3>
+                            <p class="panel-copy">Choose whether this feed stays off, records continuously, or records only when the selected motion region changes enough to cross the threshold.</p>
+                        </div>
+                    </div>
+
+                    <div class="camera-form-grid">
+                        <label class="field-stack">
+                            <span>Recording mode</span>
+                            <select class="form-select" wire:model="form.recording_mode">
+                                @foreach ($recordingModes as $recordingModeValue => $recordingModeLabel)
+                                    <option value="{{ $recordingModeValue }}">{{ $recordingModeLabel }}</option>
+                                @endforeach
+                            </select>
+                            @error('form.recording_mode')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Recording source profile</span>
+                            <select class="form-select" wire:model="form.recording_profile_index">
+                                <option value="">Automatic primary profile</option>
+                                @foreach ($rtspProfiles as $profile)
+                                    <option value="{{ $loop->index }}">{{ $profile['name'] ?? 'Profile '.($loop->index + 1) }}</option>
+                                @endforeach
+                            </select>
+                            @error('form.recording_profile_index')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Retention days</span>
+                            <input class="form-input" type="number" min="1" max="365" wire:model="form.recording_retention_days">
+                            @error('form.recording_retention_days')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Motion sensitivity</span>
+                            <input class="form-input" type="number" min="1" max="100" wire:model="form.motion_sensitivity">
+                            @error('form.motion_sensitivity')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+                    </div>
+
+                    <p class="probe-note">Higher sensitivity reacts to smaller pixel changes. Recordings are captured as short disk-backed segments through queued jobs, and retention cleanup removes expired footage automatically.</p>
+
+                    <div class="camera-form-grid">
+                        <label class="field-stack">
+                            <span>Motion area left %</span>
+                            <input class="form-input" type="number" min="0" max="95" wire:model="form.recording_motion_x">
+                            @error('form.recording_motion_x')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Motion area top %</span>
+                            <input class="form-input" type="number" min="0" max="95" wire:model="form.recording_motion_y">
+                            @error('form.recording_motion_y')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Motion area width %</span>
+                            <input class="form-input" type="number" min="5" max="100" wire:model="form.recording_motion_width">
+                            @error('form.recording_motion_width')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Motion area height %</span>
+                            <input class="form-input" type="number" min="5" max="100" wire:model="form.recording_motion_height">
+                            @error('form.recording_motion_height')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+                    </div>
+                </section>
+
+                <section class="form-section">
+                    <div class="form-section__header">
+                        <div>
                             <h3 class="panel-title">Camera state</h3>
                             <p class="panel-copy">Toggle supported protocols and whether the camera stays active for operators.</p>
                         </div>
@@ -522,6 +640,45 @@
                                         </button>
                                     </div>
                                 </article>
+                            @endforeach
+                        </div>
+                    @endif
+                </section>
+
+                <section class="form-section">
+                    <div class="panel-heading">
+                        <div>
+                            <h3 class="panel-title">Recent recording activity</h3>
+                            <p class="panel-copy">This is the latest queue and retention outcome for saved recording segments on the selected camera.</p>
+                        </div>
+                    </div>
+
+                    @if ($selectedCamera === null)
+                        <div class="empty-state empty-state--compact">
+                            <strong>Save a camera before recording activity appears.</strong>
+                            <p>The scheduler only queues recording work for saved camera records.</p>
+                        </div>
+                    @elseif ($selectedCameraRecentRecordings->isEmpty())
+                        <div class="empty-state empty-state--compact">
+                            <strong>No recording segments have been queued for this camera yet.</strong>
+                            <p>Enable a recording mode, then let the scheduler and queue worker process the first segment.</p>
+                        </div>
+                    @else
+                        <div class="key-value-list">
+                            @foreach ($selectedCameraRecentRecordings as $recentRecording)
+                                <div class="key-value-row">
+                                    <span>{{ $recentRecording->scheduled_for?->format('Y-m-d H:i') ?? 'Pending' }} UTC · {{ ucfirst($recentRecording->capture_mode) }}</span>
+                                    <strong>
+                                        {{ ucfirst($recentRecording->status) }}
+                                        @if ($recentRecording->file_size_bytes)
+                                            · {{ number_format($recentRecording->file_size_bytes / 1048576, 2) }} MB
+                                        @endif
+                                        @if ($recentRecording->motion_score !== null)
+                                            · motion {{ $recentRecording->motion_score }}
+                                        @endif
+                                    </strong>
+                                </div>
+                                <p class="probe-note">{{ $recentRecording->message ?? 'No recorder status message yet.' }}</p>
                             @endforeach
                         </div>
                     @endif

@@ -22,6 +22,7 @@ class CameraStorageService
             storage_path('app/private/cameras'),
             $cameraRoot,
             $cameraRoot.'/previews',
+            $cameraRoot.'/recordings',
         ] as $path) {
             $this->ensureWritableDirectory($path);
         }
@@ -64,6 +65,138 @@ class CameraStorageService
         }
 
         return null;
+    }
+
+    public function recordingAbsolutePath(Camera $camera, \DateTimeInterface $timestamp, string $fileName): string
+    {
+        $cameraRoot = $this->ensureCameraDirectories($camera);
+        $recordingDirectory = $cameraRoot.'/recordings/'.$timestamp->format('Y/m/d');
+
+        $this->ensureWritableDirectory($recordingDirectory);
+
+        return $recordingDirectory.'/'.$fileName;
+    }
+
+    public function recordingRelativePathFromAbsolute(string $absolutePath): string
+    {
+        $prefix = storage_path('app/private/');
+
+        if (!str_starts_with($absolutePath, $prefix)) {
+            throw new RuntimeException('Recording path must live under private storage.');
+        }
+
+        return ltrim(substr($absolutePath, strlen($prefix)), '/');
+    }
+
+    public function recordingReviewAssetRelativePath(?string $recordingPath, string $fileName): ?string
+    {
+        if (!is_string($recordingPath) || trim($recordingPath) === '') {
+            return null;
+        }
+
+        $normalizedPath = ltrim(str_replace('\\', '/', $recordingPath), '/');
+        $directory = trim(dirname($normalizedPath), './');
+        $baseName = pathinfo($normalizedPath, PATHINFO_FILENAME);
+
+        if ($baseName === '') {
+            return null;
+        }
+
+        $relativeDirectory = ($directory !== '' ? $directory.'/' : '').'_review/'.$baseName;
+
+        return $relativeDirectory.'/'.ltrim($fileName, '/');
+    }
+
+    public function recordingReviewAssetAbsolutePath(?string $recordingPath, string $fileName, bool $ensureDirectory = false): ?string
+    {
+        $relativePath = $this->recordingReviewAssetRelativePath($recordingPath, $fileName);
+
+        if ($relativePath === null) {
+            return null;
+        }
+
+        $absolutePath = storage_path('app/private/'.$relativePath);
+
+        if ($ensureDirectory) {
+            $this->ensureWritableDirectory(dirname($absolutePath));
+        }
+
+        return $absolutePath;
+    }
+
+    public function resolveReviewAssetAbsolutePath(?string $assetPath): ?string
+    {
+        return $this->resolveRecordingAbsolutePath($assetPath);
+    }
+
+    public function deleteRecordingReviewAssets(?string $recordingPath): void
+    {
+        $directory = $this->recordingReviewAssetAbsolutePath($recordingPath, '.', false);
+
+        if ($directory === null) {
+            return;
+        }
+
+        File::deleteDirectory(dirname($directory));
+    }
+
+    public function resolveRecordingAbsolutePath(?string $recordingPath): ?string
+    {
+        if (!is_string($recordingPath) || trim($recordingPath) === '') {
+            return null;
+        }
+
+        $normalizedPath = ltrim(str_replace('\\', '/', $recordingPath), '/');
+        $candidates = [$normalizedPath];
+
+        if (str_starts_with($normalizedPath, 'app/private/')) {
+            $candidates[] = substr($normalizedPath, strlen('app/private/'));
+        }
+
+        foreach (array_unique(array_filter($candidates)) as $candidate) {
+            $absolutePath = str_starts_with($candidate, 'app/')
+                ? storage_path($candidate)
+                : storage_path('app/private/'.$candidate);
+
+            if (is_file($absolutePath)) {
+                return $absolutePath;
+            }
+        }
+
+        return null;
+    }
+
+    public function pruneEmptyRecordingDirectories(string $absolutePath): void
+    {
+        $directory = dirname($absolutePath);
+        $cameraRecordingsRoot = dirname(dirname(dirname($absolutePath)));
+
+        while (str_starts_with($directory, $cameraRecordingsRoot) && $directory !== $cameraRecordingsRoot) {
+            $entries = @scandir($directory) ?: [];
+            $entries = array_values(array_diff($entries, ['.', '..']));
+
+            if ($entries !== []) {
+                break;
+            }
+
+            @rmdir($directory);
+            $directory = dirname($directory);
+        }
+
+        $reviewRoot = $this->recordingReviewAssetAbsolutePath($this->recordingRelativePathFromAbsolute($absolutePath), '.', false);
+
+        if ($reviewRoot !== null) {
+            $reviewParent = dirname($reviewRoot);
+
+            if (is_dir($reviewParent)) {
+                $entries = @scandir($reviewParent) ?: [];
+                $entries = array_values(array_diff($entries, ['.', '..']));
+
+                if ($entries === []) {
+                    @rmdir($reviewParent);
+                }
+            }
+        }
     }
 
     public function detectPreviewMimeType(?string $previewPath): ?string

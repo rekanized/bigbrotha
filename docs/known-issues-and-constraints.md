@@ -94,6 +94,58 @@ This environment currently uses:
 
 If RTSP diagnostics fail unexpectedly, verify `config/ffmpeg.php` and the bindings in `AppServiceProvider`.
 
+## Recording Worker Requirements
+
+Per-camera recording is queue-backed by design.
+
+Current expectations:
+
+- `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
+- a queue worker must process the `recordings` queue, otherwise camera policies will save successfully in the UI but no footage will be written.
+- the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
+- `camera-recordings:ensure-worker` can run from the same minute scheduler as a safety net, but it should only be enabled when the host config explicitly allows Laravel to manage the worker process.
+- `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.
+- the preferred safety-net path is to check an installed user or system systemd unit first; the direct detached fallback start is intentionally opt-in.
+- recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
+- the recorder writes direct-to-disk ffmpeg copy segments; PHP should orchestrate jobs, not stream payload bytes.
+
+## Motion Recording Tradeoff
+
+The first movement-recording implementation uses ffmpeg scene-change analysis on a cropped region of interest.
+
+Implications:
+
+- it is intentionally basic pixel-change detection, not object classification.
+- the configured area is expressed as left, top, width, and height percentages of the feed.
+- higher sensitivity values lower the ffmpeg scene threshold so smaller changes can trigger recording.
+- there is no pre-roll buffer yet; the current behavior records the segment after motion is detected on that scheduler tick.
+
+## Recording Playback Tradeoff
+
+Saved footage is currently written to MKV by default and remuxed to fragmented MP4 only when an operator opens the playback screen.
+
+Implications:
+
+- playback depends on ffmpeg being available on the host at review time, not only at record time.
+- Timeline Review now prefers generated preview assets first, but it can still fall back to the older buffered review stream when those assets are missing or failed.
+- opening many recorded tiles at once can start several short ffmpeg remux processes in parallel, so bounded review walls remain the intended operator shape.
+- the browser review flow avoids re-encoding and avoids exposing private storage paths directly, but browser compatibility still depends on the original recorded codecs being browser-safe after remux.
+- the original file remains downloadable even if the browser player cannot render the remuxed segment.
+
+## Timeline Review Preview Assets
+
+Timeline Review now generates private derived assets for saved recordings.
+
+Current behavior:
+
+- each recorded segment can produce a low-resolution preview MP4 for faster scrubbing.
+- each recorded segment can also produce a thumbnail image for the vertical review rail.
+- each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
+- those files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
+- the timeline preview page uses a Livewire parent component to own the active camera and focus time while child stage and rail components react to that shared review state.
+- the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the buffered review stream.
+- if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the buffered review stream instead of showing a blank player.
+
 ## Live Wall Delivery Tradeoff
 
 The current live wall uses MediaMTX plus WebRTC instead of per-viewer MJPEG.
@@ -199,6 +251,7 @@ When changing this platform, the most relevant tests are:
 - `tests/Feature/OnvifRtspStreamServiceTest.php`
 - `tests/Feature/RtspStreamDiagnosticsServiceTest.php`
 - `tests/Feature/CameraFleetManagerTest.php`
+- `tests/Feature/CameraRecordingCommandTest.php`
 - `tests/Feature/LiveWallStreamTest.php`
 - `tests/Feature/Relay/MediaMtxAuthCallbackTest.php`
 - `tests/Feature/Relay/MediaMtxProcessServiceTest.php`

@@ -54,6 +54,8 @@ Each row currently shows:
 - enabled or disabled state.
 - latest preview thumbnail when available.
 - last stream-check status.
+- recording mode and retention status.
+- latest recorded segment timing when available.
 - ONVIF and RTSP readiness.
 
 Use `View / edit` to open the modal editor.
@@ -67,6 +69,9 @@ It supports:
 - editing network and endpoint fields.
 - editing credentials.
 - toggling ONVIF and RTSP support.
+- selecting a recording mode per camera.
+- choosing recording retention in days.
+- setting motion sensitivity and the motion-analysis region as percentages of the feed.
 - saving camera changes.
 - refreshing RTSP profiles from ONVIF.
 - saving a direct RTSP endpoint for cameras that do not support ONVIF.
@@ -123,6 +128,20 @@ If a saved preview file is not a valid image, the preview route serves a placeho
 
 `latestRtspPreview()` now ignores missing or invalid image files so fleet cards do not keep pointing at stale thumbnails after storage drift.
 
+## Recording Policy
+
+Camera Fleet is now the place where operators enable feed recording.
+
+Current behavior:
+
+1. each camera can stay off, record continuously, or record only on movement.
+2. movement recording uses a basic ffmpeg scene-change check over a cropped feed region defined by left, top, width, and height percentages.
+3. higher motion sensitivity values react to smaller pixel changes.
+4. the selected recording source can stay on automatic primary-profile selection or target a saved RTSP profile explicitly.
+5. retention is currently enforced per camera in whole days, with the default workflow set to one day.
+
+The first implementation prioritizes reliability and resource control: the recorder writes short direct-to-disk segments with ffmpeg stream copy instead of buffering or re-encoding in PHP.
+
 ## Scheduled Preview Refresh
 
 Preview freshness no longer depends entirely on a human running a stream test.
@@ -136,9 +155,40 @@ Current behavior:
 
 Deployments should run `php artisan schedule:run` every minute from cron or an equivalent scheduler so these preview refreshes continue automatically.
 
+## Scheduled Recording
+
+Recording maintenance is also scheduler-driven.
+
+Current behavior:
+
+1. `camera-recordings:tick` runs every minute and queues one recording decision per eligible camera.
+2. continuous mode writes a direct-to-disk segment every scheduler tick.
+3. motion mode first samples a short cropped analysis window and only writes a segment when the selected region crosses the configured threshold.
+4. recording work is queue-backed and guarded by a per-camera lock so duplicate overlapping segment jobs are avoided.
+5. `camera-recordings:prune` runs hourly and removes files whose segment end time is older than the camera's retention window.
+
+Production deployments should run a queue worker for the `recordings` queue in addition to the normal scheduler.
+
 ## Live Wall Playback
 
 Use `/wall-tiles` to choose what the wall should show, then open `/live-wall` to monitor the configured result.
+
+## Recordings Browser
+
+Use `/recordings` for the fast recordings browser, then open `/recordings/timeline` when you need the heavier multi-camera review workflow.
+
+Current behavior:
+
+1. `/recordings` stays optimized for search, filtering, and opening a single saved segment quickly.
+2. the dedicated timeline review page lives separately in navigation and behaves like a standalone synchronized review module rather than a second recordings browser.
+3. the module now opens into a single large preview stage with a right-hand vertical scrub rail and a bottom camera strip, so operators can keep one feed in focus while switching cameras quickly.
+4. the review screen auto-loads available recorded cameras into the bottom strip instead of starting with a separate camera-selection step or a saved wall layout.
+5. the review timeline loads a padded multi-day span for the loaded cameras so zooming out still exposes meaningful date range context even when clips only exist on one day.
+6. the active stage loads the saved clip that overlaps the selected timeline focus time for the currently active camera, while cameras without a clip at that time stay visibly empty until the operator switches feeds or moves the focus.
+7. the timeline supports dragging the focus line, clicking thumbnail rail events, hour-jump labels, scrub sprite hover previews in the stage, and synchronized autoplay within the active preview stage.
+8. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.
+9. recorded entries still open a dedicated playback screen for focused review, and that screen still provides original-file download.
+10. if a saved file is missing or the segment was skipped or failed, the detailed review page still exposes the recorder status and metadata without pretending playback is available.
 
 ## Wall Tiles Builder
 
@@ -190,3 +240,5 @@ The same-host deployment model should expose MediaMTX directly on `8189` rather 
 ## Deletion
 
 Deleting a camera also removes its per-camera preview storage through `CameraStorageService`.
+
+That same per-camera storage root now also contains recording segments, so deleting the camera removes both previews and recordings together.
