@@ -45,12 +45,11 @@
                 <a class="button button--primary" href="{{ route('wall-tiles.index') }}" wire:navigate>Configure wall tiles</a>
             </div>
         @else
-            <div class="live-wall-grid live-wall-grid--configured live-wall-grid--monitor" style="--wall-grid-columns: {{ max(1, min($selectedWall->grid_columns, max(1, $tiles->count()))) }};" data-live-wall-grid>
+            <div class="live-wall-grid live-wall-grid--configured live-wall-grid--monitor" style="--wall-grid-columns: {{ max(1, (int) $selectedWall->grid_columns) }};" data-live-wall-grid>
                 @foreach ($tiles as $tile)
                     @php
                         /** @var \App\Models\Camera $camera */
                         $camera = $tile['camera'];
-                        $tileOrientation = $tile['orientation'] ?? 'landscape';
                         $tileStyle = 'grid-column: span '.($tile['columnSpan'] ?? 1).'; grid-row: span '.($tile['rowSpan'] ?? 1).';';
                         $liveSelection = $tile['liveSelection'];
                         $selectedProfile = $liveSelection['profile'] ?? null;
@@ -66,7 +65,7 @@
                         $previewProfile = $latestPreview['profile'] ?? null;
                     @endphp
                     <article
-                        class="wall-monitor-tile wall-tile--{{ $tileOrientation }}"
+                        class="wall-monitor-tile"
                         style="{{ $tileStyle }}"
                         data-camera-name="{{ e($camera->name) }}"
                         data-camera-id="{{ $camera->getKey() }}"

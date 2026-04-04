@@ -1568,7 +1568,7 @@ body.page-live-wall .live-wall-grid {
 body.page-live-wall .wall-monitor-tile {
     border: 1px solid rgba(148, 163, 184, 0.16);
     border-radius: 14px;
-    background: #0b1117;
+    background: #000000;
     box-shadow: none;
     transition: none;
 }
@@ -1578,7 +1578,7 @@ body.page-live-wall .wall-monitor-tile__stream,
 body.page-live-wall .webrtc-player,
 body.page-live-wall .webrtc-player__video,
 body.page-live-wall .wall-tile__stream-image {
-    background: #0b1117;
+    background: #000000;
 }
 
 body.page-live-wall .wall-monitor-tile__gridline {
@@ -1781,11 +1781,11 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] {
 
 body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] {
     --live-wall-focused-padding: 16px;
-    background: #0f141b;
+    background: #000000;
 }
 
 body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
-    background: #0b1117;
+    background: #000000;
 }
 
 body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__overlay {
@@ -2252,7 +2252,7 @@ html[data-theme='dark'] body.page-live-wall .webrtc-player,
 html[data-theme='dark'] body.page-live-wall .webrtc-player__video,
 html[data-theme='dark'] body.page-live-wall .wall-tile__stream-image,
 html[data-theme='dark'] body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
-    background: var(--live-wall-dark-tile);
+    background: #000000;
 }
 
 html[data-theme='dark'] body.page-live-wall .wall-monitor-tile__identity,

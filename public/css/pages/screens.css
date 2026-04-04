@@ -415,7 +415,6 @@
     display: grid;
     grid-auto-rows: minmax(0, 1fr);
     gap: 1px;
-    min-height: 100vh;
     padding: 1px;
     border: 0;
     border-radius: 0;
@@ -1286,7 +1285,8 @@ a.wall-tile__stream:focus-visible {
     min-width: 0;
     min-height: 0;
     display: grid;
-    background: hsl(220 24% 10%);
+    place-items: center;
+    background: #000000;
     overflow: hidden;
     transition: opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
@@ -1330,25 +1330,12 @@ body.live-wall-focus-mode {
 
 .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
     position: relative;
-    width: 100%;
-    height: auto;
-    margin: 0 auto;
-    background: hsl(220 24% 10%);
-}
-
-.live-wall-grid--monitor[data-layout-mode='focused'] .wall-tile--landscape.wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
     width: min(100%, calc(var(--live-wall-focused-max-height) * 16 / 9));
+    height: auto;
     aspect-ratio: 16 / 9;
-}
-
-.live-wall-grid--monitor[data-layout-mode='focused'] .wall-tile--portrait.wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
-    width: min(100%, calc(var(--live-wall-focused-max-height) * 9 / 16));
-    aspect-ratio: 9 / 16;
-}
-
-.live-wall-grid--monitor[data-layout-mode='focused'] .wall-tile--square.wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__feed {
-    width: min(100%, var(--live-wall-focused-max-height));
-    aspect-ratio: 1 / 1;
+    max-height: 100%;
+    margin: 0 auto;
+    background: #000000;
 }
 
 .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__stream {
@@ -1383,13 +1370,19 @@ body.live-wall-focus-mode {
 }
 
 .wall-monitor-tile__feed {
+    position: relative;
     display: grid;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
     width: 100%;
-    height: 100%;
-    min-height: 100%;
-    background: hsl(220 24% 10%);
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    min-width: 0;
+    min-height: 0;
+    max-height: 100%;
+    margin: 0 auto;
+    overflow: hidden;
+    background: #000000;
 }
 
 .wall-monitor-tile__stream,
@@ -1399,9 +1392,10 @@ body.live-wall-focus-mode {
     width: 100%;
     height: 100%;
     min-width: 100%;
-    min-height: 100%;
+    min-height: 0;
     border: 0;
     border-radius: 0;
+    background: #000000;
 }
 
 .wall-monitor-tile__overlay {
@@ -1695,8 +1689,18 @@ body.live-wall-focus-mode {
 
 .live-wall-grid--monitor .webrtc-player,
 .live-wall-grid--monitor .wall-tile__stream-image {
-    min-height: 100%;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
     aspect-ratio: auto;
+}
+
+.live-wall-grid--monitor .webrtc-player__video,
+.live-wall-grid--monitor .wall-tile__stream-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000000;
 }
 
 .wall-monitor-tile__gridline {
@@ -1988,11 +1992,21 @@ body.live-wall-focus-mode {
 .recording-review-focus__viewer {
     position: relative;
     display: grid;
-    width: 100%;
+    width: min(100%, calc(70vh * 16 / 9));
+    max-width: 100%;
+    max-height: 70vh;
     aspect-ratio: 16 / 9;
+    margin: 0 auto;
     border-radius: 26px;
     overflow: hidden;
     background: #0f1a26;
+}
+
+@supports (height: 100dvh) {
+    .recording-review-focus__viewer {
+        width: min(100%, calc(70dvh * 16 / 9));
+        max-height: 70dvh;
+    }
 }
 
 .recording-review-tile__video-shell,
