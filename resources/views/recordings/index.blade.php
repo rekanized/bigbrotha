@@ -84,7 +84,7 @@
             <div class="panel-heading">
                 <div>
                     <h2 class="panel-title">Search recordings</h2>
-                    <p class="panel-copy">Filter by camera, status, capture mode, or recording date to find the segment you need.</p>
+                    <p class="panel-copy">Filter by camera, status, capture mode, or recording date in {{ $displayTimezone }} to find the segment you need.</p>
                 </div>
             </div>
 
@@ -160,7 +160,7 @@
                         <article class="screen-card recording-browser__row">
                             <div class="recording-browser__row-header">
                                 <div>
-                                    <span class="camera-row__label">{{ $recording->scheduled_for?->format('Y-m-d H:i') ?? 'Pending' }} UTC</span>
+                                    <span class="camera-row__label">{{ $appSettings->formatDateTime($recording->scheduled_for, 'Y-m-d H:i') ?? 'Pending' }}</span>
                                     <strong>{{ $camera?->name ?? 'Deleted camera' }}</strong>
                                     <p>{{ $camera?->local_ip ?? 'Unknown IP' }}{{ $camera?->hostname ? ' · '.$camera->hostname : '' }}</p>
                                 </div>

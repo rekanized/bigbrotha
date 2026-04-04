@@ -36,6 +36,9 @@ class TimelineRail extends Component
     public int $dayEndMs = 1000;
 
     #[Reactive]
+    public float $timelineZoomScale = 1.0;
+
+    #[Reactive]
     public ?int $activeSegmentId = null;
 
     public function render(): View

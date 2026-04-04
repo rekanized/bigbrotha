@@ -1975,6 +1975,7 @@ body.live-wall-focus-mode {
 
 .recording-review-focus__main {
     display: grid;
+    align-content: start;
     gap: 6px;
     min-width: 0;
 }
@@ -1986,7 +1987,9 @@ body.live-wall-focus-mode {
 
 .recording-review-focus__viewer {
     position: relative;
-    min-height: 540px;
+    display: grid;
+    width: 100%;
+    aspect-ratio: 16 / 9;
     border-radius: 26px;
     overflow: hidden;
     background: #0f1a26;
@@ -1994,12 +1997,16 @@ body.live-wall-focus-mode {
 
 .recording-review-tile__video-shell,
 .recording-review-tile__empty {
+    grid-area: 1 / 1;
     position: relative;
     display: grid;
     width: 100%;
     height: 100%;
-    min-height: 100%;
     overflow: hidden;
+}
+
+.recording-review-tile__video-shell {
+    background: #000;
 }
 
 .recording-review-tile__video-shell[hidden],
@@ -2012,8 +2019,8 @@ body.live-wall-focus-mode {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
-    background: #0f1a26;
+    object-fit: contain;
+    background: #000;
 }
 
 .recording-review-tile__eyebrow {
@@ -2337,14 +2344,74 @@ body.live-wall-focus-mode {
 }
 
 .recording-review-focus__rail {
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     padding: 14px;
 }
 
 .recording-review-focus__rail-header {
     display: grid;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-top: 8px;
+}
+
+.recording-review-focus__rail-toolbar {
+    display: grid;
+    gap: 8px;
+}
+
+.recording-review-focus__rail-zoom {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+}
+
+.recording-review-focus__rail-zoom-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid #d6e2ee;
+    border-radius: 12px;
+    background: #f8fbff;
+    color: #17324a;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    cursor: pointer;
+}
+
+.recording-review-focus__rail-zoom-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+}
+
+.recording-review-focus__rail-zoom-button--reset {
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 110px;
+    padding-inline: 14px;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.recording-review-focus__rail-zoom-button--reset strong {
+    color: #0f77f2;
+    font-size: 0.9rem;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.recording-review-focus__rail-help {
+    margin: 0;
+    color: #58738e;
+    font-size: 0.8rem;
+    line-height: 1.45;
 }
 
 .recording-review-focus__rail-header strong {
@@ -2373,7 +2440,7 @@ body.live-wall-focus-mode {
     background: #f5f9fd;
     overscroll-behavior: contain;
     scrollbar-gutter: stable both-edges;
-    cursor: ns-resize;
+    cursor: default;
 }
 
 .recording-review-focus__rail-viewport[data-dragging='true'] {
@@ -2387,11 +2454,21 @@ body.live-wall-focus-mode {
     --recording-review-rail-event-width: 56px;
     --recording-review-rail-column-gap: 12px;
     --recording-review-rail-edge-gap: 12px;
+    --recording-review-rail-hour-height: 88px;
     --recording-review-rail-thumb-height: 84px;
-    min-height: max(1800px, calc(var(--recording-review-hours, 24) * 88px));
+    --recording-review-rail-thumb-gap: 12px;
+    --recording-review-zoom-scale: 1;
+    height: max(var(--recording-review-rail-min-height, 1800px), calc(var(--recording-review-hours, 24) * var(--recording-review-rail-hour-height) * var(--recording-review-zoom-scale)));
+    min-height: var(--recording-review-rail-min-height, 1800px);
     padding: 0;
-    background: linear-gradient(180deg, rgba(37, 99, 235, 0.06) 0, rgba(37, 99, 235, 0.06) 1px, transparent 1px, transparent 88px);
-    background-size: 100% 88px;
+    background: linear-gradient(180deg, rgba(37, 99, 235, 0.06) 0, rgba(37, 99, 235, 0.06) 1px, transparent 1px, transparent calc(var(--recording-review-rail-hour-height) * var(--recording-review-zoom-scale)));
+    background-size: 100% calc(var(--recording-review-rail-hour-height) * var(--recording-review-zoom-scale));
+}
+
+.recording-review-focus__rail-track,
+.recording-review-focus__rail-tick,
+.recording-review-focus__rail-cursor {
+    cursor: ns-resize;
 }
 
 .recording-review-focus__rail-columns,
@@ -2462,8 +2539,9 @@ body.live-wall-focus-mode {
 }
 
 .recording-review-focus__rail-tick span {
-    position: sticky;
+    position: absolute;
     top: 0;
+    left: 10px;
     display: inline-block;
     transform: translateY(-50%);
 }
@@ -2530,7 +2608,7 @@ body.live-wall-focus-mode {
     left: calc(var(--recording-review-rail-axis-width) + var(--recording-review-rail-column-gap));
     width: var(--recording-review-rail-event-width);
     z-index: 2;
-    min-height: 10px;
+    min-height: 0;
     padding: 0;
     border: 0;
     background: transparent;
@@ -3067,10 +3145,6 @@ body.live-wall-focus-mode {
 
     .recording-review-focus__volume-value {
         text-align: left;
-    }
-
-    .recording-review-focus__viewer {
-        min-height: 360px;
     }
 
     .recording-review-focus__rail-viewport {

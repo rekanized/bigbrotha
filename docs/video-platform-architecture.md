@@ -178,18 +178,21 @@ Current relay management behavior:
 
 Current recording management behavior:
 
-- `routes/console.php` exposes `camera-recordings:tick` and `camera-recordings:prune`.
+- `routes/console.php` exposes `camera-recordings:tick`, `camera-recordings:prune`, and `camera-recordings:prune-audit`.
 - `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit and `camera-recordings:ensure-worker`, which can be scheduled every minute to verify the bounded recording worker is present and to start the configured systemd unit when the worker is absent.
-- the scheduler queues recording work every minute for enabled cameras whose `recording_mode` is `continuous` or `motion`.
+- the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap and recovery safety net instead of the primary segment boundary.
 - recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
 - recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
+- successful continuous segments now re-anchor their `scheduled_for` and `started_at` timestamps to the actual capture start, derive `ended_at` from `started_at + segment_seconds`, and immediately queue the next continuous segment so the chain is not forced to wait for the next scheduler minute.
 - motion mode first runs a short ffmpeg analysis pass against the configured crop region using low FPS, grayscale conversion, and ffmpeg `scene` filtering.
 - successful recordings are stored as per-camera segment files under private storage and expired files are removed by the hourly prune task.
+- prune eligibility now uses `camera_recordings.created_at < now()->subDays(recording_retention_days)` per camera, while `camera-recordings:prune-audit` reports the same candidates without deleting files or rows.
 - stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever.
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
 - the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.
 - the review screen still loads a padded multi-day span for the selected cameras, but the JavaScript layer is now limited to transient rail dragging, scrub-preview overlays, and stage seek synchronization across Livewire rerenders.
+- timeline segment selection now treats clip bounds as half-open ranges, so a focus time exactly on a shared clip edge resolves to the following adjacent segment instead of double-matching the earlier one.
 - saved segments can generate private review assets under their `_review` directory, including a preview MP4, poster thumbnail, and scrub sprite sheet used for in-rail hover previews.
 
 The WebRTC wall is intended for operator viewing with shared fan-out. The copy relay remains available for downstream consumers that want copied camera video without a re-encode step.

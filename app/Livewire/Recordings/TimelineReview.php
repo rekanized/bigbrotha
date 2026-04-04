@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Recordings;
 
+use App\Services\ApplicationSettingsService;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -24,6 +25,18 @@ class TimelineReview extends Component
     public array $reviewTiles = [];
 
     public int $timelineHours = 24;
+
+    public float $timelineZoomScale = 1.0;
+
+    public float $timelineZoomMinScale = 1.0;
+
+    public float $timelineZoomMaxScale = 8.0;
+
+    public float $timelineZoomStepFactor = 1.18;
+
+    public int $timelineBaseHourHeightPx = 88;
+
+    public int $timelineMinTrackHeightPx = 1800;
 
     /**
      * @var array<int, array<string, mixed>>
@@ -62,6 +75,12 @@ class TimelineReview extends Component
         $this->timelineCameraOptions = array_values($timelineCameraOptions);
         $this->reviewTiles = array_values($reviewTiles);
         $this->timelineHours = max(24, $timelineHours);
+        $this->timelineZoomMinScale = 1.0;
+        $this->timelineZoomMaxScale = (float) max(8, min(48, (int) ceil($this->timelineHours / 6)));
+        $this->timelineZoomStepFactor = 1.18;
+        $this->timelineBaseHourHeightPx = 88;
+        $this->timelineMinTrackHeightPx = 1800;
+        $this->timelineZoomScale = $this->clampZoomScale((float) ($timelinePayload['zoomScale'] ?? 1.0));
         $this->timelineTicks = array_values($timelineTicks);
         $this->dayStartMs = $this->asInt($timelinePayload['dayStartMs'] ?? 0);
         $this->dayEndMs = max($this->dayStartMs + 1000, $this->asInt($timelinePayload['dayEndMs'] ?? ($this->dayStartMs + 1000)));
@@ -71,9 +90,18 @@ class TimelineReview extends Component
     }
 
     #[On('timeline-focus-selected')]
-    public function selectFocus(int $focusMs): void
+    public function selectFocus(int $focusMs, ?float $zoomScale = null): void
     {
+        if ($zoomScale !== null) {
+            $this->timelineZoomScale = $this->clampZoomScale($zoomScale);
+        }
+
         $this->focusAtMs = $this->clampFocusMs($focusMs);
+    }
+
+    public function syncZoomScale(float $zoomScale): void
+    {
+        $this->timelineZoomScale = $this->clampZoomScale($zoomScale);
     }
 
     public function selectCamera(int $cameraId): void
@@ -151,19 +179,7 @@ class TimelineReview extends Component
             return $exactMatch;
         }
 
-        $renderedMatches = array_values(array_filter($segments, function (mixed $segment): bool {
-            return is_array($segment) && $this->segmentContainsRenderedFocus($segment, $this->focusAtMs);
-        }));
-
-        if ($renderedMatches === []) {
-            return null;
-        }
-
-        usort($renderedMatches, function (array $left, array $right): int {
-            return $this->segmentFocusDistance($left, $this->focusAtMs) <=> $this->segmentFocusDistance($right, $this->focusAtMs);
-        });
-
-        return $renderedMatches[0] ?? null;
+        return null;
     }
 
     /**
@@ -171,52 +187,15 @@ class TimelineReview extends Component
      */
     private function segmentContainsFocus(array $segment, int $focusMs): bool
     {
-        return $this->asInt($segment['startMs'] ?? 0) <= $focusMs
-            && $this->asInt($segment['endMs'] ?? 0) >= $focusMs;
-    }
-
-    /**
-     * @param  array<string, mixed>  $segment
-     */
-    private function segmentContainsRenderedFocus(array $segment, int $focusMs): bool
-    {
-        [$renderStartMs, $renderEndMs] = $this->segmentRenderedRange($segment);
-
-        return $renderStartMs <= $focusMs && $renderEndMs >= $focusMs;
-    }
-
-    /**
-     * @param  array<string, mixed>  $segment
-     * @return array{0: int, 1: int}
-     */
-    private function segmentRenderedRange(array $segment): array
-    {
-        $segmentStartMs = $this->asInt($segment['startMs'] ?? 0);
-        $segmentEndMs = max($segmentStartMs, $this->asInt($segment['endMs'] ?? $segmentStartMs));
-        $renderTopPercent = (float) ($segment['topPercent'] ?? 0);
-        $renderHeightPercent = (float) ($segment['renderHeightPercent'] ?? 0);
-        $renderedEndMs = (int) round($this->dayStartMs + (($renderTopPercent + $renderHeightPercent) / 100) * $this->timelineDurationMs());
-
-        return [$segmentStartMs, max($segmentEndMs, $renderedEndMs)];
-    }
-
-    /**
-     * @param  array<string, mixed>  $segment
-     */
-    private function segmentFocusDistance(array $segment, int $focusMs): int
-    {
         $segmentStartMs = $this->asInt($segment['startMs'] ?? 0);
         $segmentEndMs = max($segmentStartMs, $this->asInt($segment['endMs'] ?? $segmentStartMs));
 
-        if ($this->segmentContainsFocus($segment, $focusMs)) {
-            return 0;
+        if ($segmentEndMs <= $segmentStartMs) {
+            return $focusMs === $segmentStartMs;
         }
 
-        if ($focusMs < $segmentStartMs) {
-            return $segmentStartMs - $focusMs;
-        }
-
-        return $focusMs - $segmentEndMs;
+        return $segmentStartMs <= $focusMs
+            && $focusMs < $segmentEndMs;
     }
 
     private function clampFocusMs(int $focusMs): int
@@ -249,7 +228,15 @@ class TimelineReview extends Component
 
     private function formatFocusLabel(int $focusMs): string
     {
-        return gmdate('Y-m-d H:i:s', (int) floor($focusMs / 1000)).' UTC';
+        return app(ApplicationSettingsService::class)->formatDateTime(
+            now()->setTimestamp((int) floor($focusMs / 1000))->utc(),
+            'Y-m-d H:i:s'
+        ) ?? gmdate('Y-m-d H:i:s', (int) floor($focusMs / 1000));
+    }
+
+    private function clampZoomScale(float $zoomScale): float
+    {
+        return max($this->timelineZoomMinScale, min($this->timelineZoomMaxScale, $zoomScale));
     }
 
     private function asInt(mixed $value): int

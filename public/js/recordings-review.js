@@ -6,30 +6,71 @@
     }
 
     const state = {
+        activeCameraId: null,
         boundVideo: null,
         boundVideoCleanup: null,
+        boundViewport: null,
+        boundViewportCleanup: null,
         cleanupFns: [],
         drag: null,
         lastDragEndedAt: 0,
+        lastNativeScrollAt: 0,
         lastPointerEventAt: 0,
+        lastScrollbarPointerAt: 0,
+        lastWheelZoomAt: 0,
         observer: null,
         observerPauseDepth: 0,
         observerScope: null,
+        scrubPreviewFocusMs: null,
         scrubPreviewRequestId: 0,
         scrubSpriteCache: new Map(),
         scrubSpritePending: new Map(),
+        scrubPreviewVisible: false,
         stageMuted: null,
         stagePaused: null,
         stageVolume: 1,
+        pendingViewportRestore: false,
+        viewportScrollTop: null,
+        zoomScale: null,
+        zoomSyncTimer: null,
     };
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const clampVolume = (value) => clamp(Number(value) || 0, 0, 1);
+    const displayTimezone = (scope = root()) => scope instanceof HTMLElement && scope.dataset.displayTimezone
+        ? scope.dataset.displayTimezone
+        : 'UTC';
+    const focusFormatterCache = new Map();
 
-    const formatFocusLabel = (focusMs) => {
+    const focusFormatter = (scope = root()) => {
+        const timezone = displayTimezone(scope);
+
+        if (!focusFormatterCache.has(timezone)) {
+            focusFormatterCache.set(timezone, new Intl.DateTimeFormat('en-GB', {
+                timeZone: timezone,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hourCycle: 'h23',
+                timeZoneName: 'short',
+            }));
+        }
+
+        return focusFormatterCache.get(timezone);
+    };
+
+    const formatFocusLabel = (focusMs, scope = root()) => {
         const date = new Date(Number(focusMs));
+        const parts = focusFormatter(scope).formatToParts(date).reduce((carry, part) => {
+            carry[part.type] = part.value;
 
-        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}:${String(date.getUTCSeconds()).padStart(2, '0')} UTC`;
+            return carry;
+        }, {});
+
+        return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName}`;
     };
 
     const root = () => document.querySelector('[data-recording-review-root]');
@@ -51,13 +92,173 @@
     const timelineStartMs = (scope) => readNumber(scope, 'dayStartMs', 0);
     const timelineEndMs = (scope) => readNumber(scope, 'dayEndMs', timelineStartMs(scope) + 1000);
     const timelineDurationMs = (scope) => Math.max(1, timelineEndMs(scope) - timelineStartMs(scope));
+    const timelineHours = (scope) => Math.max(1, timelineDurationMs(scope) / 3600000);
     const timelineMaximumFocusMs = (scope) => Math.max(timelineStartMs(scope), timelineEndMs(scope) - 1000);
     const currentFocusMs = (scope) => clamp(readNumber(scope, 'focusMs', timelineStartMs(scope)), timelineStartMs(scope), timelineMaximumFocusMs(scope));
+    const activeCameraId = (scope) => scope instanceof HTMLElement ? String(scope.dataset.activeCameraId || '') : '';
+    const railBaseHourHeightPx = (scope) => Math.max(1, readNumber(scope, 'railBaseHourHeightPx', 88));
+    const railMinTrackHeightPx = (scope) => Math.max(1, readNumber(scope, 'railMinTrackHeightPx', 1800));
+    const minimumZoomScale = (scope) => Math.max(0.25, readNumber(scope, 'zoomMinScale', 1));
+    const maximumZoomScale = (scope) => Math.max(minimumZoomScale(scope), readNumber(scope, 'zoomMaxScale', 8));
+    const zoomStepFactor = (scope) => Math.max(1.01, readNumber(scope, 'zoomStepFactor', 1.18));
+    const currentZoomScale = (scope) => clamp(state.zoomScale ?? readNumber(scope, 'zoomScale', 1), minimumZoomScale(scope), maximumZoomScale(scope));
+    const setCurrentZoomScale = (scope, zoomScale) => {
+        const nextScale = clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope));
+
+        state.zoomScale = nextScale;
+
+        if (scope instanceof HTMLElement) {
+            scope.dataset.zoomScale = String(nextScale);
+        }
+
+        return nextScale;
+    };
+    const normalizedZoomScale = (scope, zoomScale = currentZoomScale(scope)) => Number(
+        clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope)).toFixed(3),
+    );
+    const scaledTrackHeight = (scope, zoomScale = currentZoomScale(scope)) => Math.max(
+        railMinTrackHeightPx(scope),
+        Math.ceil(timelineHours(scope) * railBaseHourHeightPx(scope) * zoomScale),
+    );
+    const timelineRatioForMs = (scope, timestampMs) => clamp(
+        (Number(timestampMs || timelineStartMs(scope)) - timelineStartMs(scope)) / timelineDurationMs(scope),
+        0,
+        1,
+    );
+    const clippedSegmentRangeMs = (scope, startMs, endMs) => {
+        const timelineStart = timelineStartMs(scope);
+        const timelineEnd = timelineEndMs(scope);
+        const rawStartMs = Number(startMs || timelineStart);
+        const rawEndMs = Math.max(rawStartMs + 1, Number(endMs || rawStartMs));
+        const clippedStartMs = clamp(rawStartMs, timelineStart, timelineEnd);
+        const clippedEndMs = Math.max(clippedStartMs + 1, clamp(rawEndMs, timelineStart, timelineEnd));
+
+        return {
+            endMs: clippedEndMs,
+            startMs: clippedStartMs,
+        };
+    };
+    const railTrackOffsetPxForMs = (scope, timestampMs, trackHeight = railTrackHeight(scope)) => Math.max(
+        0,
+        timelineRatioForMs(scope, timestampMs) * Math.max(1, trackHeight),
+    );
 
     const setText = (element, value) => {
         if (element instanceof HTMLElement) {
             element.textContent = value;
         }
+    };
+
+    const persistZoomInUrl = (zoomScale, scope = root()) => {
+        if (!(scope instanceof HTMLElement) || !(window.location instanceof Location) || typeof window.history?.replaceState !== 'function') {
+            return;
+        }
+
+        const url = new URL(window.location.href);
+        const normalizedZoomScale = clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope));
+
+        if (Math.abs(normalizedZoomScale - minimumZoomScale(scope)) < 0.001) {
+            url.searchParams.delete('zoom');
+        } else {
+            url.searchParams.set('zoom', normalizedZoomScale.toFixed(2));
+        }
+
+        window.history.replaceState(window.history.state, '', url);
+    };
+
+    const updateZoomUi = (scope, zoomScale = currentZoomScale(scope)) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const normalizedZoomScale = clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope));
+
+        scope.querySelectorAll('[data-role="zoom-label"]').forEach((element) => {
+            setText(element, `${normalizedZoomScale.toFixed(2)}x`);
+        });
+
+        scope.querySelectorAll('[data-role="zoom-in"]').forEach((element) => {
+            if (element instanceof HTMLButtonElement) {
+                element.disabled = normalizedZoomScale >= (maximumZoomScale(scope) - 0.001);
+            }
+        });
+
+        scope.querySelectorAll('[data-role="zoom-out"]').forEach((element) => {
+            if (element instanceof HTMLButtonElement) {
+                element.disabled = normalizedZoomScale <= (minimumZoomScale(scope) + 0.001);
+            }
+        });
+
+        scope.querySelectorAll('[data-role="zoom-reset"]').forEach((element) => {
+            if (element instanceof HTMLButtonElement) {
+                element.disabled = Math.abs(normalizedZoomScale - minimumZoomScale(scope)) < 0.001;
+            }
+        });
+    };
+
+    const focusFromViewportOffset = (scope, offsetY) => {
+        if (!(scope instanceof HTMLElement)) {
+            return null;
+        }
+
+        const viewport = railViewport(scope);
+
+        if (!(viewport instanceof HTMLElement)) {
+            return null;
+        }
+
+        const trackOffsetY = clamp(viewport.scrollTop + Number(offsetY), 0, railTrackHeight(scope));
+        const ratio = clamp(trackOffsetY / railTrackHeight(scope), 0, 1);
+
+        return timelineStartMs(scope) + (timelineDurationMs(scope) * ratio);
+    };
+
+    const applyZoomScale = (scope, zoomScale, options = {}) => {
+        if (!(scope instanceof HTMLElement)) {
+            return false;
+        }
+
+        const viewport = railViewport(scope);
+
+        if (!(viewport instanceof HTMLElement)) {
+            return false;
+        }
+
+        const nextZoomScale = clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope));
+        const previousZoomScale = currentZoomScale(scope);
+
+        if (Math.abs(nextZoomScale - previousZoomScale) < 0.001) {
+            updateZoomUi(scope, previousZoomScale);
+            persistZoomInUrl(previousZoomScale, scope);
+
+            return false;
+        }
+
+        const anchorOffsetY = clamp(
+            Number(options.anchorOffsetY ?? (viewport.clientHeight / 2)),
+            0,
+            Math.max(0, viewport.clientHeight),
+        );
+        const anchorMs = clamp(
+            Number(options.anchorMs ?? focusFromViewportOffset(scope, anchorOffsetY) ?? currentFocusMs(scope)),
+            timelineStartMs(scope),
+            timelineEndMs(scope),
+        );
+
+        setCurrentZoomScale(scope, nextZoomScale);
+        applyTimelineScale(scope);
+
+        const nextTrackHeight = railTrackHeight(scope);
+        const nextScrollTop = ((anchorMs - timelineStartMs(scope)) / timelineDurationMs(scope)) * nextTrackHeight - anchorOffsetY;
+
+        viewport.scrollTop = clamp(nextScrollTop, 0, Math.max(0, nextTrackHeight - viewport.clientHeight));
+        state.viewportScrollTop = viewport.scrollTop;
+        hideScrubPreview(scope);
+        updateVisibleRange(scope);
+        updateZoomUi(scope, nextZoomScale);
+        persistZoomInUrl(nextZoomScale, scope);
+
+        return true;
     };
 
     const updateStageVolumeUi = (scope) => {
@@ -229,6 +430,19 @@
         }
     };
 
+    const focusMsForVideoPlayback = (scope, video) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+            return currentFocusMs(scope);
+        }
+
+        const startMs = readNumber(video, 'startMs', currentFocusMs(scope));
+        const endMs = Math.max(startMs, readNumber(video, 'endMs', startMs));
+        const maxOffsetMs = Math.max(0, (endMs - startMs) - 1);
+        const playbackOffsetMs = clamp(Math.round(Number(video.currentTime || 0) * 1000), 0, maxOffsetMs);
+
+        return clamp(startMs + playbackOffsetMs, timelineStartMs(scope), timelineMaximumFocusMs(scope));
+    };
+
     const railTrackHeight = (scope) => {
         const track = railTrack(scope);
 
@@ -237,6 +451,16 @@
         }
 
         return Math.max(track.scrollHeight, track.offsetHeight, 1);
+    };
+
+    const viewportOffsetFromClientY = (viewport, clientY) => {
+        if (!(viewport instanceof HTMLElement) || !Number.isFinite(Number(clientY))) {
+            return null;
+        }
+
+        const rect = viewport.getBoundingClientRect();
+
+        return clamp(Number(clientY) - rect.top, 0, viewport.clientHeight);
     };
 
     const updateVisibleRange = (scope) => {
@@ -255,7 +479,7 @@
         const ratioEnd = clamp((viewport.scrollTop + viewport.clientHeight) / trackHeight, 0, 1);
         const visibleStartMs = timelineStartMs(scope) + (timelineDurationMs(scope) * ratioStart);
         const visibleEndMs = timelineStartMs(scope) + (timelineDurationMs(scope) * ratioEnd);
-        const label = `${formatFocusLabel(visibleStartMs)} - ${formatFocusLabel(visibleEndMs)}`;
+        const label = `${formatFocusLabel(visibleStartMs, scope)} - ${formatFocusLabel(visibleEndMs, scope)}`;
 
         scope.querySelectorAll('[data-role="visible-range-label"]').forEach((element) => {
             setText(element, label);
@@ -281,7 +505,7 @@
             return;
         }
 
-        const label = formatFocusLabel(focusMs);
+        const label = formatFocusLabel(focusMs, scope);
 
         scope.querySelectorAll('[data-role="focus-label"], [data-role="focus-label-rail"]').forEach((element) => {
             setText(element, label);
@@ -293,34 +517,13 @@
 
     const segmentExactMatch = (segment, focusMs) => {
         const startMs = readNumber(segment, 'startMs', 0);
-        const endMs = readNumber(segment, 'endMs', startMs);
+        const endMs = Math.max(startMs, readNumber(segment, 'endMs', startMs));
 
-        return startMs <= focusMs && endMs >= focusMs;
-    };
-
-    const segmentRenderedMatch = (scope, segment, focusMs) => {
-        const startMs = readNumber(segment, 'startMs', 0);
-        const endMs = readNumber(segment, 'endMs', startMs);
-        const renderTopPercent = Number(segment.dataset.topPercent || 0);
-        const renderHeightPercent = Number(segment.dataset.renderHeightPercent || 0);
-        const renderedEndMs = timelineStartMs(scope) + ((renderTopPercent + renderHeightPercent) / 100) * timelineDurationMs(scope);
-
-        return startMs <= focusMs && Math.max(endMs, renderedEndMs) >= focusMs;
-    };
-
-    const segmentDistance = (segment, focusMs) => {
-        const startMs = readNumber(segment, 'startMs', 0);
-        const endMs = readNumber(segment, 'endMs', startMs);
-
-        if (startMs <= focusMs && endMs >= focusMs) {
-            return 0;
+        if (endMs <= startMs) {
+            return startMs === focusMs;
         }
 
-        if (focusMs < startMs) {
-            return startMs - focusMs;
-        }
-
-        return focusMs - endMs;
+        return startMs <= focusMs && focusMs < endMs;
     };
 
     const segmentForFocus = (scope, focusMs) => {
@@ -337,17 +540,7 @@
             return exact;
         }
 
-        const renderedMatches = segments
-            .filter((segment) => segmentRenderedMatch(scope, segment, focusMs))
-            .sort((left, right) => segmentDistance(left, focusMs) - segmentDistance(right, focusMs));
-
-        if (renderedMatches[0]) {
-            return renderedMatches[0];
-        }
-
-        const nearestSegments = [...segments].sort((left, right) => segmentDistance(left, focusMs) - segmentDistance(right, focusMs));
-
-        return nearestSegments[0] || null;
+        return null;
     };
 
     const scrubPreviewLayers = (frame) => {
@@ -452,10 +645,283 @@
 
         const preview = scope.querySelector('[data-role="scrub-preview"]');
 
+        state.scrubPreviewVisible = false;
+        state.scrubPreviewFocusMs = null;
+
         if (preview instanceof HTMLElement) {
             preview.setAttribute('hidden', 'hidden');
             delete preview.dataset.requestId;
         }
+    };
+
+    const readCssPixelValue = (value, fallback = 0) => {
+        const parsedValue = Number.parseFloat(String(value || '').trim());
+
+        return Number.isFinite(parsedValue) ? parsedValue : fallback;
+    };
+
+    const recentScrollInteractionAt = () => Math.max(
+        state.lastDragEndedAt,
+        state.lastNativeScrollAt,
+        state.lastScrollbarPointerAt,
+        state.lastWheelZoomAt,
+    );
+
+    const shouldSuppressFocusInteraction = () => (Date.now() - recentScrollInteractionAt()) < 180;
+
+    const isScrollbarPointer = (viewport, event) => {
+        if (!(viewport instanceof HTMLElement) || !(event instanceof MouseEvent)) {
+            return false;
+        }
+
+        const rect = viewport.getBoundingClientRect();
+        const verticalScrollbarWidth = Math.max(0, rect.width - viewport.clientWidth);
+        const horizontalScrollbarHeight = Math.max(0, rect.height - viewport.clientHeight);
+
+        return (verticalScrollbarWidth > 0 && event.clientX >= (rect.right - verticalScrollbarWidth))
+            || (horizontalScrollbarHeight > 0 && event.clientY >= (rect.bottom - horizontalScrollbarHeight));
+    };
+
+    const layoutRailThumbnails = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const track = railTrack(scope);
+
+        if (!(track instanceof HTMLElement)) {
+            return;
+        }
+
+        const thumbnails = Array.from(scope.querySelectorAll('[data-role="rail-thumbnail"]'))
+            .filter((element) => element instanceof HTMLElement)
+            .sort((left, right) => readNumber(left, 'focusMs', 0) - readNumber(right, 'focusMs', 0));
+
+        if (thumbnails.length === 0) {
+            return;
+        }
+
+        const segmentsByRecordingId = new Map(railSegments(scope)
+            .map((segment) => [String(segment.dataset.recordingId || ''), segment]));
+        const trackHeight = railTrackHeight(scope);
+        const computedStyle = window.getComputedStyle(track);
+        const thumbnailHeight = Math.max(
+            1,
+            readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-height'), thumbnails[0].offsetHeight || 84),
+        );
+        const thumbnailGap = Math.max(0, readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-gap'), 12));
+        const maxThumbnailTopPx = Math.max(0, trackHeight - thumbnailHeight);
+        const occupiedRanges = [];
+        const candidates = thumbnails.map((thumbnail) => {
+            const recordingId = String(thumbnail.dataset.recordingId || '');
+            const segment = segmentsByRecordingId.get(recordingId) || null;
+            const fallbackTopPx = clamp(
+                railTrackOffsetPxForMs(scope, readNumber(thumbnail, 'focusMs', timelineStartMs(scope)), trackHeight),
+                0,
+                maxThumbnailTopPx,
+            );
+            const desiredTopPx = clamp(
+                segment instanceof HTMLElement
+                    ? railTrackOffsetPxForMs(scope, readNumber(segment, 'startMs', timelineStartMs(scope)), trackHeight)
+                    : fallbackTopPx,
+                0,
+                maxThumbnailTopPx,
+            );
+
+            return {
+                durationMs: segment instanceof HTMLElement
+                    ? Math.max(1, readNumber(segment, 'endMs', 0) - readNumber(segment, 'startMs', 0))
+                    : 0,
+                isActive: thumbnail.classList.contains('is-active') || (segment instanceof HTMLElement && segment.classList.contains('is-active')),
+                thumbnail,
+                topPx: desiredTopPx,
+            };
+        }).sort((left, right) => {
+            if (left.isActive !== right.isActive) {
+                return left.isActive ? -1 : 1;
+            }
+
+            if (left.durationMs !== right.durationMs) {
+                return right.durationMs - left.durationMs;
+            }
+
+            return readNumber(left.thumbnail, 'focusMs', 0) - readNumber(right.thumbnail, 'focusMs', 0);
+        });
+
+        candidates.forEach(({ thumbnail, topPx }) => {
+            const bottomPx = topPx + thumbnailHeight;
+            const overlapsExistingThumbnail = occupiedRanges.some((range) => topPx < (range.bottomPx + thumbnailGap)
+                && (bottomPx + thumbnailGap) > range.topPx);
+
+            if (overlapsExistingThumbnail) {
+                thumbnail.hidden = true;
+
+                return;
+            }
+
+            thumbnail.hidden = false;
+            thumbnail.style.top = `${topPx}px`;
+            occupiedRanges.push({
+                bottomPx,
+                topPx,
+            });
+        });
+    };
+
+    const layoutRailSegments = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        railSegments(scope).forEach((segment) => {
+            const trackHeight = railTrackHeight(scope);
+            const range = clippedSegmentRangeMs(
+                scope,
+                readNumber(segment, 'startMs', timelineStartMs(scope)),
+                readNumber(segment, 'endMs', timelineStartMs(scope) + 1000),
+            );
+            const topPx = railTrackOffsetPxForMs(scope, range.startMs, trackHeight);
+            const heightPx = Math.max(1, railTrackOffsetPxForMs(scope, range.endMs, trackHeight) - topPx);
+
+            segment.style.top = `${topPx}px`;
+            segment.style.height = `${heightPx}px`;
+        });
+    };
+
+    const applyTimelineScale = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const track = railTrack(scope);
+        const viewport = railViewport(scope);
+
+        if (!(track instanceof HTMLElement)) {
+            return;
+        }
+
+        const zoomScale = setCurrentZoomScale(scope, currentZoomScale(scope));
+        const nextTrackHeight = scaledTrackHeight(scope, zoomScale);
+
+        track.style.height = `${nextTrackHeight}px`;
+        track.style.setProperty('--recording-review-zoom-scale', String(zoomScale));
+        layoutRailSegments(scope);
+        layoutRailThumbnails(scope);
+
+        if (viewport instanceof HTMLElement) {
+            const restoredScrollTop = state.pendingViewportRestore && Number.isFinite(state.viewportScrollTop)
+                ? Number(state.viewportScrollTop)
+                : viewport.scrollTop;
+
+            viewport.scrollTop = clamp(restoredScrollTop, 0, Math.max(0, nextTrackHeight - viewport.clientHeight));
+            state.viewportScrollTop = viewport.scrollTop;
+            state.pendingViewportRestore = false;
+        }
+
+        updateVisibleRange(scope);
+        updateFocusCursor(scope, currentFocusMs(scope));
+        updateZoomUi(scope, zoomScale);
+    };
+
+    const handleViewportScroll = (event) => {
+        const viewport = event.currentTarget;
+        const scope = rootFor(viewport);
+
+        if (!(viewport instanceof HTMLElement) || !(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        state.lastNativeScrollAt = Date.now();
+        state.viewportScrollTop = viewport.scrollTop;
+        updateVisibleRange(scope);
+    };
+
+    const handleViewportWheel = (event) => {
+        const viewport = event.currentTarget;
+        const scope = rootFor(viewport);
+
+        if (!(viewport instanceof HTMLElement) || !(scope instanceof HTMLElement) || event.deltaY === 0 || state.drag) {
+            return;
+        }
+
+        const zoomScale = currentZoomScale(scope);
+        const nextZoomScale = clamp(
+            event.deltaY < 0
+                ? zoomScale * zoomStepFactor(scope)
+                : zoomScale / zoomStepFactor(scope),
+            minimumZoomScale(scope),
+            maximumZoomScale(scope),
+        );
+
+        state.lastWheelZoomAt = Date.now();
+
+        if (Math.abs(nextZoomScale - zoomScale) < 0.001) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            return;
+        }
+
+        const rect = viewport.getBoundingClientRect();
+        const anchorOffsetY = clamp(event.clientY - rect.top, 0, viewport.clientHeight);
+        const anchorMs = focusFromPointer(scope, event.clientY) ?? currentFocusMs(scope);
+
+        const zoomDidChange = applyZoomScale(scope, nextZoomScale, {
+            anchorMs,
+            anchorOffsetY,
+        });
+
+        if (zoomDidChange) {
+            syncZoomScaleWithServer(scope, nextZoomScale);
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+    };
+
+    const cleanupViewportBinding = () => {
+        if (typeof state.boundViewportCleanup === 'function') {
+            state.boundViewportCleanup();
+        }
+
+        state.boundViewport = null;
+        state.boundViewportCleanup = null;
+    };
+
+    const bindRailViewport = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            cleanupViewportBinding();
+
+            return;
+        }
+
+        const viewport = railViewport(scope);
+
+        if (!(viewport instanceof HTMLElement)) {
+            cleanupViewportBinding();
+
+            return;
+        }
+
+        if (state.boundViewport === viewport) {
+            return;
+        }
+
+        if (state.boundViewport instanceof HTMLElement) {
+            state.viewportScrollTop = state.boundViewport.scrollTop;
+        }
+
+        cleanupViewportBinding();
+        state.pendingViewportRestore = Number.isFinite(state.viewportScrollTop);
+
+        viewport.addEventListener('scroll', handleViewportScroll, { passive: true });
+        viewport.addEventListener('wheel', handleViewportWheel, { passive: false });
+
+        state.boundViewport = viewport;
+        state.boundViewportCleanup = () => {
+            viewport.removeEventListener('scroll', handleViewportScroll);
+            viewport.removeEventListener('wheel', handleViewportWheel);
+        };
     };
 
     const withObserverPaused = (callback) => {
@@ -500,15 +966,41 @@
             return;
         }
 
+        const nextActiveCameraId = activeCameraId(scope);
+        const cameraDidChange = state.activeCameraId !== null && state.activeCameraId !== nextActiveCameraId;
+
         withObserverPaused(() => {
+            if (cameraDidChange) {
+                state.pendingViewportRestore = false;
+                state.viewportScrollTop = null;
+            }
+
+            bindRailViewport(scope);
+            applyTimelineScale(scope);
             bindStageVideo(scope);
             syncStagePlaybackState(scope);
             syncStageAudioState(scope);
             updateStageVolumeUi(scope);
-            updateVisibleRange(scope);
             updateFocusCursor(scope, currentFocusMs(scope));
-            hideScrubPreview(scope);
             warmScrubSprites(scope);
+
+            if (cameraDidChange) {
+                centerViewportOnFocus(scope, currentFocusMs(scope));
+            }
+
+            if (state.scrubPreviewVisible) {
+                const previewFocusMs = clamp(
+                    Number(state.scrubPreviewFocusMs ?? currentFocusMs(scope)),
+                    timelineStartMs(scope),
+                    timelineMaximumFocusMs(scope),
+                );
+
+                showScrubPreview(scope, segmentForFocus(scope, previewFocusMs), previewFocusMs);
+            } else {
+                hideScrubPreview(scope);
+            }
+
+            state.activeCameraId = nextActiveCameraId;
         });
     };
 
@@ -541,7 +1033,7 @@
         const startMs = readNumber(segment, 'startMs', 0);
         const endMs = Math.max(startMs, readNumber(segment, 'endMs', startMs));
         const offsetMs = clamp(focusMs - startMs, 0, Math.max(0, endMs - startMs));
-        const frameIndex = Math.min(frameCount - 1, Math.max(0, Math.round(offsetMs / frameIntervalMs)));
+        const frameIndex = Math.min(frameCount - 1, Math.max(0, Math.floor(offsetMs / frameIntervalMs)));
         const offsetX = (frameIndex % columns) * frameWidth;
         const offsetY = Math.floor(frameIndex / columns) * frameHeight;
 
@@ -554,6 +1046,9 @@
         const activeLayer = layers[activeLayerIndex] || layers[0] || null;
         const hasActiveSprite = activeLayer instanceof HTMLElement && (activeLayer.dataset.spriteUrl || '') !== '';
         const activeSpriteUrl = activeLayer instanceof HTMLElement ? (activeLayer.dataset.spriteUrl || '') : '';
+
+        state.scrubPreviewVisible = true;
+        state.scrubPreviewFocusMs = focusMs;
 
         frame.style.width = `${frameWidth}px`;
         frame.style.height = `${frameHeight}px`;
@@ -674,6 +1169,7 @@
         const nextScrollTop = ((focusMs - timelineStartMs(scope)) / timelineDurationMs(scope)) * railTrackHeight(scope) - offset;
 
         viewport.scrollTop = Math.max(0, nextScrollTop);
+        state.viewportScrollTop = viewport.scrollTop;
         updateVisibleRange(scope);
     };
 
@@ -691,6 +1187,40 @@
         const componentId = componentRoot.getAttribute('wire:id');
 
         return componentId ? window.Livewire.find(componentId) : null;
+    };
+
+    const cancelPendingZoomSync = () => {
+        if (state.zoomSyncTimer !== null) {
+            window.clearTimeout(state.zoomSyncTimer);
+            state.zoomSyncTimer = null;
+        }
+    };
+
+    const syncZoomScaleWithServer = (scope, zoomScale, immediate = false) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const component = livewireComponent(scope);
+
+        if (!component || typeof component.call !== 'function') {
+            return;
+        }
+
+        const nextZoomScale = normalizedZoomScale(scope, zoomScale);
+
+        if (!immediate) {
+            cancelPendingZoomSync();
+            state.zoomSyncTimer = window.setTimeout(() => {
+                state.zoomSyncTimer = null;
+                syncZoomScaleWithServer(scope, nextZoomScale, true);
+            }, 120);
+
+            return;
+        }
+
+        cancelPendingZoomSync();
+        component.call('syncZoomScale', nextZoomScale);
     };
 
     const railSegments = (scope) => {
@@ -727,10 +1257,17 @@
     };
 
     const commitFocus = (scope, focusMs) => {
+        const viewport = railViewport(scope);
         const component = livewireComponent(scope);
 
+        if (viewport instanceof HTMLElement) {
+            state.viewportScrollTop = viewport.scrollTop;
+            state.pendingViewportRestore = true;
+        }
+
         if (component && typeof component.call === 'function') {
-            component.call('selectFocus', Math.round(focusMs));
+            cancelPendingZoomSync();
+            component.call('selectFocus', Math.round(focusMs), normalizedZoomScale(scope));
         }
     };
 
@@ -831,6 +1368,7 @@
         const handlePlay = () => {
             state.stagePaused = false;
             syncStagePlaybackUi(scope, false);
+            updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
         };
 
         const handlePause = () => {
@@ -839,6 +1377,19 @@
             }
 
             syncStagePlaybackUi(scope, true);
+            updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
+        };
+
+        const handleTimeUpdate = () => {
+            if (state.drag) {
+                return;
+            }
+
+            updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
+        };
+
+        const handleSeeked = () => {
+            updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
         };
 
         if (video.readyState >= 1) {
@@ -851,6 +1402,8 @@
         video.addEventListener('ended', handleEnded);
         video.addEventListener('play', handlePlay);
         video.addEventListener('pause', handlePause);
+        video.addEventListener('timeupdate', handleTimeUpdate);
+        video.addEventListener('seeked', handleSeeked);
 
         state.boundVideo = video;
         state.boundVideoCleanup = () => {
@@ -858,6 +1411,8 @@
             video.removeEventListener('ended', handleEnded);
             video.removeEventListener('play', handlePlay);
             video.removeEventListener('pause', handlePause);
+            video.removeEventListener('timeupdate', handleTimeUpdate);
+            video.removeEventListener('seeked', handleSeeked);
         };
     };
 
@@ -884,12 +1439,18 @@
             return;
         }
 
-        const rect = viewport.getBoundingClientRect();
-        const anchorOffsetY = clamp(event.clientY - rect.top, 0, viewport.clientHeight);
+        if (isScrollbarPointer(viewport, event)) {
+            state.lastScrollbarPointerAt = Date.now();
+
+            return;
+        }
+
+        const anchorOffsetY = viewportOffsetFromClientY(viewport, event.clientY) ?? (viewport.clientHeight / 2);
         const nextFocus = focusFromPointer(scope, event.clientY);
 
         state.drag = {
             anchorOffsetY,
+            currentOffsetY: anchorOffsetY,
             moved: false,
             root: scope,
             viewport,
@@ -927,6 +1488,7 @@
         }
 
         state.drag.moved = true;
+        state.drag.currentOffsetY = viewportOffsetFromClientY(state.drag.viewport, event.clientY) ?? state.drag.currentOffsetY;
         updateLocalFocus(state.drag.root, nextFocus);
         showScrubPreview(state.drag.root, segmentForFocus(state.drag.root, nextFocus), nextFocus);
     };
@@ -955,19 +1517,15 @@
 
         state.lastDragEndedAt = Date.now();
 
+        const releaseOffsetY = viewportOffsetFromClientY(viewport, event.clientY)
+            ?? state.drag.currentOffsetY
+            ?? state.drag.anchorOffsetY;
+
         updateLocalFocus(scope, nextFocus);
-        centerViewportOnFocus(scope, nextFocus, state.drag.anchorOffsetY);
+        centerViewportOnFocus(scope, nextFocus, releaseOffsetY);
         hideScrubPreview(scope);
         state.drag = null;
         commitFocus(scope, nextFocus);
-    };
-
-    const handleScroll = (event) => {
-        const scope = rootFor(event.target);
-
-        if (scope instanceof HTMLElement && event.target instanceof HTMLElement && event.target.matches('[data-role="rail-viewport"]')) {
-            updateVisibleRange(scope);
-        }
     };
 
     const handleInput = (event) => {
@@ -984,13 +1542,6 @@
     };
 
     const handleClick = (event) => {
-        if (Date.now() - state.lastDragEndedAt < 180) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            return;
-        }
-
         const scope = rootFor(event.target);
 
         if (!(scope instanceof HTMLElement) || !(event.target instanceof Element)) {
@@ -1017,6 +1568,33 @@
             return;
         }
 
+        const zoomInButton = event.target.closest('[data-role="zoom-in"]');
+        const zoomOutButton = event.target.closest('[data-role="zoom-out"]');
+        const zoomResetButton = event.target.closest('[data-role="zoom-reset"]');
+
+        if (zoomInButton instanceof HTMLButtonElement || zoomOutButton instanceof HTMLButtonElement || zoomResetButton instanceof HTMLButtonElement) {
+            const viewport = railViewport(scope);
+            const anchorOffsetY = viewport instanceof HTMLElement ? viewport.clientHeight / 2 : 0;
+            const nextZoomScale = zoomInButton instanceof HTMLButtonElement
+                ? currentZoomScale(scope) * zoomStepFactor(scope)
+                : zoomOutButton instanceof HTMLButtonElement
+                    ? currentZoomScale(scope) / zoomStepFactor(scope)
+                    : minimumZoomScale(scope);
+
+            const zoomDidChange = applyZoomScale(scope, nextZoomScale, {
+                anchorMs: focusFromViewportOffset(scope, anchorOffsetY) ?? currentFocusMs(scope),
+                anchorOffsetY,
+            });
+
+            if (zoomDidChange) {
+                syncZoomScaleWithServer(scope, nextZoomScale);
+            }
+
+            event.preventDefault();
+
+            return;
+        }
+
         const focusTarget = tick instanceof HTMLElement
             ? tick
             : segment instanceof HTMLElement
@@ -1026,10 +1604,16 @@
                     : null;
 
         if (focusTarget instanceof HTMLElement) {
+            if (shouldSuppressFocusInteraction()) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                return;
+            }
+
             const nextFocus = readNumber(focusTarget, 'focusMs', currentFocusMs(scope));
 
             updateLocalFocus(scope, nextFocus);
-            centerViewportOnFocus(scope, nextFocus);
             hideScrubPreview(scope);
             commitFocus(scope, nextFocus);
             event.preventDefault();
@@ -1065,6 +1649,8 @@
         state.cleanupFns.forEach((cleanup) => cleanup());
         state.cleanupFns = [];
 
+        cleanupViewportBinding();
+
         if (state.observer) {
             state.observer.disconnect();
             state.observer = null;
@@ -1074,6 +1660,16 @@
 
         cleanupVideoBinding();
         state.drag = null;
+        state.lastNativeScrollAt = 0;
+        state.lastScrollbarPointerAt = 0;
+        state.lastWheelZoomAt = 0;
+        state.pendingViewportRestore = false;
+        state.activeCameraId = null;
+        state.scrubPreviewFocusMs = null;
+        state.scrubPreviewVisible = false;
+        state.viewportScrollTop = null;
+        state.zoomScale = null;
+        cancelPendingZoomSync();
     };
 
     const bootstrap = () => {
@@ -1085,7 +1681,10 @@
             return;
         }
 
+        state.activeCameraId = activeCameraId(scope);
         updateLocalFocus(scope, currentFocusMs(scope));
+        bindRailViewport(scope);
+        applyTimelineScale(scope);
         centerViewportOnFocus(scope, currentFocusMs(scope));
         startObserver(scope);
         refreshScope(scope);
@@ -1097,7 +1696,6 @@
         document.addEventListener('mousedown', handlePointerDown);
         document.addEventListener('mousemove', handlePointerMove);
         document.addEventListener('mouseup', clearDrag);
-        document.addEventListener('scroll', handleScroll, true);
         document.addEventListener('input', handleInput, true);
         document.addEventListener('click', handleClick, true);
 
@@ -1108,7 +1706,6 @@
         state.cleanupFns.push(() => document.removeEventListener('mousedown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('mousemove', handlePointerMove));
         state.cleanupFns.push(() => document.removeEventListener('mouseup', clearDrag));
-        state.cleanupFns.push(() => document.removeEventListener('scroll', handleScroll, true));
         state.cleanupFns.push(() => document.removeEventListener('input', handleInput, true));
         state.cleanupFns.push(() => document.removeEventListener('click', handleClick, true));
     };

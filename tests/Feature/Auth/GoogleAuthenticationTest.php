@@ -46,6 +46,7 @@ class GoogleAuthenticationTest extends TestCase
             'email' => 'operator@example.com',
             'google_id' => 'google-user-123',
             'avatar_url' => 'https://example.com/avatar.jpg',
+            'is_admin' => true,
         ]);
     }
 
@@ -66,6 +67,7 @@ class GoogleAuthenticationTest extends TestCase
 
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertSame('google-user-123', $user->fresh()->google_id);
+        $this->assertTrue($user->fresh()->is_admin);
     }
 
     private function fakeGoogleUser(): SocialiteUser

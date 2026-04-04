@@ -3,6 +3,7 @@
 namespace App\Livewire\Discovery;
 
 use App\Models\Camera;
+use App\Services\ApplicationSettingsService;
 use App\Services\Discovery\OnvifWsDiscoveryService;
 use App\Services\Onvif\OnvifCameraProvisioningService;
 use App\Services\Onvif\OnvifDeviceProbeService;
@@ -48,7 +49,7 @@ class OnvifSweep extends Component
         try {
             $discoveryService = app(OnvifWsDiscoveryService::class);
             $this->devices = $discoveryService->discover($this->timeoutMs);
-            $this->lastSweepAt = now()->utc()->format('Y-m-d H:i:s').' UTC';
+            $this->lastSweepAt = app(ApplicationSettingsService::class)->formatDateTime(now()->utc()) ?? now()->format('Y-m-d H:i:s T');
         } catch (Throwable $exception) {
             report($exception);
 
@@ -81,7 +82,7 @@ class OnvifSweep extends Component
                 $validated['manualUsername'] !== '' ? $validated['manualUsername'] : null,
                 $validated['manualPassword'] !== '' ? $validated['manualPassword'] : null,
             );
-            $this->manualProbeLastCheckedAt = now()->utc()->format('Y-m-d H:i:s').' UTC';
+            $this->manualProbeLastCheckedAt = app(ApplicationSettingsService::class)->formatDateTime(now()->utc()) ?? now()->format('Y-m-d H:i:s T');
             $this->syncManualProbeIntoDiscoveryResults();
         } catch (Throwable $exception) {
             report($exception);

@@ -162,10 +162,16 @@ Recording maintenance is also scheduler-driven.
 Current behavior:
 
 1. `camera-recordings:tick` runs every minute and queues one recording decision per eligible camera.
-2. continuous mode writes a direct-to-disk segment every scheduler tick.
+2. continuous mode uses the scheduler tick as a bootstrap or recovery trigger, then immediately chains the next direct-to-disk segment from the end of the current one instead of waiting for the next minute boundary.
 3. motion mode first samples a short cropped analysis window and only writes a segment when the selected region crosses the configured threshold.
 4. recording work is queue-backed and guarded by a per-camera lock so duplicate overlapping segment jobs are avoided.
-5. `camera-recordings:prune` runs hourly and removes files whose segment end time is older than the camera's retention window.
+5. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
+
+Continuous timestamp behavior:
+
+1. a continuous segment now stamps `scheduled_for` and `started_at` at the actual capture start once ffmpeg begins the segment job.
+2. `ended_at` is derived from that capture start plus the configured segment duration instead of from PHP process cleanup time.
+3. exact timeline-boundary focus points resolve to the following adjacent clip, so operators do not lose the next clip behind an inclusive edge match.
 
 Production deployments should run a queue worker for the `recordings` queue in addition to the normal scheduler.
 

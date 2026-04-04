@@ -10,6 +10,8 @@ use Symfony\Component\Process\Process;
 
 class RecordingReviewAssetService
 {
+    private const ASSET_PIPELINE_VERSION = 2;
+
     public const STATUS_READY = 'ready';
 
     public const STATUS_PENDING = 'pending';
@@ -93,21 +95,26 @@ class RecordingReviewAssetService
         $previewAbsolutePath = $this->previewAbsolutePath($recording);
         $thumbnailAbsolutePath = $this->thumbnailAbsolutePath($recording);
         $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording);
-        $previewAvailable = $previewAbsolutePath !== null && is_file($previewAbsolutePath);
-        $thumbnailAvailable = $thumbnailAbsolutePath !== null && is_file($thumbnailAbsolutePath);
-        $scrubSpriteAvailable = $scrubSpriteAbsolutePath !== null && is_file($scrubSpriteAbsolutePath);
-        $ready = ($manifest['status'] ?? null) === self::STATUS_READY && $previewAvailable;
+        $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
+        $previewFileAvailable = $previewAbsolutePath !== null && is_file($previewAbsolutePath);
+        $thumbnailFileAvailable = $thumbnailAbsolutePath !== null && is_file($thumbnailAbsolutePath);
+        $scrubSpriteFileAvailable = $scrubSpriteAbsolutePath !== null && is_file($scrubSpriteAbsolutePath);
+        $previewAvailable = $versionCurrent && $previewFileAvailable;
+        $thumbnailAvailable = $versionCurrent && $thumbnailFileAvailable;
+        $scrubSpriteAvailable = $versionCurrent && $scrubSpriteFileAvailable;
+        $ready = $versionCurrent && ($manifest['status'] ?? null) === self::STATUS_READY && $previewAvailable;
 
         return [
             'status' => $ready
                 ? self::STATUS_READY
-                : (is_string($manifest['status'] ?? null) ? $manifest['status'] : self::STATUS_MISSING),
+                : ($versionCurrent && is_string($manifest['status'] ?? null) ? $manifest['status'] : self::STATUS_MISSING),
             'ready' => $ready,
             'preview_available' => $previewAvailable,
             'thumbnail_available' => $thumbnailAvailable,
-            'scrub_status' => is_string($manifest['scrub_status'] ?? null) ? $manifest['scrub_status'] : self::STATUS_MISSING,
+            'scrub_status' => $versionCurrent && is_string($manifest['scrub_status'] ?? null) ? $manifest['scrub_status'] : self::STATUS_MISSING,
             'scrub_sprite_available' => $scrubSpriteAvailable,
             'version' => is_string($manifest['version'] ?? null) ? $manifest['version'] : null,
+            'version_current' => $versionCurrent,
             'generated_at' => is_string($manifest['generated_at'] ?? null) ? $manifest['generated_at'] : null,
             'duration_seconds' => is_numeric($manifest['duration_seconds'] ?? null)
                 ? (int) $manifest['duration_seconds']
@@ -333,6 +340,11 @@ class RecordingReviewAssetService
         return max(192, (int) config('recording.review_assets.preview_width', 640));
     }
 
+    private function previewHeight(): int
+    {
+        return max(108, (int) ceil($this->previewWidth() * 9 / 16));
+    }
+
     private function previewFps(): int
     {
         return max(2, (int) config('recording.review_assets.preview_fps', 8));
@@ -380,11 +392,13 @@ class RecordingReviewAssetService
     private function assetVersion(CameraRecording $recording): string
     {
         return sha1(json_encode([
+            'pipeline_version' => self::ASSET_PIPELINE_VERSION,
             'recording_path' => $recording->relative_path,
             'file_size' => $recording->file_size_bytes,
             'started_at' => $recording->started_at?->timestamp,
             'ended_at' => $recording->ended_at?->timestamp,
             'preview_width' => $this->previewWidth(),
+            'preview_height' => $this->previewHeight(),
             'preview_fps' => $this->previewFps(),
             'thumbnail_width' => $this->thumbnailWidth(),
             'scrub_frame_interval_seconds' => $this->scrubFrameIntervalSeconds(),
@@ -435,6 +449,8 @@ class RecordingReviewAssetService
     {
         $ffmpegBinary = $this->ffmpegBinary();
         $gop = max(1, $this->previewFps() * max(1, (int) config('recording.review_assets.keyframe_interval_seconds', 1)));
+        $previewWidth = $this->previewWidth();
+        $previewHeight = $this->previewHeight();
 
         return [
             $ffmpegBinary,
@@ -451,7 +467,7 @@ class RecordingReviewAssetService
             '-sn',
             '-dn',
             '-vf',
-            'fps='.$this->previewFps().',scale='.$this->previewWidth().':-2:force_original_aspect_ratio=decrease',
+            'fps='.$this->previewFps().',scale='.$previewWidth.':'.$previewHeight.':force_original_aspect_ratio=decrease,pad='.$previewWidth.':'.$previewHeight.':(ow-iw)/2:(oh-ih)/2:color=black,setsar=1',
             '-c:v',
             'libx264',
             '-preset',

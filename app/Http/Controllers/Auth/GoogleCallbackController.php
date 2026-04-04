@@ -49,6 +49,10 @@ class GoogleCallbackController extends Controller
 
         $user->forceFill($attributes)->save();
 
+        if (!User::query()->where('is_admin', true)->exists()) {
+            $user->forceFill(['is_admin' => true])->save();
+        }
+
         auth()->login($user, remember: true);
         $request->session()->regenerate();
 

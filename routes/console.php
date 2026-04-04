@@ -5,6 +5,7 @@ use App\Jobs\RefreshCameraPreviewJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Services\CameraRecordingService;
+use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\Relay\MediaMtxInstaller;
@@ -110,6 +111,23 @@ Artisan::command('camera-recordings:tick', function (): int {
                     continue;
                 }
 
+                if ($camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS) {
+                    $recording = $recordings->ensureContinuousRecordingQueued($camera, now()->utc());
+
+                    if (!$recording instanceof CameraRecording) {
+                        continue;
+                    }
+
+                    if ($recordings->dispatchRecording(
+                        $recording,
+                        'Queued by scheduler for continuous capture at '.$recording->scheduled_for?->format('Y-m-d H:i:s').' UTC.',
+                    )) {
+                        $queued++;
+                    }
+
+                    continue;
+                }
+
                 $recording = CameraRecording::query()->firstOrCreate([
                     'camera_id' => $camera->id,
                     'scheduled_for' => $scheduledFor,
@@ -181,6 +199,92 @@ Artisan::command('camera-recordings:prune', function (): int {
 
     return 0;
 })->purpose('Delete expired camera recording segments based on per-camera retention policies');
+
+Artisan::command('camera-recordings:prune-audit {--camera_id=}', function (): int {
+    $cameraId = $this->option('camera_id') !== null ? (int) $this->option('camera_id') : null;
+    $rows = app(CameraRecordingService::class)->expiredRecordingAuditRows($cameraId);
+
+    if ($rows === []) {
+        $this->components->info('No recording segments are currently eligible for prune.');
+
+        return 0;
+    }
+
+    $displayRows = array_slice($rows, 0, 50);
+
+    $this->table(['Recording', 'Camera', 'Retention days', 'Created at UTC', 'Ended at UTC', 'Cutoff UTC', 'File', 'Relative path'], array_map(
+        fn (array $row): array => [
+            (string) ($row['recording_id'] ?? ''),
+            (string) ($row['camera_name'] ?? '').' (#'.(string) ($row['camera_id'] ?? '').')',
+            (string) ($row['retention_days'] ?? ''),
+            (string) ($row['created_at'] ?? ''),
+            (string) ($row['ended_at'] ?? ''),
+            (string) ($row['cutoff_at'] ?? ''),
+            (string) ($row['file_present'] ?? ''),
+            (string) ($row['relative_path'] ?? ''),
+        ],
+        $displayRows,
+    ));
+
+    $message = 'Found '.count($rows).' recording segment'.(count($rows) === 1 ? '' : 's').' eligible for prune based on created_at retention cutoffs.';
+
+    if (count($rows) > count($displayRows)) {
+        $message .= ' Showing the first '.count($displayRows).' entries.';
+    }
+
+    $this->components->warn($message);
+
+    return 0;
+})->purpose('Audit expired camera recording segments without deleting files or rows');
+
+Artisan::command('camera-recordings:orphans {--purge}', function (): int {
+    $storage = app(CameraStorageService::class);
+    $orphans = $storage->orphanRecordingFiles();
+    $count = count($orphans);
+    $bytes = array_sum(array_map(fn (array $orphan): int => (int) ($orphan['size_bytes'] ?? 0), $orphans));
+
+    if ($count === 0) {
+        $this->components->info('No orphan recording files found.');
+
+        return 0;
+    }
+
+    $displayRows = array_slice($orphans, 0, 20);
+
+    $this->table(['Recording path', 'Bytes', 'Modified', 'Review assets'], array_map(
+        fn (array $orphan): array => [
+            (string) ($orphan['relative_path'] ?? ''),
+            (string) ((int) ($orphan['size_bytes'] ?? 0)),
+            (string) ($orphan['modified_at'] ?? 'n/a'),
+            ((int) ($orphan['review_assets_present'] ?? 0)) === 1 ? 'yes' : 'no',
+        ],
+        $displayRows,
+    ));
+
+    $summary = 'Found '.$count.' orphan recording file'.($count === 1 ? '' : 's').' using '.$bytes.' byte'.($bytes === 1 ? '' : 's').'.';
+
+    if ($count > count($displayRows)) {
+        $summary .= ' Showing the first '.count($displayRows).' entries.';
+    }
+
+    $this->components->warn($summary);
+
+    if (!$this->option('purge')) {
+        $this->components->info('Run camera-recordings:orphans --purge to delete these orphan files and their review assets.');
+
+        return 0;
+    }
+
+    $result = $storage->purgeOrphanRecordingFiles($orphans);
+
+    $this->components->info(
+        'Purged '.$result['files_purged'].' orphan recording file'.($result['files_purged'] === 1 ? '' : 's')
+        .' and '.$result['review_directories_purged'].' review asset director'.($result['review_directories_purged'] === 1 ? 'y' : 'ies')
+        .', freeing '.$result['bytes_freed'].' byte'.($result['bytes_freed'] === 1 ? '' : 's').'.'
+    );
+
+    return 0;
+})->purpose('Audit orphan recording files and optionally purge them from private storage');
 
 Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missing}', function (): int {
     $reviewAssets = app(RecordingReviewAssetService::class);

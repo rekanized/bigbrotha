@@ -3,7 +3,12 @@
 namespace App\Services;
 
 use App\Models\Camera;
+use App\Models\CameraRecording;
+use FilesystemIterator;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use RuntimeException;
 
 class CameraStorageService
@@ -43,25 +48,16 @@ class CameraStorageService
 
     public function resolvePreviewAbsolutePath(?string $previewPath): ?string
     {
-        if (!is_string($previewPath) || trim($previewPath) === '') {
+        $relativePath = $this->privateStorageRelativePath($previewPath);
+
+        if ($relativePath === null) {
             return null;
         }
 
-        $normalizedPath = ltrim(str_replace('\\', '/', $previewPath), '/');
-        $candidates = [$normalizedPath];
+        $absolutePath = storage_path('app/private/'.$relativePath);
 
-        if (str_starts_with($normalizedPath, 'app/private/')) {
-            $candidates[] = substr($normalizedPath, strlen('app/private/'));
-        }
-
-        foreach (array_unique(array_filter($candidates)) as $candidate) {
-            $absolutePath = str_starts_with($candidate, 'app/')
-                ? storage_path($candidate)
-                : storage_path('app/private/'.$candidate);
-
-            if (is_file($absolutePath)) {
-                return $absolutePath;
-            }
+        if (is_file($absolutePath)) {
+            return $absolutePath;
         }
 
         return null;
@@ -77,6 +73,11 @@ class CameraStorageService
         return $recordingDirectory.'/'.$fileName;
     }
 
+    public function normalizePrivateStorageRelativePath(?string $path): ?string
+    {
+        return $this->privateStorageRelativePath($path);
+    }
+
     public function recordingRelativePathFromAbsolute(string $absolutePath): string
     {
         $prefix = storage_path('app/private/');
@@ -90,11 +91,12 @@ class CameraStorageService
 
     public function recordingReviewAssetRelativePath(?string $recordingPath, string $fileName): ?string
     {
-        if (!is_string($recordingPath) || trim($recordingPath) === '') {
+        $normalizedPath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($normalizedPath === null) {
             return null;
         }
 
-        $normalizedPath = ltrim(str_replace('\\', '/', $recordingPath), '/');
         $directory = trim(dirname($normalizedPath), './');
         $baseName = pathinfo($normalizedPath, PATHINFO_FILENAME);
 
@@ -140,27 +142,47 @@ class CameraStorageService
         File::deleteDirectory(dirname($directory));
     }
 
+    public function deleteRecordingFile(?string $recordingPath): bool
+    {
+        $relativePath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($relativePath === null) {
+            return true;
+        }
+
+        $absolutePath = storage_path('app/private/'.$relativePath);
+
+        if (!is_file($absolutePath)) {
+            $this->pruneEmptyRecordingDirectories($absolutePath);
+
+            return true;
+        }
+
+        $deleted = Storage::disk('local')->delete($relativePath);
+
+        clearstatcache(true, $absolutePath);
+
+        if (is_file($absolutePath)) {
+            return false;
+        }
+
+        $this->pruneEmptyRecordingDirectories($absolutePath);
+
+        return $deleted || !is_file($absolutePath);
+    }
+
     public function resolveRecordingAbsolutePath(?string $recordingPath): ?string
     {
-        if (!is_string($recordingPath) || trim($recordingPath) === '') {
+        $relativePath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($relativePath === null) {
             return null;
         }
 
-        $normalizedPath = ltrim(str_replace('\\', '/', $recordingPath), '/');
-        $candidates = [$normalizedPath];
+        $absolutePath = storage_path('app/private/'.$relativePath);
 
-        if (str_starts_with($normalizedPath, 'app/private/')) {
-            $candidates[] = substr($normalizedPath, strlen('app/private/'));
-        }
-
-        foreach (array_unique(array_filter($candidates)) as $candidate) {
-            $absolutePath = str_starts_with($candidate, 'app/')
-                ? storage_path($candidate)
-                : storage_path('app/private/'.$candidate);
-
-            if (is_file($absolutePath)) {
-                return $absolutePath;
-            }
+        if (is_file($absolutePath)) {
+            return $absolutePath;
         }
 
         return null;
@@ -197,6 +219,119 @@ class CameraStorageService
                 }
             }
         }
+    }
+
+    /**
+     * @return array<int, array<string, int|string|null>>
+     */
+    public function orphanRecordingFiles(): array
+    {
+        $cameraRoot = storage_path('app/private/cameras');
+
+        if (!is_dir($cameraRoot)) {
+            return [];
+        }
+
+        $trackedPaths = array_fill_keys(
+            CameraRecording::query()
+                ->whereNotNull('relative_path')
+                ->pluck('relative_path')
+                ->map(fn ($path): ?string => $this->normalizePrivateStorageRelativePath($path))
+                ->filter(fn ($path): bool => is_string($path) && $path !== '')
+                ->values()
+                ->all(),
+            true,
+        );
+
+        $orphans = [];
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($cameraRoot, FilesystemIterator::SKIP_DOTS));
+
+        foreach ($iterator as $file) {
+            if ($file->isFile() === false) {
+                continue;
+            }
+
+            $absolutePath = str_replace('\\', '/', $file->getPathname());
+
+            if (!str_contains($absolutePath, '/recordings/') || str_contains($absolutePath, '/_review/')) {
+                continue;
+            }
+
+            try {
+                $relativePath = $this->recordingRelativePathFromAbsolute($absolutePath);
+            } catch (RuntimeException) {
+                continue;
+            }
+
+            if (isset($trackedPaths[$relativePath])) {
+                continue;
+            }
+
+            $reviewAssetRoot = $this->recordingReviewAssetAbsolutePath($relativePath, '.', false);
+            $reviewDirectory = $reviewAssetRoot !== null ? dirname($reviewAssetRoot) : null;
+
+            $orphans[] = [
+                'relative_path' => $relativePath,
+                'absolute_path' => $absolutePath,
+                'size_bytes' => $file->getSize(),
+                'modified_at' => date(DATE_ATOM, $file->getMTime()),
+                'review_directory' => $reviewDirectory,
+                'review_assets_present' => $reviewDirectory !== null && is_dir($reviewDirectory) ? 1 : 0,
+            ];
+        }
+
+        usort($orphans, fn ($left, $right): int => strcmp((string) ($left['modified_at'] ?? ''), (string) ($right['modified_at'] ?? '')));
+
+        return $orphans;
+    }
+
+    /**
+     * @param  array<int, array<string, int|string|null>>|null  $orphans
+     * @return array<string, int>
+     */
+    public function purgeOrphanRecordingFiles(?array $orphans = null): array
+    {
+        $orphans ??= $this->orphanRecordingFiles();
+
+        $filesPurged = 0;
+        $reviewDirectoriesPurged = 0;
+        $bytesFreed = 0;
+
+        foreach ($orphans as $orphan) {
+            $absolutePath = is_string($orphan['absolute_path'] ?? null) ? $orphan['absolute_path'] : null;
+            $relativePath = $this->normalizePrivateStorageRelativePath(is_string($orphan['relative_path'] ?? null) ? $orphan['relative_path'] : null);
+            $reviewDirectory = is_string($orphan['review_directory'] ?? null) ? $orphan['review_directory'] : null;
+            $hadReviewDirectory = $reviewDirectory !== null && is_dir($reviewDirectory);
+
+            if ($absolutePath === null || $relativePath === null || !is_file($absolutePath)) {
+                continue;
+            }
+
+            clearstatcache(true, $absolutePath);
+            $fileSize = filesize($absolutePath);
+
+            if (@unlink($absolutePath)) {
+                $filesPurged++;
+
+                if (is_int($fileSize)) {
+                    $bytesFreed += $fileSize;
+                }
+            }
+
+            $this->deleteRecordingReviewAssets($relativePath);
+            $this->pruneEmptyRecordingDirectories($absolutePath);
+
+            if ($hadReviewDirectory && !is_dir($reviewDirectory)) {
+                $reviewDirectoriesPurged++;
+            }
+        }
+
+        return [
+            'orphans_found' => count($orphans),
+            'files_purged' => $filesPurged,
+            'review_directories_purged' => $reviewDirectoriesPurged,
+            'bytes_freed' => $bytesFreed,
+        ];
     }
 
     public function detectPreviewMimeType(?string $previewPath): ?string
@@ -245,5 +380,38 @@ class CameraStorageService
         if (!is_dir($path) || !is_writable($path)) {
             throw new RuntimeException('The camera storage directory is not writable: '.$path);
         }
+    }
+
+    private function privateStorageRelativePath(?string $path): ?string
+    {
+        if (!is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $normalizedPath = str_replace('\\', '/', trim($path));
+        $trimmedPath = ltrim($normalizedPath, '/');
+        $privateStorageRoot = rtrim(str_replace('\\', '/', storage_path('app/private')), '/');
+
+        foreach ([$normalizedPath, $trimmedPath] as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+
+            if ($candidate === $privateStorageRoot) {
+                return null;
+            }
+
+            if (str_starts_with($candidate, $privateStorageRoot.'/')) {
+                return ltrim(substr($candidate, strlen($privateStorageRoot)), '/');
+            }
+
+            foreach (['storage/app/private/', 'app/private/'] as $prefix) {
+                if (str_starts_with($candidate, $prefix)) {
+                    return ltrim(substr($candidate, strlen($prefix)), '/');
+                }
+            }
+        }
+
+        return $trimmedPath !== '' ? $trimmedPath : null;
     }
 }

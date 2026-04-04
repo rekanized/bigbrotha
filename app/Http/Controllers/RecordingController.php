@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
@@ -19,6 +20,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RecordingController extends Controller
 {
+    public function __construct(private readonly ApplicationSettingsService $settings)
+    {
+    }
+
     public function index(Request $request): View
     {
         $filters = [
@@ -55,10 +60,10 @@ class RecordingController extends Controller
                 $query->where('capture_mode', $filters['mode']);
             })
             ->when($filters['date_from'] !== null, function (Builder $query) use ($filters): void {
-                $query->whereDate('scheduled_for', '>=', $filters['date_from']);
+                $query->where('scheduled_for', '>=', $this->settings->startOfDisplayDayUtc($filters['date_from']));
             })
             ->when($filters['date_to'] !== null, function (Builder $query) use ($filters): void {
-                $query->whereDate('scheduled_for', '<=', $filters['date_to']);
+                $query->where('scheduled_for', '<', $this->settings->startOfDisplayDayUtc($filters['date_to'])->addDay());
             })
             ->orderByDesc('scheduled_for')
             ->paginate(18)
@@ -80,6 +85,7 @@ class RecordingController extends Controller
             'recordings' => $recordings,
             'filters' => $filters,
             'summary' => $summary,
+            'displayTimezone' => $this->settings->appTimezone(),
             'cameraOptions' => $this->cameraOptions(),
             'statusOptions' => [
                 'all' => 'All statuses',
@@ -112,6 +118,7 @@ class RecordingController extends Controller
             'recording' => $recording,
             'camera' => $recording->camera,
             'durationSeconds' => $durationSeconds,
+            'displayTimezone' => $this->settings->appTimezone(),
             'playbackAvailable' => $recording->status === CameraRecording::STATUS_RECORDED && $absolutePath !== null,
             'ffmpegAvailable' => $recordings->ffmpegBinary() !== null,
         ]);
@@ -137,9 +144,10 @@ class RecordingController extends Controller
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
+        $assetState = $reviewAssets->assetState($recording);
         $absolutePath = $reviewAssets->previewAbsolutePath($recording);
 
-        if ($absolutePath === null || !is_file($absolutePath)) {
+        if (!$assetState['ready'] || $absolutePath === null || !is_file($absolutePath)) {
             try {
                 $reviewAssets->generateForRecording($recording);
                 $absolutePath = $reviewAssets->previewAbsolutePath($recording);
@@ -162,9 +170,10 @@ class RecordingController extends Controller
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
+        $assetState = $reviewAssets->assetState($recording);
         $absolutePath = $reviewAssets->thumbnailAbsolutePath($recording);
 
-        if ($absolutePath === null || !is_file($absolutePath)) {
+        if (!$assetState['thumbnail_available'] || $absolutePath === null || !is_file($absolutePath)) {
             try {
                 $reviewAssets->generateForRecording($recording);
                 $absolutePath = $reviewAssets->thumbnailAbsolutePath($recording);
@@ -191,9 +200,10 @@ class RecordingController extends Controller
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
+        $assetState = $reviewAssets->assetState($recording);
         $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
 
-        if ($absolutePath === null || !is_file($absolutePath)) {
+        if (($assetState['scrub_status'] ?? null) !== RecordingReviewAssetService::STATUS_READY || !$assetState['scrub_sprite_available'] || $absolutePath === null || !is_file($absolutePath)) {
             try {
                 $reviewAssets->generateForRecording($recording);
                 $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
@@ -248,6 +258,7 @@ class RecordingController extends Controller
     private function timelineViewData(Request $request): array
     {
         $requestedDay = $this->validDateOrNull($request->query('day'));
+        $requestedZoom = $this->validZoomScaleOrNull($request->query('zoom'));
 
         $timelineCameraOptions = $this->cameraOptions();
         $selectedCameraIds = $this->resolveTimelineCameraIds($request, $timelineCameraOptions);
@@ -264,7 +275,7 @@ class RecordingController extends Controller
             $reviewRecordings,
         );
         $reviewTiles = $this->buildReviewTiles($selectedCameras, $reviewRecordings, $focusAt, $reviewWindowStart, $reviewWindowEnd);
-        $timelineHours = max(24, (int) ceil($reviewWindowStart->diffInMinutes($reviewWindowEnd) / 60));
+        $timelineHours = max(24, (int) ceil($this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd)));
         $timelineTicks = $this->timelineTicks($reviewWindowStart, $reviewWindowEnd);
         $activeCameraId = $this->resolveActiveCameraId($reviewTiles);
         $summaryQuery = CameraRecording::query()
@@ -288,7 +299,8 @@ class RecordingController extends Controller
                 'cameras' => $reviewTiles->count(),
             ],
             'timelineCameraOptions' => $timelineCameraOptions,
-            'reviewRangeLabel' => $reviewWindowStart->format('Y-m-d H:i').' UTC - '.$reviewWindowEnd->copy()->subSecond()->format('Y-m-d H:i').' UTC',
+            'reviewRangeLabel' => $this->settings->formatDateTime($reviewWindowStart, 'Y-m-d H:i')
+                .' - '.$this->settings->formatDateTime($reviewWindowEnd->copy()->subSecond(), 'Y-m-d H:i'),
             'reviewTiles' => $reviewTiles,
             'timelineHours' => $timelineHours,
             'timelineTicks' => $timelineTicks,
@@ -297,6 +309,8 @@ class RecordingController extends Controller
                 'dayStartMs' => $reviewWindowStart->valueOf(),
                 'dayEndMs' => $reviewWindowEnd->valueOf(),
                 'focusAtMs' => $focusAt->valueOf(),
+                'displayTimezone' => $this->settings->javascriptTimezone(),
+                'zoomScale' => $requestedZoom,
                 'cacheMaxEntries' => (int) config('recording.review_assets.cache_max_entries', 36),
                 'cacheMaxBytes' => (int) config('recording.review_assets.cache_max_bytes', 157286400),
                 'zoomHoursWidth' => 140,
@@ -342,8 +356,8 @@ class RecordingController extends Controller
     private function reviewTimelineBounds(Collection $selectedCameraIds, ?string $requestedDay): array
     {
         $fallbackAnchor = $requestedDay !== null
-            ? Carbon::createFromFormat('Y-m-d', $requestedDay, 'UTC')->utc()->startOfDay()
-            : now()->utc()->startOfDay();
+            ? $this->settings->startOfDisplayDayUtc($requestedDay)
+            : now()->setTimezone($this->settings->appTimezone())->startOfDay()->utc();
         $fallbackStart = $fallbackAnchor->copy()->subDays(3);
         $fallbackEnd = $fallbackStart->copy()->addDays(7);
 
@@ -365,8 +379,8 @@ class RecordingController extends Controller
             return [$fallbackStart, $fallbackEnd];
         }
 
-        $timelineStart = $minRecordingAt->copy()->startOfDay()->subDays(3);
-        $timelineEnd = $maxRecordingAt->copy()->addDay()->startOfDay()->addDays(3);
+        $timelineStart = $this->settings->toDisplayTimezone($minRecordingAt)->startOfDay()->subDays(3)->utc();
+        $timelineEnd = $this->settings->toDisplayTimezone($maxRecordingAt)->addDay()->startOfDay()->addDays(3)->utc();
 
         if ($timelineEnd->diffInHours($timelineStart) < (24 * 7)) {
             $timelineEnd = $timelineStart->copy()->addDays(7);
@@ -386,21 +400,31 @@ class RecordingController extends Controller
     {
         $ticks = collect();
         $cursor = $reviewWindowStart->copy();
-        $totalHours = max(1, (int) ceil($reviewWindowStart->diffInMinutes($reviewWindowEnd) / 60));
+        $totalHours = max(1, $this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd));
 
         while ($cursor->lessThan($reviewWindowEnd)) {
-            $offsetHours = $reviewWindowStart->diffInMinutes($cursor) / 60;
+            $nextCursor = $cursor->copy()->addHour();
+
+            if ($nextCursor->greaterThan($reviewWindowEnd)) {
+                $nextCursor = $reviewWindowEnd->copy();
+            }
+
+            $offsetHours = $this->timelineHourOffset($reviewWindowStart, $cursor);
+            $heightHours = max(0, $this->timelineHourOffset($reviewWindowStart, $nextCursor) - $offsetHours);
+            $localizedCursor = $this->settings->toDisplayTimezone($cursor);
 
             $ticks->push([
                 'focusMs' => $cursor->valueOf(),
                 'leftPercent' => round(($offsetHours / $totalHours) * 100, 6),
+                'topHours' => round($offsetHours, 6),
                 'topPercent' => round(($offsetHours / $totalHours) * 100, 6),
-                'widthPercent' => round((1 / $totalHours) * 100, 6),
-                'heightPercent' => round((1 / $totalHours) * 100, 6),
-                'isDayStart' => $cursor->isStartOfDay(),
-                'label' => $cursor->isStartOfDay()
-                    ? $cursor->format('M d')
-                    : $cursor->format('H:i'),
+                'widthPercent' => round(($heightHours / $totalHours) * 100, 6),
+                'heightHours' => round($heightHours, 6),
+                'heightPercent' => round(($heightHours / $totalHours) * 100, 6),
+                'isDayStart' => $localizedCursor->format('H:i') === '00:00',
+                'label' => $localizedCursor->format('H:i') === '00:00'
+                    ? $localizedCursor->format('M d')
+                    : $localizedCursor->format('H:i'),
             ]);
 
             $cursor->addHour();
@@ -427,7 +451,7 @@ class RecordingController extends Controller
         $this->applyReviewWindow($query, $reviewWindowStart, $reviewWindowEnd);
 
         return $query
-            ->orderBy('scheduled_for')
+            ->orderByRaw('COALESCE(started_at, scheduled_for) asc')
             ->orderBy('id')
             ->get();
     }
@@ -446,7 +470,7 @@ class RecordingController extends Controller
                         ->whereNotNull('started_at')
                         ->whereNotNull('ended_at')
                         ->where('started_at', '<', $reviewWindowEnd)
-                        ->where('ended_at', '>=', $reviewWindowStart);
+                        ->where('ended_at', '>', $reviewWindowStart);
                 });
         });
     }
@@ -531,7 +555,7 @@ class RecordingController extends Controller
         $matchingRecording = $cameraRecordings->first(function (CameraRecording $recording) use ($focusAt): bool {
             [$recordingStart, $recordingEnd] = $this->recordingBounds($recording);
 
-            return $recordingStart->lessThanOrEqualTo($focusAt) && $recordingEnd->greaterThanOrEqualTo($focusAt);
+            return $this->timeRangeContainsFocus($recordingStart, $recordingEnd, $focusAt);
         });
 
         return $matchingRecording instanceof CameraRecording ? $matchingRecording : null;
@@ -554,8 +578,10 @@ class RecordingController extends Controller
             ? $recordingEnd->copy()
             : $reviewWindowEnd->copy();
 
-        $reviewDurationSeconds = max(1, $reviewWindowStart->diffInSeconds($reviewWindowEnd));
-        $offsetSeconds = max(0, $reviewWindowStart->diffInSeconds($clippedStart));
+        $reviewDurationHours = max(1, $this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd));
+        $topHours = min($reviewDurationHours, max(0, $this->timelineHourOffset($reviewWindowStart, $clippedStart)));
+        $bottomHours = min($reviewDurationHours, max($topHours + (1 / 3600), $this->timelineHourOffset($reviewWindowStart, $clippedEnd)));
+        $spanHours = max(1 / 3600, $bottomHours - $topHours);
         $spanSeconds = max(1, $clippedStart->diffInSeconds($clippedEnd));
         $midpoint = $clippedStart->copy()->addSeconds((int) floor($spanSeconds / 2));
         $modeLabel = $recording->capture_mode === Camera::RECORDING_MODE_MOTION ? 'Movement clip' : 'Continuous clip';
@@ -570,17 +596,20 @@ class RecordingController extends Controller
             'startMs' => $recordingStart->valueOf(),
             'endMs' => $recordingEnd->valueOf(),
             'midpointMs' => $midpoint->valueOf(),
-            'startPercent' => round(($offsetSeconds / $reviewDurationSeconds) * 100, 6),
-            'topPercent' => round(($offsetSeconds / $reviewDurationSeconds) * 100, 6),
-            'widthPercent' => round(($spanSeconds / $reviewDurationSeconds) * 100, 6),
-            'heightPercent' => round(($spanSeconds / $reviewDurationSeconds) * 100, 6),
-            'renderWidthPercent' => max(0.7, round(($spanSeconds / $reviewDurationSeconds) * 100, 6)),
-            'renderHeightPercent' => max(0.22, round(($spanSeconds / $reviewDurationSeconds) * 100, 6)),
+            'startPercent' => round(($topHours / $reviewDurationHours) * 100, 6),
+            'topHours' => round($topHours, 6),
+            'topPercent' => round(($topHours / $reviewDurationHours) * 100, 6),
+            'widthPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
+            'heightHours' => round($spanHours, 6),
+            'heightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
+            'renderWidthPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
+            'renderHeightHours' => round($spanHours, 6),
+            'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $assetState['status'],
             'preferredStreamUrl' => $assetState['preview_available'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),
-            'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
+            'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
             'scrubFrameIntervalMs' => is_array($scrubSprite) ? ((int) ($scrubSprite['frame_interval_seconds'] ?? 0) * 1000) : 0,
             'scrubFrameWidth' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_width'] ?? 0) : 0,
@@ -589,10 +618,11 @@ class RecordingController extends Controller
             'scrubRows' => is_array($scrubSprite) ? (int) ($scrubSprite['rows'] ?? 0) : 0,
             'showUrl' => route('recordings.show', ['recording' => $recording]),
             'downloadUrl' => $recording->relative_path ? route('recordings.download', ['recording' => $recording]) : null,
+            'startLabel' => $this->settings->formatDateTime($recordingStart, 'Y-m-d H:i:s') ?? 'Recorded segment',
             'scheduledLabel' => $recording->scheduled_for instanceof Carbon
-                ? $recording->scheduled_for->format('Y-m-d H:i:s').' UTC'
+                ? ($this->settings->formatDateTime($recording->scheduled_for, 'Y-m-d H:i:s') ?? 'Recorded segment')
                 : 'Recorded segment',
-            'timeLabel' => $recordingStart->format('H:i:s').' - '.$recordingEnd->format('H:i:s').' UTC',
+            'timeLabel' => $this->settings->formatTimeRange($recordingStart, $recordingEnd, 'H:i:s') ?? 'Saved clip',
             'durationLabel' => $durationSeconds.' s',
             'durationSeconds' => $durationSeconds,
             'fileSizeLabel' => $recording->file_size_bytes
@@ -623,15 +653,46 @@ class RecordingController extends Controller
         return [$recordingStart, $recordingEnd];
     }
 
+    private function timeRangeContainsFocus(Carbon $rangeStart, Carbon $rangeEnd, Carbon $focusAt): bool
+    {
+        if ($rangeEnd->lessThanOrEqualTo($rangeStart)) {
+            return $focusAt->equalTo($rangeStart);
+        }
+
+        return $rangeStart->lessThanOrEqualTo($focusAt)
+            && $focusAt->lessThan($rangeEnd);
+    }
+
+    private function timelineDurationHours(Carbon $reviewWindowStart, Carbon $reviewWindowEnd): float
+    {
+        return max(1, $this->timelineHourOffset($reviewWindowStart, $reviewWindowEnd));
+    }
+
+    private function timelineHourOffset(Carbon $reviewWindowStart, Carbon $moment): float
+    {
+        $displayWindowStart = $this->settings->toDisplayTimezone($reviewWindowStart)->copy()->startOfHour();
+        $displayMoment = $this->settings->toDisplayTimezone($moment);
+
+        if ($displayMoment->lessThanOrEqualTo($displayWindowStart)) {
+            return 0.0;
+        }
+
+        $displayHourStart = $displayMoment->copy()->startOfHour();
+        $elapsedWholeHours = max(0, $displayWindowStart->diffInHours($displayHourStart, false));
+        $secondsWithinHour = ($displayMoment->minute * 60) + $displayMoment->second;
+
+        return $elapsedWholeHours + ($secondsWithinHour / 3600);
+    }
+
     /**
      * @param  Collection<int, CameraRecording>  $reviewRecordings
      */
     private function resolveFocusAt(mixed $value, Carbon $reviewWindowStart, Carbon $reviewWindowEnd, Collection $reviewRecordings): Carbon
     {
         if (is_string($value) && trim($value) !== '') {
-            try {
-                $candidate = Carbon::parse(trim($value), 'UTC')->utc();
+            $candidate = $this->settings->parseDisplayDateTimeToUtc($value);
 
+            if ($candidate instanceof Carbon) {
                 if ($candidate->lessThan($reviewWindowStart)) {
                     return $reviewWindowStart->copy();
                 }
@@ -641,7 +702,6 @@ class RecordingController extends Controller
                 }
 
                 return $candidate;
-            } catch (\Throwable) {
             }
         }
 
@@ -651,11 +711,16 @@ class RecordingController extends Controller
             ->first();
 
         if ($latestRecording instanceof CameraRecording) {
-            [, $recordingEnd] = $this->recordingBounds($latestRecording);
+            [$recordingStart] = $this->recordingBounds($latestRecording);
+            $latestRecordingFocus = $recordingStart->copy();
 
-            return $recordingEnd->greaterThanOrEqualTo($reviewWindowEnd)
+            if ($latestRecordingFocus->lessThan($reviewWindowStart)) {
+                $latestRecordingFocus = $reviewWindowStart->copy();
+            }
+
+            return $latestRecordingFocus->greaterThanOrEqualTo($reviewWindowEnd)
                 ? $reviewWindowEnd->copy()->subSecond()
-                : $recordingEnd;
+                : $latestRecordingFocus;
         }
 
         return $reviewWindowStart->copy();
@@ -674,6 +739,21 @@ class RecordingController extends Controller
         }
     }
 
+    private function validZoomScaleOrNull(mixed $value): ?float
+    {
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $zoomScale = (float) $value;
+
+        if ($zoomScale <= 0) {
+            return null;
+        }
+
+        return round($zoomScale, 3);
+    }
+
     private function durationSeconds(CameraRecording $recording): ?int
     {
         if (!$recording->started_at instanceof Carbon || !$recording->ended_at instanceof Carbon) {
@@ -688,7 +768,7 @@ class RecordingController extends Controller
         $cameraName = htmlspecialchars((string) ($recording->camera?->name ?: 'Camera preview'), ENT_QUOTES, 'UTF-8');
         $timeLabel = htmlspecialchars(
             $recording->scheduled_for instanceof Carbon
-                ? $recording->scheduled_for->copy()->utc()->format('Y-m-d H:i:s').' UTC'
+                ? ($this->settings->formatDateTime($recording->scheduled_for, 'Y-m-d H:i:s') ?? 'Saved recording')
                 : 'Saved recording',
             ENT_QUOTES,
             'UTF-8',

@@ -1,7 +1,7 @@
 @php
     $cameraName = $tile['cameraName'] ?? 'No camera selected';
     $segmentSourceUrl = is_array($segment)
-        ? (($segment['streamUrl'] ?? null) ?: ($segment['preferredStreamUrl'] ?? null))
+        ? (($segment['preferredStreamUrl'] ?? null) ?: ($segment['streamUrl'] ?? null))
         : null;
     $assetStatus = (($segment['previewStatus'] ?? null) === 'ready') ? 'Assets cached' : 'Direct stream';
     $fallbackLatest = !empty($tile['latestRecordingLabel'])
@@ -14,6 +14,18 @@
 
 <div class="recording-review-focus__stage" data-role="timeline-stage" data-audio-state="{{ $audioState }}" data-playback-state="playing">
     <div class="recording-review-focus__viewer">
+        <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
+            <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
+                <span class="recording-review-focus__scrub-preview-layer is-active" data-role="scrub-preview-layer" aria-hidden="true"></span>
+                <span class="recording-review-focus__scrub-preview-layer" data-role="scrub-preview-layer" aria-hidden="true"></span>
+            </div>
+            <div class="recording-review-focus__scrub-preview-copy">
+                <span class="recording-review-tile__eyebrow">Scrub preview</span>
+                <strong data-role="scrub-preview-camera">{{ $cameraName }}</strong>
+                <p data-role="scrub-preview-time">{{ $focusLabel }}</p>
+            </div>
+        </div>
+
         <div class="recording-review-tile__empty recording-review-focus__empty" data-role="empty" @if ($segment) hidden @endif>
             <span class="recording-review-tile__eyebrow" data-role="camera-label">{{ $cameraName }}</span>
             <strong>No recorded segment at the selected time.</strong>
@@ -36,18 +48,6 @@
                 @if ($isMuted) muted @endif
                 @if ($segmentSourceUrl) src="{{ $segmentSourceUrl }}" @endif
             ></video>
-
-            <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
-                <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
-                    <span class="recording-review-focus__scrub-preview-layer is-active" data-role="scrub-preview-layer" aria-hidden="true"></span>
-                    <span class="recording-review-focus__scrub-preview-layer" data-role="scrub-preview-layer" aria-hidden="true"></span>
-                </div>
-                <div class="recording-review-focus__scrub-preview-copy">
-                    <span class="recording-review-tile__eyebrow">Scrub preview</span>
-                    <strong data-role="scrub-preview-camera">{{ $cameraName }}</strong>
-                    <p data-role="scrub-preview-time">{{ $focusLabel }}</p>
-                </div>
-            </div>
 
             <div class="recording-review-focus__overlay">
                 <div class="recording-review-focus__identity">

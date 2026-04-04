@@ -36,6 +36,7 @@ Operator pages are expected to sit behind Laravel session authentication.
 Current design assumptions:
 
 - Google OAuth is the primary sign-in mechanism.
+- The first authenticated operator is promoted to admin automatically if no admin account exists yet.
 - MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.
@@ -107,7 +108,17 @@ Current expectations:
 - `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.
 - the preferred safety-net path is to check an installed user or system systemd unit first; the direct detached fallback start is intentionally opt-in.
 - recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
+- continuous recording no longer trusts the minute scheduler as the clip boundary. Once a continuous segment starts, the recorder immediately queues the next segment from the current segment end so scheduler jitter does not create minute-aligned gaps.
+- continuous recording timestamps are now anchored to the actual segment start and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
 - the recorder writes direct-to-disk ffmpeg copy segments; PHP should orchestrate jobs, not stream payload bytes.
+- if older crashes, tests, or manual row cleanup leave files behind without matching `camera_recordings` rows, use `php artisan camera-recordings:orphans` to audit them and `php artisan camera-recordings:orphans --purge` to remove the orphan files plus matching `_review` assets.
+
+## Operator Timezone Setting
+
+- Operator-facing timestamps now use the admin-configured display timezone instead of hard-coded UTC labels.
+- The admin route is `/admin/settings` and is restricted to authenticated admin users.
+- Internal recording storage, retention logic, scheduler timestamps, and review asset metadata still use UTC for consistency.
+- The default fallback display timezone is `Europe/Stockholm`, which matches Amsterdam's offset and daylight-saving rules.
 
 ## Motion Recording Tradeoff
 
@@ -145,6 +156,7 @@ Current behavior:
 - the timeline preview page uses a Livewire parent component to own the active camera and focus time while child stage and rail components react to that shared review state.
 - the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the buffered review stream.
 - if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the buffered review stream instead of showing a blank player.
+- timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 
 ## Live Wall Delivery Tradeoff
 

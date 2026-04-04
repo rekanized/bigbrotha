@@ -3,6 +3,8 @@
 use App\Http\Controllers\Auth\GoogleCallbackController;
 use App\Http\Controllers\Auth\GoogleRedirectController;
 use App\Http\Controllers\Auth\LogoutController;
+use App\Http\Controllers\AdminSettingsController;
+use App\Http\Controllers\AdminUsersController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
 use App\Http\Controllers\CameraFleetController;
 use App\Http\Controllers\DashboardController;
@@ -27,6 +29,13 @@ Route::post('/relay/auth/mediamtx', MediaMtxAuthController::class)->name('relay.
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/', DashboardController::class)->name('dashboard');
+    Route::prefix('admin')->name('admin.')->middleware('admin')->group(function (): void {
+        Route::get('/users', [AdminUsersController::class, 'index'])->name('users.index');
+        Route::put('/users/{user}/admin-role', [AdminUsersController::class, 'updateAdminRole'])->name('users.admin-role');
+        Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings.index');
+        Route::put('/settings', [AdminSettingsController::class, 'update'])->name('settings.update');
+    });
+
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
     Route::get('/recordings', [RecordingController::class, 'index'])->name('recordings.index');

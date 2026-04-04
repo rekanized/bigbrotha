@@ -68,7 +68,7 @@
 
                         <div class="key-value-row">
                             <span>Scheduled for</span>
-                            <strong>{{ $recording->scheduled_for?->format('Y-m-d H:i:s') ?? 'Unavailable' }} UTC</strong>
+                            <strong>{{ $appSettings->formatDateTime($recording->scheduled_for, 'Y-m-d H:i:s') ?? 'Unavailable' }}</strong>
                         </div>
 
                         <div class="key-value-row">

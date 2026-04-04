@@ -32,6 +32,8 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - `/camera-fleet` camera inventory and management.
 - `/recordings` recording browser and saved segment search.
 - `/recordings/{recording}` recording playback and review screen.
+- `/admin/users` admin-only current user browser.
+- `/admin/settings` admin-only operator settings such as the display timezone.
 - `/wall-tiles` named wall and tile layout builder.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` private preview image endpoint.
 - `/recordings/{recording}/stream` Laravel-served MP4 playback stream for private recordings.
@@ -120,6 +122,10 @@ php artisan camera-recordings:install-worker-service
 php artisan camera-recordings:ensure-worker
 php artisan camera-recordings:tick
 php artisan camera-recordings:prune
+php artisan camera-recordings:prune-audit
+php artisan camera-recordings:orphans
+php artisan camera-recordings:orphans --purge
+php artisan migrate
 php artisan camera-recordings:build-review-assets --missing
 php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
 composer recordings:worker:install

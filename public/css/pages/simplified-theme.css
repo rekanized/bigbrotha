@@ -287,6 +287,14 @@ body.page-dashboard .sidebar-nav__links {
     gap: 6px;
 }
 
+body.page-dashboard .sidebar-group {
+    gap: 6px;
+}
+
+body.page-dashboard .sidebar-group__chevron {
+    color: #667085;
+}
+
 body.page-dashboard .sidebar-link {
     align-items: center;
     gap: 10px;
@@ -329,6 +337,48 @@ body.page-dashboard .sidebar-link--active .sidebar-link__icon {
 }
 
 body.page-dashboard .sidebar-link__caption {
+    display: none;
+}
+
+body.page-dashboard .sidebar-group__links {
+    gap: 6px;
+    padding-left: 12px;
+}
+
+body.page-dashboard .sidebar-sublink {
+    padding: 8px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #0f172a;
+    transition: none;
+}
+
+body.page-dashboard .sidebar-sublink__label {
+    color: #0f172a;
+}
+
+body.page-dashboard .sidebar-sublink:hover,
+body.page-dashboard .sidebar-sublink:focus-visible {
+    transform: none;
+    background: #ffffff;
+    border-color: rgba(71, 85, 105, 0.28);
+    box-shadow: none;
+    color: #0f172a;
+}
+
+body.page-dashboard .sidebar-sublink--active {
+    background: #edf4ff;
+    border-color: rgba(47, 111, 237, 0.22);
+    box-shadow: none;
+    color: #174ea6;
+}
+
+body.page-dashboard .sidebar-sublink--active .sidebar-sublink__label {
+    color: #174ea6;
+}
+
+body.page-dashboard .sidebar-sublink__caption {
     display: none;
 }
 
@@ -1151,16 +1201,19 @@ body.page-recording-review .recording-review-focus__stage {
 }
 
 body.page-recording-review .recording-review-focus__viewer {
-    min-height: 500px;
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 14px;
     background: #111827;
 }
 
+body.page-recording-review .recording-review-tile__video-shell {
+    background: #000;
+}
+
 body.page-recording-review .recording-review-tile__video,
 body.page-recording-review .recording-review-focus__video {
     object-fit: contain;
-    background: #111827;
+    background: #000;
 }
 
 body.page-recording-review .recording-review-focus__overlay {
@@ -1328,11 +1381,11 @@ body.page-recording-review .recording-review-focus__rail-viewport {
 }
 
 body.page-recording-review .recording-review-focus__rail-track {
-    min-height: max(1460px, calc(var(--recording-review-hours, 24) * 68px));
+    min-height: max(1460px, calc(var(--recording-review-hours, 24) * var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1)));
     background:
-        linear-gradient(180deg, rgba(148, 163, 184, 0.14) 0, rgba(148, 163, 184, 0.14) 1px, transparent 1px, transparent 68px),
+        linear-gradient(180deg, rgba(148, 163, 184, 0.14) 0, rgba(148, 163, 184, 0.14) 1px, transparent 1px, transparent calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1))),
         linear-gradient(90deg, #edf1f5 0 64px, #f8fafc 64px 100%);
-    background-size: 100% 68px, 100% 100%;
+    background-size: 100% calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1)), 100% 100%;
 }
 
 body.page-recording-review .recording-review-focus__rail-tick {
@@ -1358,9 +1411,9 @@ body.page-recording-review .recording-review-focus__rail-track {
     --recording-review-rail-column-gap: 10px;
     --recording-review-rail-edge-gap: 8px;
     --recording-review-rail-thumb-height: 76px;
-    min-height: max(1460px, calc(var(--recording-review-hours, 24) * 68px));
-    background: linear-gradient(180deg, rgba(148, 163, 184, 0.14) 0, rgba(148, 163, 184, 0.14) 1px, transparent 1px, transparent 68px);
-    background-size: 100% 68px;
+    min-height: max(1460px, calc(var(--recording-review-hours, 24) * var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1)));
+    background: linear-gradient(180deg, rgba(148, 163, 184, 0.14) 0, rgba(148, 163, 184, 0.14) 1px, transparent 1px, transparent calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1)));
+    background-size: 100% calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1));
 }
 
 body.page-recording-review .recording-review-focus__rail-axis-column {
@@ -1397,7 +1450,7 @@ body.page-recording-review .recording-review-focus__rail-cursor::after {
 }
 
 body.page-recording-review .recording-review-focus__rail-segment {
-    min-height: 8px;
+    min-height: 0;
 }
 
 body.page-recording-review .recording-review-focus__rail-segment-bar {
@@ -1847,6 +1900,33 @@ html[data-theme='dark'] body.page-dashboard .sidebar-link--active {
     color: #dbeafe;
 }
 
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink__label {
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink:hover,
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink:focus-visible {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(126, 166, 248, 0.32);
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink--active {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(96, 165, 250, 0.34);
+    color: #dbeafe;
+}
+
+html[data-theme='dark'] body.page-dashboard .sidebar-sublink--active .sidebar-sublink__label {
+    color: #dbeafe;
+}
+
 html[data-theme='dark'] body.page-dashboard .sidebar-link__icon {
     background: #202b37;
     color: #cbd5e1;
@@ -2062,8 +2142,8 @@ html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail
 }
 
 html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-track {
-    background: linear-gradient(180deg, rgba(148, 163, 184, 0.12) 0, rgba(148, 163, 184, 0.12) 1px, transparent 1px, transparent 68px);
-    background-size: 100% 68px;
+    background: linear-gradient(180deg, rgba(148, 163, 184, 0.12) 0, rgba(148, 163, 184, 0.12) 1px, transparent 1px, transparent calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1)));
+    background-size: 100% calc(var(--recording-review-rail-hour-height, 88px) * var(--recording-review-zoom-scale, 1));
 }
 
 html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-axis-column {
@@ -2286,10 +2366,6 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
     body.page-recording-review .recording-review-focus__details-grid,
     body.page-recording-review .recording-review-switcher__list {
         grid-template-columns: 1fr;
-    }
-
-    body.page-recording-review .recording-review-focus__viewer {
-        min-height: 360px;
     }
 
     body.page-recording-review .recording-review-focus__rail-tick {

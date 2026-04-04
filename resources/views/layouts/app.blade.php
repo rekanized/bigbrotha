@@ -88,6 +88,7 @@
                     ->implode('')
                 : 'BB';
             $pageActions = trim($__env->yieldContent('page_actions'));
+            $canAccessAdminNavigation = $currentUser && ($currentUser->isAdmin() || !\App\Models\User::query()->where('is_admin', true)->exists());
             $navigation = [
                 [
                     'label' => 'Overview',
@@ -146,6 +147,22 @@
                     'active' => request()->routeIs('live-wall.*'),
                 ],
             ];
+
+            $adminNavigation = $canAccessAdminNavigation ? [
+                [
+                    'label' => 'Current users',
+                    'caption' => 'Review saved operators and admin access',
+                    'href' => route('admin.users.index'),
+                    'active' => request()->routeIs('admin.users.*'),
+                ],
+                [
+                    'label' => 'Application settings',
+                    'caption' => 'Display timezone and future operator settings',
+                    'href' => route('admin.settings.index'),
+                    'active' => request()->routeIs('admin.settings.*'),
+                ],
+            ] : [];
+            $adminNavigationActive = collect($adminNavigation)->contains(fn (array $item): bool => $item['active']);
         @endphp
 
         <div class="app-shell{{ $isImmersiveLayout ? ' app-shell--immersive' : '' }}">
@@ -181,6 +198,38 @@
                                             </span>
                                         </a>
                                     @endforeach
+
+                                    @if ($adminNavigation !== [])
+                                        <details class="sidebar-group{{ $adminNavigationActive ? ' sidebar-group--active' : '' }}" @if ($adminNavigationActive) open @endif>
+                                            <summary class="sidebar-group__summary">
+                                                <span class="sidebar-link sidebar-link--summary{{ $adminNavigationActive ? ' sidebar-link--active' : '' }}">
+                                                    <span class="sidebar-link__icon" aria-hidden="true">
+                                                        <span class="sidebar-link__abbr">AD</span>
+                                                        <span class="sidebar-link__symbol material-symbols-rounded">admin_panel_settings</span>
+                                                    </span>
+                                                    <span class="sidebar-link__content">
+                                                        <span class="sidebar-link__label">Admin</span>
+                                                        <small class="sidebar-link__caption">Users, application settings, and operator-wide controls</small>
+                                                    </span>
+                                                    <span class="sidebar-group__chevron material-symbols-rounded" aria-hidden="true">expand_more</span>
+                                                </span>
+                                            </summary>
+
+                                            <div class="sidebar-group__links">
+                                                @foreach ($adminNavigation as $item)
+                                                    <a
+                                                        class="sidebar-sublink{{ $item['active'] ? ' sidebar-sublink--active' : '' }}"
+                                                        href="{{ $item['href'] }}"
+                                                        wire:navigate
+                                                        @if ($item['active']) aria-current="page" @endif
+                                                    >
+                                                        <span class="sidebar-sublink__label">{{ $item['label'] }}</span>
+                                                        <small class="sidebar-sublink__caption">{{ $item['caption'] }}</small>
+                                                    </a>
+                                                @endforeach
+                                            </div>
+                                        </details>
+                                    @endif
                                 </div>
                             </nav>
                         </section>

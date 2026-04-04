@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\CameraRecordingService;
+use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
+use Illuminate\Support\Carbon;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -52,6 +55,49 @@ class CameraRecordingCommandTest extends TestCase
         $camera->refresh();
 
         $this->assertNotNull($camera->recording_last_recorded_at);
+    }
+
+    public function test_it_reanchors_delayed_continuous_capture_to_the_actual_start_and_uses_exact_segment_bounds(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        $camera = Camera::query()->create([
+            'name' => 'South Gate',
+            'local_ip' => '192.168.1.76',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream7',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'scheduled_for' => Carbon::create(2026, 4, 4, 18, 2, 0, 'UTC'),
+            'message' => 'Queued by scheduler.',
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous')]);
+
+        $this->travelTo(Carbon::create(2026, 4, 4, 18, 3, 29, 'UTC'));
+
+        try {
+            app(CameraRecordingService::class)->processRecording($recording);
+        } finally {
+            $this->travelBack();
+        }
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertSame('2026-04-04 18:03:29', $recording->scheduled_for?->utc()->toDateTimeString());
+        $this->assertSame('2026-04-04 18:03:29', $recording->started_at?->utc()->toDateTimeString());
+        $this->assertSame('2026-04-04 18:04:29', $recording->ended_at?->utc()->toDateTimeString());
+        $this->assertSame(60, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
     }
 
     public function test_it_uses_rtsp_timeout_arguments_that_are_compatible_with_the_host_ffmpeg_build(): void
@@ -225,6 +271,8 @@ class CameraRecordingCommandTest extends TestCase
             'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/01/expired-continuous.mkv',
             'file_size_bytes' => 7,
             'message' => 'Expired segment.',
+            'created_at' => now()->utc()->subDays(2)->startOfMinute(),
+            'updated_at' => now()->utc()->subDays(2)->startOfMinute(),
         ]);
 
         Artisan::call('camera-recordings:prune');
@@ -234,6 +282,261 @@ class CameraRecordingCommandTest extends TestCase
             'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/01/expired-continuous.mkv',
         ]);
         $this->assertDirectoryDoesNotExist($expiredReviewAssetDirectory);
+    }
+
+    public function test_it_prunes_expired_segments_with_legacy_private_storage_path_formats(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Dock Door',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $appPrivateRelativePath = 'app/private/cameras/'.$camera->id.'/recordings/2026/04/01/expired-app-private.mkv';
+        $absolutePath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/expired-absolute.mkv');
+
+        foreach ([
+            [
+                'stored_path' => $appPrivateRelativePath,
+                'absolute_path' => storage_path($appPrivateRelativePath),
+            ],
+            [
+                'stored_path' => $absolutePath,
+                'absolute_path' => $absolutePath,
+            ],
+        ] as $index => $fixture) {
+            File::ensureDirectoryExists(dirname($fixture['absolute_path']));
+            File::put($fixture['absolute_path'], 'expired');
+
+            $reviewAssetDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/'.pathinfo($fixture['absolute_path'], PATHINFO_FILENAME));
+            File::ensureDirectoryExists($reviewAssetDirectory);
+            File::put($reviewAssetDirectory.'/preview.mp4', 'preview');
+
+            $scheduledFor = now()->utc()->subDays(2)->startOfMinute()->addMinutes($index);
+
+            CameraRecording::query()->create([
+                'camera_id' => $camera->id,
+                'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+                'status' => CameraRecording::STATUS_RECORDED,
+                'scheduled_for' => $scheduledFor,
+                'started_at' => $scheduledFor,
+                'ended_at' => $scheduledFor->copy()->addMinute(),
+                'relative_path' => $fixture['stored_path'],
+                'file_size_bytes' => 7,
+                'message' => 'Expired legacy segment.',
+                'created_at' => $scheduledFor,
+                'updated_at' => $scheduledFor,
+            ]);
+        }
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->assertFileDoesNotExist(storage_path($appPrivateRelativePath));
+        $this->assertFileDoesNotExist($absolutePath);
+        $this->assertDirectoryDoesNotExist(storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/expired-app-private'));
+        $this->assertDirectoryDoesNotExist(storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/expired-absolute'));
+        $this->assertDatabaseMissing('camera_recordings', [
+            'relative_path' => $appPrivateRelativePath,
+        ]);
+        $this->assertDatabaseMissing('camera_recordings', [
+            'relative_path' => $absolutePath,
+        ]);
+    }
+
+    public function test_it_audits_orphan_recording_files_without_deleting_them(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse',
+            'local_ip' => '192.168.1.74',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream5',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $trackedRelativePath = 'cameras/'.$camera->id.'/recordings/2026/04/03/tracked.mkv';
+        $trackedAbsolutePath = storage_path('app/private/'.$trackedRelativePath);
+        File::ensureDirectoryExists(dirname($trackedAbsolutePath));
+        File::put($trackedAbsolutePath, 'tracked');
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinute(),
+            'started_at' => now()->utc()->subMinute(),
+            'ended_at' => now()->utc(),
+            'relative_path' => $trackedRelativePath,
+            'file_size_bytes' => 7,
+            'message' => 'Tracked segment.',
+        ]);
+
+        $orphanRelativePath = 'cameras/'.$camera->id.'/recordings/2026/04/03/orphan-audit.mkv';
+        $orphanAbsolutePath = storage_path('app/private/'.$orphanRelativePath);
+        File::ensureDirectoryExists(dirname($orphanAbsolutePath));
+        File::put($orphanAbsolutePath, 'orphan');
+
+        $storage = app(CameraStorageService::class);
+        $reviewDirectory = dirname($storage->recordingReviewAssetAbsolutePath($orphanRelativePath, '.', true));
+        File::put($reviewDirectory.'/preview.mp4', 'preview');
+
+        $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
+        $this->assertTrue($orphanPaths->contains($orphanRelativePath));
+        $this->assertFalse($orphanPaths->contains($trackedRelativePath));
+
+        Artisan::call('camera-recordings:orphans');
+
+        $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
+        $this->assertTrue($orphanPaths->contains($orphanRelativePath));
+        $this->assertFalse($orphanPaths->contains($trackedRelativePath));
+        $this->assertFileExists($trackedAbsolutePath);
+        $this->assertFileExists($orphanAbsolutePath);
+        $this->assertDirectoryExists($reviewDirectory);
+    }
+
+    public function test_it_uses_created_at_for_retention_cutoffs_instead_of_ended_at(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Archive Lane',
+            'local_ip' => '192.168.1.79',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream8',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/04/recently-created.mkv';
+        $absolutePath = storage_path('app/private/'.$relativePath);
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recent');
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subDays(2)->startOfMinute(),
+            'started_at' => now()->utc()->subDays(2)->startOfMinute(),
+            'ended_at' => now()->utc()->subDays(2)->startOfMinute()->addMinute(),
+            'relative_path' => $relativePath,
+            'file_size_bytes' => 6,
+            'message' => 'Recently imported segment.',
+            'created_at' => now()->utc()->subHours(2),
+            'updated_at' => now()->utc()->subHours(2),
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->assertFileExists($absolutePath);
+        $this->assertDatabaseHas('camera_recordings', [
+            'relative_path' => $relativePath,
+        ]);
+    }
+
+    public function test_it_deletes_the_database_row_when_the_expired_segment_file_is_already_missing(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Missing Segment',
+            'local_ip' => '192.168.1.80',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream9',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/01/missing-expired.mkv';
+        $reviewDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/missing-expired');
+        File::ensureDirectoryExists($reviewDirectory);
+        File::put($reviewDirectory.'/preview.mp4', 'preview');
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subDays(2)->startOfMinute(),
+            'started_at' => now()->utc()->subDays(2)->startOfMinute(),
+            'ended_at' => now()->utc()->subDays(2)->startOfMinute()->addMinute(),
+            'relative_path' => $relativePath,
+            'file_size_bytes' => 7,
+            'message' => 'Expired segment with a missing file.',
+            'created_at' => now()->utc()->subDays(2)->startOfMinute(),
+            'updated_at' => now()->utc()->subDays(2)->startOfMinute(),
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->assertDatabaseMissing('camera_recordings', [
+            'relative_path' => $relativePath,
+        ]);
+        $this->assertDirectoryDoesNotExist($reviewDirectory);
+    }
+
+    public function test_it_purges_orphan_recording_files_and_review_assets_when_requested(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Receiving',
+            'local_ip' => '192.168.1.75',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream6',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $trackedRelativePath = 'cameras/'.$camera->id.'/recordings/2026/04/03/tracked-purge.mkv';
+        $trackedAbsolutePath = storage_path('app/private/'.$trackedRelativePath);
+        File::ensureDirectoryExists(dirname($trackedAbsolutePath));
+        File::put($trackedAbsolutePath, 'tracked');
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinute(),
+            'started_at' => now()->utc()->subMinute(),
+            'ended_at' => now()->utc(),
+            'relative_path' => $trackedRelativePath,
+            'file_size_bytes' => 7,
+            'message' => 'Tracked segment.',
+        ]);
+
+        $orphanRelativePath = 'cameras/'.$camera->id.'/recordings/2026/04/03/orphan-purge.mkv';
+        $orphanAbsolutePath = storage_path('app/private/'.$orphanRelativePath);
+        File::ensureDirectoryExists(dirname($orphanAbsolutePath));
+        File::put($orphanAbsolutePath, 'orphan');
+
+        $storage = app(CameraStorageService::class);
+        $reviewDirectory = dirname($storage->recordingReviewAssetAbsolutePath($orphanRelativePath, '.', true));
+        File::put($reviewDirectory.'/preview.mp4', 'preview');
+
+        $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
+        $this->assertTrue($orphanPaths->contains($orphanRelativePath));
+        $this->assertFalse($orphanPaths->contains($trackedRelativePath));
+
+        Artisan::call('camera-recordings:orphans', ['--purge' => true]);
+
+        $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
+        $this->assertFalse($orphanPaths->contains($orphanRelativePath));
+        $this->assertFalse($orphanPaths->contains($trackedRelativePath));
+        $this->assertFileExists($trackedAbsolutePath);
+        $this->assertFileDoesNotExist($orphanAbsolutePath);
+        $this->assertDirectoryDoesNotExist($reviewDirectory);
     }
 
     public function test_it_registers_the_recording_scheduler_commands(): void

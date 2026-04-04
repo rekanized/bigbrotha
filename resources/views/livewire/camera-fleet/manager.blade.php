@@ -137,7 +137,7 @@
                                     <div class="camera-row__preview-meta">
                                         <span class="camera-row__label">Latest preview</span>
                                         <strong>{{ $latestPreview['profile']['name'] ?? 'Latest preview' }}</strong>
-                                        <p>{{ $latestPreview['profile']['preview_generated_at'] ?? 'Preview captured' }}</p>
+                                        <p>{{ $appSettings->formatStoredTimestamp($latestPreview['profile']['preview_generated_at'] ?? null) ?? ($latestPreview['profile']['preview_generated_at'] ?? 'Preview captured') }}</p>
                                     </div>
                                 @else
                                     <div class="camera-row__preview-empty">
@@ -614,7 +614,7 @@
 
                                         <div class="key-value-row">
                                             <span>Checked at</span>
-                                            <strong>{{ $profile['probe_checked_at'] ?? 'Not tested yet' }}</strong>
+                                            <strong>{{ $appSettings->formatStoredTimestamp($profile['probe_checked_at'] ?? null) ?? ($profile['probe_checked_at'] ?? 'Not tested yet') }}</strong>
                                         </div>
 
                                         <div class="key-value-row">
@@ -667,7 +667,7 @@
                         <div class="key-value-list">
                             @foreach ($selectedCameraRecentRecordings as $recentRecording)
                                 <div class="key-value-row">
-                                    <span>{{ $recentRecording->scheduled_for?->format('Y-m-d H:i') ?? 'Pending' }} UTC · {{ ucfirst($recentRecording->capture_mode) }}</span>
+                                    <span>{{ $appSettings->formatDateTime($recentRecording->scheduled_for, 'Y-m-d H:i') ?? 'Pending' }} · {{ ucfirst($recentRecording->capture_mode) }}</span>
                                     <strong>
                                         {{ ucfirst($recentRecording->status) }}
                                         @if ($recentRecording->file_size_bytes)

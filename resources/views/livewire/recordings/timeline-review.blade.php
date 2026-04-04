@@ -23,7 +23,14 @@
             data-day-end-ms="{{ $dayEndMs }}"
             data-focus-ms="{{ $focusAtMs }}"
             data-active-camera-id="{{ $activeCameraId ?? '' }}"
-            style="--recording-review-hours: {{ $timelineHours }};"
+            data-display-timezone="{{ $appSettings->javascriptTimezone() }}"
+            data-zoom-scale="{{ number_format($timelineZoomScale, 2, '.', '') }}"
+            data-zoom-min-scale="{{ number_format($timelineZoomMinScale, 2, '.', '') }}"
+            data-zoom-max-scale="{{ number_format($timelineZoomMaxScale, 2, '.', '') }}"
+            data-zoom-step-factor="{{ number_format($timelineZoomStepFactor, 2, '.', '') }}"
+            data-rail-base-hour-height-px="{{ $timelineBaseHourHeightPx }}"
+            data-rail-min-track-height-px="{{ $timelineMinTrackHeightPx }}"
+            style="--recording-review-hours: {{ $timelineHours }}; --recording-review-rail-hour-height: {{ $timelineBaseHourHeightPx }}px; --recording-review-rail-min-height: {{ $timelineMinTrackHeightPx }}px;"
         >
             <header class="recording-review__hero">
                 <div class="recording-review__hero-copy">
@@ -123,6 +130,7 @@
                     :review-range-label="$reviewRangeLabel"
                     :day-start-ms="$dayStartMs"
                     :day-end-ms="$dayEndMs"
+                    :timeline-zoom-scale="$timelineZoomScale"
                     :active-segment-id="isset($currentSegment['id']) ? (int) $currentSegment['id'] : null"
                     :key="'timeline-rail-'.($currentTile['cameraId'] ?? 'none')"
                 />

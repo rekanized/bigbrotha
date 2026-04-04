@@ -6,7 +6,9 @@ use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Jobs\ProcessCameraRecordingJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -48,6 +50,11 @@ class CameraRecordingService
             $this->recordingJobTimeoutSeconds() + 120,
             (int) config('recording.lock_seconds', 180) + 120,
         );
+    }
+
+    public function continuityToleranceSeconds(): int
+    {
+        return max(1, min(10, (int) floor($this->segmentDurationSeconds() / 6)));
     }
 
     public function dispatchRecording(CameraRecording $recording, string $message): bool
@@ -96,6 +103,43 @@ class CameraRecordingService
             }, 'id');
 
         return $recovered;
+    }
+
+    public function ensureContinuousRecordingQueued(Camera $camera, ?Carbon $now = null): ?CameraRecording
+    {
+        $now = ($now ?? now()->utc())->copy()->utc()->startOfSecond();
+
+        $pendingRecording = CameraRecording::query()
+            ->where('camera_id', $camera->getKey())
+            ->whereIn('status', CameraRecording::pendingStatuses())
+            ->orderBy('scheduled_for')
+            ->orderBy('id')
+            ->first();
+
+        if ($pendingRecording instanceof CameraRecording) {
+            return null;
+        }
+
+        $latestRecording = $this->latestCameraRecording($camera);
+        $scheduledFor = $latestRecording instanceof CameraRecording
+            ? $this->nextContinuousSegmentStart($camera, $latestRecording, $now)
+            : $now->copy();
+        $scheduledFor = $this->nextAvailableScheduledFor($camera, $scheduledFor);
+
+        $recording = CameraRecording::query()->firstOrCreate([
+            'camera_id' => $camera->getKey(),
+            'scheduled_for' => $scheduledFor,
+        ], [
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'message' => 'Queued by the continuous recorder watchdog.',
+        ]);
+
+        if (!$recording->wasRecentlyCreated) {
+            return null;
+        }
+
+        return $recording;
     }
 
     public function markRecordingQueued(CameraRecording $recording, string $message, ?float $motionScore = null): void
@@ -330,42 +374,111 @@ class CameraRecordingService
     public function pruneExpiredRecordings(): int
     {
         $deleted = 0;
-        $now = now()->utc();
 
-        CameraRecording::query()
-            ->with('camera')
-            ->whereNotNull('camera_recordings.ended_at')
-            ->whereNotNull('camera_recordings.relative_path')
-            ->orderBy('camera_recordings.id')
-            ->chunkById(100, function ($recordings) use (&$deleted, $now): void {
-                foreach ($recordings as $recording) {
-                    $camera = $recording->camera;
-
-                    if (!$camera instanceof Camera || !$recording->ended_at instanceof Carbon) {
-                        continue;
-                    }
-
-                    $retentionDays = max(1, (int) $camera->recording_retention_days);
-
-                    if ($recording->ended_at->greaterThanOrEqualTo($now->copy()->subDays($retentionDays))) {
-                        continue;
-                    }
-
-                    $absolutePath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
-
-                    if ($absolutePath !== null && is_file($absolutePath)) {
-                        @unlink($absolutePath);
-                        $this->storage->pruneEmptyRecordingDirectories($absolutePath);
-                    }
-
-                    $this->reviewAssets->pruneForRecording($recording);
-
-                    $recording->delete();
-                    $deleted++;
-                }
-            }, 'id');
+        $this->forEachExpiredRecording(function (CameraRecording $recording) use (&$deleted): void {
+            if ($this->pruneRecording($recording)) {
+                $deleted++;
+            }
+        });
 
         return $deleted;
+    }
+
+    /**
+     * @return array<int, array<string, int|string>>
+     */
+    public function expiredRecordingAuditRows(?int $cameraId = null): array
+    {
+        $rows = [];
+
+        $this->forEachExpiredRecording(function (CameraRecording $recording, Camera $camera, Carbon $cutoff) use (&$rows): void {
+            $rows[] = [
+                'recording_id' => (int) $recording->getKey(),
+                'camera_id' => (int) $camera->getKey(),
+                'camera_name' => (string) $camera->name,
+                'retention_days' => max(1, (int) $camera->recording_retention_days),
+                'created_at' => $recording->created_at instanceof Carbon
+                    ? $recording->created_at->copy()->utc()->format('Y-m-d H:i:s')
+                    : 'n/a',
+                'ended_at' => $recording->ended_at instanceof Carbon
+                    ? $recording->ended_at->copy()->utc()->format('Y-m-d H:i:s')
+                    : 'n/a',
+                'cutoff_at' => $cutoff->copy()->utc()->format('Y-m-d H:i:s'),
+                'file_present' => $this->storage->resolveRecordingAbsolutePath($recording->relative_path) !== null ? 'yes' : 'no',
+                'relative_path' => (string) ($recording->relative_path ?? ''),
+            ];
+        }, $cameraId);
+
+        return $rows;
+    }
+
+    private function forEachExpiredRecording(callable $callback, ?int $cameraId = null, ?Carbon $now = null): void
+    {
+        $now = ($now ?? now()->utc())->copy()->utc();
+
+        Camera::query()
+            ->select(['id', 'name', 'recording_retention_days'])
+            ->when($cameraId !== null, function (Builder $query) use ($cameraId): void {
+                $query->whereKey($cameraId);
+            })
+            ->orderBy('id')
+            ->chunkById(100, function ($cameras) use ($callback, $now): void {
+                foreach ($cameras as $camera) {
+                    $retentionDays = max(1, (int) $camera->recording_retention_days);
+                    $cutoff = $now->copy()->subDays($retentionDays);
+
+                    CameraRecording::query()
+                        ->where('camera_id', $camera->getKey())
+                        ->whereNotNull('ended_at')
+                        ->whereNotNull('relative_path')
+                        ->where('created_at', '<', $cutoff)
+                        ->orderBy('id')
+                        ->chunkById(100, function ($recordings) use ($callback, $camera, $cutoff): void {
+                            foreach ($recordings as $recording) {
+                                $callback($recording, $camera, $cutoff);
+                            }
+                        }, 'id');
+                }
+            });
+    }
+
+    private function pruneRecording(CameraRecording $recording): bool
+    {
+        try {
+            return DB::transaction(function () use ($recording): bool {
+                $lockedRecording = CameraRecording::query()
+                    ->whereKey($recording->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lockedRecording instanceof CameraRecording) {
+                    return false;
+                }
+
+                if (!$this->storage->deleteRecordingFile($lockedRecording->relative_path)) {
+                    Log::warning('Skipped pruning a camera recording because the segment file could not be deleted.', [
+                        'recording_id' => $lockedRecording->getKey(),
+                        'relative_path' => $lockedRecording->relative_path,
+                    ]);
+
+                    return false;
+                }
+
+                $this->reviewAssets->pruneForRecording($lockedRecording);
+
+                return (bool) $lockedRecording->delete();
+            }, 3);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to prune a camera recording.', [
+                'recording_id' => $recording->getKey(),
+                'relative_path' => $recording->relative_path,
+                'error' => $this->summarizeThrowable($exception, 'Unable to prune the expired recording.'),
+            ]);
+
+            $this->safeReport($exception);
+
+            return false;
+        }
     }
 
     public function playbackResponse(CameraRecording $recording): StreamedResponse
@@ -443,12 +556,15 @@ class CameraRecordingService
             throw new RuntimeException('ffmpeg is not available on this host. Check the recorder stack configuration first.');
         }
 
-        $absolutePath = $this->buildRecordingAbsolutePath($camera, $recording->scheduled_for, $recording->capture_mode);
+        $startedAt = now()->utc()->startOfSecond();
+        $scheduledFor = $this->captureScheduledFor($camera, $recording, $startedAt);
+        $absolutePath = $this->buildRecordingAbsolutePath($camera, $scheduledFor, $recording->capture_mode);
         $relativePath = $this->storage->recordingRelativePathFromAbsolute($absolutePath);
         $durationSeconds = $this->segmentDurationSeconds();
-        $startedAt = now()->utc();
+        $endedAt = $startedAt->copy()->addSeconds($durationSeconds);
 
         $this->markRecording($recording, CameraRecording::STATUS_PROCESSING, 'Capturing a '.$durationSeconds.' second recording segment.', [
+            'scheduled_for' => $scheduledFor,
             'started_at' => $startedAt,
             'ended_at' => null,
             'relative_path' => null,
@@ -499,10 +615,10 @@ class CameraRecordingService
         }
 
         clearstatcache(true, $absolutePath);
-        $endedAt = now()->utc();
         $fileSize = is_file($absolutePath) ? filesize($absolutePath) : null;
 
         $this->markRecording($recording, CameraRecording::STATUS_RECORDED, 'Recorded '.$durationSeconds.' seconds to '.$relativePath.'.', [
+            'scheduled_for' => $scheduledFor,
             'relative_path' => $relativePath,
             'file_size_bytes' => is_int($fileSize) ? $fileSize : null,
             'ended_at' => $endedAt,
@@ -533,6 +649,10 @@ class CameraRecordingService
                 'exception' => $exception::class,
                 'message' => $exception->getMessage(),
             ]);
+        }
+
+        if ($camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS && $this->shouldChainContinuousSegments()) {
+            $this->dispatchContinuousFollowUp($camera->fresh(), $endedAt);
         }
     }
 
@@ -645,6 +765,98 @@ class CameraRecordingService
         $normalized = (max(1, min(100, $sensitivity)) - 1) / 99;
 
         return 0.18 - ($normalized * 0.16);
+    }
+
+    private function captureScheduledFor(Camera $camera, CameraRecording $recording, Carbon $startedAt): Carbon
+    {
+        if ($camera->recording_mode !== Camera::RECORDING_MODE_CONTINUOUS) {
+            return ($recording->scheduled_for instanceof Carbon ? $recording->scheduled_for->copy()->utc() : $startedAt->copy())->startOfSecond();
+        }
+
+        return $this->nextAvailableScheduledFor($camera, $startedAt, $recording->getKey());
+    }
+
+    private function dispatchContinuousFollowUp(Camera $camera, Carbon $scheduledFor): void
+    {
+        if (!$camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_CONTINUOUS) {
+            return;
+        }
+
+        $scheduledFor = $this->nextAvailableScheduledFor($camera, $scheduledFor);
+        $recording = CameraRecording::query()->firstOrCreate([
+            'camera_id' => $camera->getKey(),
+            'scheduled_for' => $scheduledFor,
+        ], [
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'message' => 'Queued immediately after the previous continuous segment.',
+        ]);
+
+        if (!$recording->wasRecentlyCreated) {
+            return;
+        }
+
+        $this->dispatchRecording(
+            $recording,
+            'Queued immediately after the previous continuous segment ended at '.$scheduledFor->format('Y-m-d H:i:s').' UTC.',
+        );
+    }
+
+    private function latestCameraRecording(Camera $camera): ?CameraRecording
+    {
+        return CameraRecording::query()
+            ->where('camera_id', $camera->getKey())
+            ->orderByDesc('scheduled_for')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    private function nextContinuousSegmentStart(Camera $camera, CameraRecording $latestRecording, Carbon $now): Carbon
+    {
+        $candidate = $this->recordingExpectedEnd($latestRecording);
+        $restartThreshold = $now->copy()->subSeconds($this->segmentDurationSeconds() + $this->continuityToleranceSeconds());
+
+        if ($candidate->lessThan($restartThreshold)) {
+            return $now->copy();
+        }
+
+        return $this->nextAvailableScheduledFor($camera, $candidate, $latestRecording->getKey());
+    }
+
+    private function recordingExpectedEnd(CameraRecording $recording): Carbon
+    {
+        if ($recording->ended_at instanceof Carbon) {
+            return $recording->ended_at->copy()->utc()->startOfSecond();
+        }
+
+        $base = $recording->started_at instanceof Carbon
+            ? $recording->started_at->copy()->utc()
+            : ($recording->scheduled_for instanceof Carbon ? $recording->scheduled_for->copy()->utc() : now()->utc());
+
+        return $base->startOfSecond()->addSeconds($this->segmentDurationSeconds());
+    }
+
+    private function nextAvailableScheduledFor(Camera|int $camera, Carbon $scheduledFor, ?int $ignoreRecordingId = null): Carbon
+    {
+        $cameraId = $camera instanceof Camera ? (int) $camera->getKey() : (int) $camera;
+        $candidate = $scheduledFor->copy()->utc()->startOfSecond();
+
+        while (CameraRecording::query()
+            ->where('camera_id', $cameraId)
+            ->where('scheduled_for', $candidate)
+            ->when($ignoreRecordingId !== null, function (Builder $query) use ($ignoreRecordingId): void {
+                $query->whereKeyNot($ignoreRecordingId);
+            })
+            ->exists()) {
+            $candidate->addSecond();
+        }
+
+        return $candidate;
+    }
+
+    private function shouldChainContinuousSegments(): bool
+    {
+        return (string) config('queue.default', 'sync') !== 'sync';
     }
 
     private function transport(Camera $camera): string

@@ -5,7 +5,9 @@ namespace App\Providers;
 use FFMpeg\FFMpeg;
 use FFMpeg\FFProbe;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use App\Services\ApplicationSettingsService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -48,6 +50,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        $settings = $this->app->make(ApplicationSettingsService::class);
+
+        $settings->apply();
+        View::share('appSettings', $settings);
     }
 }

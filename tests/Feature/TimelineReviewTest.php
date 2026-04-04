@@ -75,7 +75,7 @@ class TimelineReviewTest extends TestCase
             ->assertSeeHtml('data-role="scrub-preview-layer"')
             ->assertSeeHtml('data-active-layer-index="0"')
             ->assertSee('100%')
-            ->assertSeeHtml('src="https://example.test/recordings/north-gate-stream.mp4"')
+            ->assertSeeHtml('src="https://example.test/recordings/north-gate-preview.mp4"')
             ->assertDontSeeHtml(' controls');
 
         Livewire::test(TimelineStage::class, [
@@ -138,7 +138,58 @@ class TimelineReviewTest extends TestCase
         ])
             ->assertSeeHtml('data-role="rail-segment"')
             ->assertSeeHtml('data-role="rail-thumbnail"')
-            ->assertSeeHtml('data-focus-ms="5000"')
+            ->assertSeeHtml('data-focus-ms="2000"')
             ->assertDontSeeHtml('wire:click="$dispatch(\'timeline-focus-selected\'');
+    }
+
+    public function test_timeline_rail_drops_overlapping_thumbnails_instead_of_shifting_them_far_from_their_clip(): void
+    {
+        $component = Livewire::test(TimelineRail::class, [
+            'tile' => [
+                'cameraName' => 'North Gate',
+                'segments' => [
+                    [
+                        'id' => 81,
+                        'startMs' => 0,
+                        'endMs' => 60_000,
+                        'midpointMs' => 30_000,
+                        'topPercent' => 0,
+                        'renderHeightPercent' => 0.833333,
+                        'captureMode' => 'continuous',
+                        'timeLabel' => '2026-04-03 12:00:00 UTC',
+                        'modeLabel' => 'Continuous clip',
+                        'thumbnailUrl' => 'https://example.test/recordings/north-gate-thumb-a.jpg',
+                        'scheduledLabel' => '2026-04-03 12:00:00 UTC',
+                    ],
+                    [
+                        'id' => 82,
+                        'startMs' => 60_000,
+                        'endMs' => 120_000,
+                        'midpointMs' => 90_000,
+                        'topPercent' => 0.833333,
+                        'renderHeightPercent' => 0.833333,
+                        'captureMode' => 'continuous',
+                        'timeLabel' => '2026-04-03 12:01:00 UTC',
+                        'modeLabel' => 'Continuous clip',
+                        'thumbnailUrl' => 'https://example.test/recordings/north-gate-thumb-b.jpg',
+                        'scheduledLabel' => '2026-04-03 12:01:00 UTC',
+                    ],
+                ],
+            ],
+            'timelineTicks' => [],
+            'focusAtMs' => 90_000,
+            'focusLabel' => '2026-04-03 12:01:30 UTC',
+            'reviewRangeLabel' => '2026-04-03 12:00:00 UTC - 2026-04-03 14:00:00 UTC',
+            'dayStartMs' => 0,
+            'dayEndMs' => 7_200_000,
+            'timelineZoomScale' => 1,
+            'activeSegmentId' => 82,
+        ]);
+
+        $html = $component->html();
+
+        $this->assertSame(1, substr_count($html, 'data-role="rail-thumbnail"'));
+        $this->assertMatchesRegularExpression('/data-role="rail-thumbnail"[^>]*data-recording-id="82"/s', $html);
+        $this->assertDoesNotMatchRegularExpression('/data-role="rail-thumbnail"[^>]*data-recording-id="81"/s', $html);
     }
 }
