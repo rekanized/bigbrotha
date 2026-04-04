@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | Recording timeline')
+@section('title', config('app.name', 'Bigbrotha').' | Recording timeline')
 
 @section('body_class', 'page-recording-review')
 
@@ -22,8 +22,9 @@
         :summary="$summary"
         :timeline-camera-options="$timelineCameraOptionsPayload"
         :review-tiles="$reviewTiles->values()->all()"
+        :selected-camera-ids="$selectedCameraIds"
+        :date-range="$dateRange"
         :timeline-hours="$timelineHours"
-        :timeline-ticks="$timelineTicks->values()->all()"
         :timeline-payload="$timelinePayload"
         :review-range-label="$reviewRangeLabel"
     />

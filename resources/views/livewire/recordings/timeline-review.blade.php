@@ -7,15 +7,40 @@
                 <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Open camera fleet</a>
             </div>
         </section>
-    @elseif ($reviewTiles === [])
+    @else
+        @if ($reviewTiles === [])
         <section class="screen-card screen-card--spacious">
             <div class="empty-state">
                 <strong>No saved clips are ready for timeline review.</strong>
-                <p>Timeline review only loads completed recorded segments. Return to the recordings browser or wait for current processing to finish, then open this page again.</p>
+                <div class="recording-review__date-range-card recording-review__date-range-card--empty">
+                    <form class="recording-review__date-range recording-review__date-range--compact" method="GET" action="{{ route('recordings.timeline') }}">
+                        @foreach ($selectedCameraIds as $selectedCameraId)
+                            <input type="hidden" name="camera_ids[]" value="{{ $selectedCameraId }}">
+                        @endforeach
+
+                        <span class="recording-review__date-range-title">Date range</span>
+
+                        <label class="field-stack field-stack--compact">
+                            <span>From</span>
+                            <input class="form-input" type="date" name="date_from" value="{{ $dateFrom }}">
+                        </label>
+
+                        <label class="field-stack field-stack--compact">
+                            <span>To</span>
+                            <input class="form-input" type="date" name="date_to" value="{{ $dateTo }}">
+                        </label>
+
+                        <div class="probe-actions recording-review__date-range-actions">
+                            <button class="button button--primary" type="submit">Apply</button>
+                            <a class="button button--soft" href="{{ route('recordings.timeline', $selectedCameraIds !== [] ? ['camera_ids' => $selectedCameraIds] : []) }}" wire:navigate>Default</a>
+                        </div>
+                    </form>
+                </div>
+                <p>No completed clips were found inside the selected date range. Adjust the range above, return to the recordings browser, or wait for current processing to finish.</p>
                 <a class="button button--primary" href="{{ route('recordings.index') }}" wire:navigate>Back to recordings</a>
             </div>
         </section>
-    @else
+        @else
         <section
             class="screen-card screen-card--spacious recording-review__workspace"
             data-recording-review-root
@@ -30,6 +55,10 @@
             data-zoom-step-factor="{{ number_format($timelineZoomStepFactor, 2, '.', '') }}"
             data-rail-base-hour-height-px="{{ $timelineBaseHourHeightPx }}"
             data-rail-min-track-height-px="{{ $timelineMinTrackHeightPx }}"
+            data-rail-chunk-duration-ms="{{ $railChunkDurationMs }}"
+            data-rail-buffer-duration-ms="{{ $railBufferDurationMs }}"
+            data-secondary-tick-interval-minutes="15"
+            data-secondary-tick-min-label-spacing-px="20"
             style="--recording-review-hours: {{ $timelineHours }}; --recording-review-rail-hour-height: {{ $timelineBaseHourHeightPx }}px; --recording-review-rail-min-height: {{ $timelineMinTrackHeightPx }}px;"
         >
             <header class="recording-review__hero">
@@ -72,13 +101,37 @@
 
             <section class="recording-review-focus" aria-label="Timeline review workspace">
                 <div class="recording-review-focus__main">
+                    <section class="recording-review__date-range-card" aria-label="Timeline date range">
+                        <form class="recording-review__date-range recording-review__date-range--compact" method="GET" action="{{ route('recordings.timeline') }}">
+                            @foreach ($selectedCameraIds as $selectedCameraId)
+                                <input type="hidden" name="camera_ids[]" value="{{ $selectedCameraId }}">
+                            @endforeach
+
+                            <span class="recording-review__date-range-title">Date range</span>
+
+                            <label class="field-stack field-stack--compact">
+                                <span>From</span>
+                                <input class="form-input" type="date" name="date_from" value="{{ $dateFrom }}">
+                            </label>
+
+                            <label class="field-stack field-stack--compact">
+                                <span>To</span>
+                                <input class="form-input" type="date" name="date_to" value="{{ $dateTo }}">
+                            </label>
+
+                            <div class="probe-actions recording-review__date-range-actions">
+                                <button class="button button--primary" type="submit">Apply</button>
+                                <a class="button button--soft" href="{{ route('recordings.timeline', $selectedCameraIds !== [] ? ['camera_ids' => $selectedCameraIds] : []) }}" wire:navigate>Default</a>
+                            </div>
+                        </form>
+                    </section>
+
                     <livewire:recordings.timeline-stage
                         :tile="$currentTile ?? []"
                         :segment="$currentSegment"
                         :focus-label="$focusLabel"
                         :review-range-label="$reviewRangeLabel"
                         :focus-at-ms="$focusAtMs"
-                        :is-muted="$isMuted"
                         :key="'timeline-stage-'.($activeCameraId ?? 'none').'-'.($currentSegment['id'] ?? 'empty')"
                     />
 
@@ -105,7 +158,7 @@
                                 >
                                     <span class="recording-review-switcher__camera-thumb">
                                         @if (!empty($reviewTile['previewThumbnailUrl']))
-                                            <img src="{{ $reviewTile['previewThumbnailUrl'] }}" alt="{{ $reviewTile['cameraName'] }} thumbnail preview">
+                                            <img src="{{ $reviewTile['previewThumbnailUrl'] }}" alt="{{ $reviewTile['cameraName'] }} thumbnail preview" loading="lazy" decoding="async">
                                         @else
                                             <span class="recording-review-switcher__camera-fallback">{{ $cameraInitials !== '' ? $cameraInitials : 'NA' }}</span>
                                         @endif
@@ -124,10 +177,11 @@
 
                 <livewire:recordings.timeline-rail
                     :tile="$currentTile ?? []"
-                    :timeline-ticks="$timelineTicks"
+                    :initial-segments="$initialRailSegments"
+                    :initial-window-start-ms="$initialRailWindowStartMs"
+                    :initial-window-end-ms="$initialRailWindowEndMs"
                     :focus-at-ms="$focusAtMs"
                     :focus-label="$focusLabel"
-                    :review-range-label="$reviewRangeLabel"
                     :day-start-ms="$dayStartMs"
                     :day-end-ms="$dayEndMs"
                     :timeline-zoom-scale="$timelineZoomScale"
@@ -136,5 +190,6 @@
                 />
             </section>
         </section>
+        @endif
     @endif
 </div>

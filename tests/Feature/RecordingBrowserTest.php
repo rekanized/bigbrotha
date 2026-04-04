@@ -160,7 +160,11 @@ class RecordingBrowserTest extends TestCase
 
         $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]));
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-04',
+                'date_to' => '2026-04-04',
+            ]));
 
         $response
             ->assertOk()
@@ -210,7 +214,11 @@ class RecordingBrowserTest extends TestCase
 
         $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]));
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-04',
+                'date_to' => '2026-04-04',
+            ]));
 
         $response
             ->assertOk()
@@ -225,6 +233,117 @@ class RecordingBrowserTest extends TestCase
             $recording->started_at,
             $recording->ended_at,
         );
+    }
+
+    public function test_timeline_route_renders_quarter_hour_secondary_ticks_for_the_vertical_scale(): void
+    {
+        app(ApplicationSettingsService::class)->saveAppTimezone('Europe/Amsterdam');
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Yard',
+            'local_ip' => '192.168.1.174',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 1),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/04/warehouse-yard.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Continuous segment saved.',
+        ]);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]))
+            ->assertOk()
+            ->assertSee('data-tick-kind="secondary"', false)
+            ->assertSee('recording-review-focus__rail-tick--secondary', false)
+            ->assertSee('>15<', false);
+    }
+
+    public function test_timeline_route_defaults_to_latest_recorded_day_and_honors_a_custom_date_span(): void
+    {
+        app(ApplicationSettingsService::class)->saveAppTimezone('Europe/Amsterdam');
+        Carbon::setTestNow(Carbon::create(2026, 4, 5, 12, 0, 0, 'UTC'));
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Yard',
+            'local_ip' => '192.168.1.174',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $olderRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(10, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(10, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(10, 1),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-yard-older.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Older segment saved.',
+        ]);
+
+        $latestRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 4)->setTime(15, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 4)->setTime(15, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 4)->setTime(15, 1),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/04/warehouse-yard-latest.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Latest segment saved.',
+        ]);
+
+        $defaultResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]));
+
+        $defaultResponse
+            ->assertOk()
+            ->assertSee('name="date_from" value="2026-04-04"', false)
+            ->assertSee('name="date_to" value="2026-04-05"', false)
+            ->assertSee('data-recording-id="'.$latestRecording->id.'"', false)
+            ->assertDontSee('data-recording-id="'.$olderRecording->id.'"', false);
+
+        $customSpanResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-03',
+                'date_to' => '2026-04-03',
+            ]));
+
+        $customSpanResponse
+            ->assertOk()
+            ->assertSee('name="date_from" value="2026-04-03"', false)
+            ->assertSee('name="date_to" value="2026-04-03"', false)
+            ->assertSee('data-recording-id="'.$olderRecording->id.'"', false)
+            ->assertDontSee('data-recording-id="'.$latestRecording->id.'"', false);
+
+        Carbon::setTestNow();
     }
 
     public function test_operator_can_open_the_recording_playback_screen_and_stream_the_segment(): void
@@ -347,7 +466,11 @@ class RecordingBrowserTest extends TestCase
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$frontDoor->id, $garage->id]]))
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$frontDoor->id, $garage->id],
+                'date_from' => '2026-04-03',
+                'date_to' => '2026-04-03',
+            ]))
             ->assertOk()
             ->assertSee('recording-review__workspace', false)
             ->assertSee('Timeline Review')
@@ -530,7 +653,12 @@ class RecordingBrowserTest extends TestCase
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id], 'focus_at' => '2026-04-03 12:45:30']))
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-03',
+                'date_to' => '2026-04-03',
+                'focus_at' => '2026-04-03 12:45:30',
+            ]))
             ->assertOk()
             ->assertSee('src="'.route('recordings.preview-stream', ['recording' => $recording]).'"', false);
     }
@@ -752,7 +880,6 @@ class RecordingBrowserTest extends TestCase
             ->copy()
             ->setTimezone('Europe/Amsterdam')
             ->startOfDay()
-            ->subDays(3)
             ->utc();
     }
 
@@ -761,9 +888,8 @@ class RecordingBrowserTest extends TestCase
         return ($recordingEnd ?? now()->utc())
             ->copy()
             ->setTimezone('Europe/Amsterdam')
-            ->addDay()
             ->startOfDay()
-            ->addDays(3)
+            ->addDay()
             ->utc();
     }
 

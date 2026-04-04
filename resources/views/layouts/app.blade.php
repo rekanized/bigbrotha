@@ -34,7 +34,7 @@
             })();
         </script>
 
-        <title>@yield('title', config('app.name', 'BigBrothas'))</title>
+        <title>@yield('title', config('app.name', 'Bigbrotha'))</title>
 
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -150,8 +150,8 @@
 
             $adminNavigation = $canAccessAdminNavigation ? [
                 [
-                    'label' => 'Current users',
-                    'caption' => 'Review saved operators and admin access',
+                    'label' => 'Operator access',
+                    'caption' => 'Approved sign-in emails, operators, and admin access',
                     'href' => route('admin.users.index'),
                     'active' => request()->routeIs('admin.users.*'),
                 ],
@@ -170,10 +170,12 @@
                 <aside class="app-rail page-card">
                     <div class="app-rail__inner">
                         <div class="sidebar-brand">
-                            <div class="sidebar-brand__mark">BB</div>
+                            <div class="sidebar-brand__mark" aria-hidden="true">
+                                <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                            </div>
                             <div class="sidebar-brand__meta">
                                 <span class="sidebar-brand__eyebrow">Operator workspace</span>
-                                <span class="sidebar-brand__title">{{ config('app.name', 'BigBrothas') }}</span>
+                                <span class="sidebar-brand__title">{{ config('app.name', 'Bigbrotha') }}</span>
                             </div>
                         </div>
 

@@ -8,6 +8,7 @@ use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
+use App\Services\RecordingTimelineReviewService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -20,8 +21,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RecordingController extends Controller
 {
-    public function __construct(private readonly ApplicationSettingsService $settings)
-    {
+    public function __construct(
+        private readonly ApplicationSettingsService $settings,
+        private readonly RecordingTimelineReviewService $timelineReview,
+    ) {
     }
 
     public function index(Request $request): View
@@ -257,8 +260,15 @@ class RecordingController extends Controller
      */
     private function timelineViewData(Request $request): array
     {
+        $requestedDateFrom = $this->validDateOrNull($request->query('date_from'));
+        $requestedDateTo = $this->validDateOrNull($request->query('date_to'));
         $requestedDay = $this->validDateOrNull($request->query('day'));
         $requestedZoom = $this->validZoomScaleOrNull($request->query('zoom'));
+
+        if ($requestedDateFrom === null && $requestedDateTo === null && $requestedDay !== null) {
+            $requestedDateFrom = $requestedDay;
+            $requestedDateTo = $requestedDay;
+        }
 
         $timelineCameraOptions = $this->cameraOptions();
         $selectedCameraIds = $this->resolveTimelineCameraIds($request, $timelineCameraOptions);
@@ -266,26 +276,23 @@ class RecordingController extends Controller
             ->filter(fn (Camera $camera): bool => $selectedCameraIds->contains((int) $camera->getKey()))
             ->values();
 
-        [$reviewWindowStart, $reviewWindowEnd] = $this->reviewTimelineBounds($selectedCameraIds, $requestedDay);
+        [$reviewWindowStart, $reviewWindowEnd] = $this->reviewTimelineBounds($selectedCameraIds, $requestedDateFrom, $requestedDateTo);
         $reviewRecordings = $this->reviewRecordings($selectedCameraIds, $reviewWindowStart, $reviewWindowEnd);
         $focusAt = $this->resolveFocusAt(
-            $request->query('focus_at') ?? $requestedDay,
+            $request->query('focus_at'),
             $reviewWindowStart,
             $reviewWindowEnd,
             $reviewRecordings,
         );
-        $reviewTiles = $this->buildReviewTiles($selectedCameras, $reviewRecordings, $focusAt, $reviewWindowStart, $reviewWindowEnd);
+        $reviewTiles = $this->timelineReview->buildCameraSummaries($selectedCameras, $reviewRecordings, $focusAt, $reviewWindowStart, $reviewWindowEnd);
         $timelineHours = max(24, (int) ceil($this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd)));
-        $timelineTicks = $this->timelineTicks($reviewWindowStart, $reviewWindowEnd);
         $activeCameraId = $this->resolveActiveCameraId($reviewTiles);
         $summaryQuery = CameraRecording::query()
             ->when($selectedCameraIds->isNotEmpty(), function (Builder $query) use ($selectedCameraIds): void {
                 $query->whereIn('camera_id', $selectedCameraIds->all());
-            })
-            ->where(function (Builder $query) use ($reviewWindowStart, $reviewWindowEnd): void {
-                $query->where('scheduled_for', '>=', $reviewWindowStart)
-                    ->where('scheduled_for', '<', $reviewWindowEnd);
             });
+
+        $this->applyReviewWindow($summaryQuery, $reviewWindowStart, $reviewWindowEnd);
 
         return [
             'summary' => [
@@ -302,8 +309,12 @@ class RecordingController extends Controller
             'reviewRangeLabel' => $this->settings->formatDateTime($reviewWindowStart, 'Y-m-d H:i')
                 .' - '.$this->settings->formatDateTime($reviewWindowEnd->copy()->subSecond(), 'Y-m-d H:i'),
             'reviewTiles' => $reviewTiles,
+            'selectedCameraIds' => $selectedCameraIds->all(),
+            'dateRange' => [
+                'from' => $this->settings->toDisplayTimezone($reviewWindowStart)->format('Y-m-d'),
+                'to' => $this->settings->toDisplayTimezone($reviewWindowEnd->copy()->subSecond())->format('Y-m-d'),
+            ],
             'timelineHours' => $timelineHours,
-            'timelineTicks' => $timelineTicks,
             'timelinePayload' => [
                 'activeCameraId' => $activeCameraId,
                 'dayStartMs' => $reviewWindowStart->valueOf(),
@@ -311,11 +322,7 @@ class RecordingController extends Controller
                 'focusAtMs' => $focusAt->valueOf(),
                 'displayTimezone' => $this->settings->javascriptTimezone(),
                 'zoomScale' => $requestedZoom,
-                'cacheMaxEntries' => (int) config('recording.review_assets.cache_max_entries', 36),
-                'cacheMaxBytes' => (int) config('recording.review_assets.cache_max_bytes', 157286400),
-                'zoomHoursWidth' => 140,
                 'timelineHours' => $timelineHours,
-                'tiles' => $reviewTiles->values()->all(),
             ],
         ];
     }
@@ -353,44 +360,54 @@ class RecordingController extends Controller
      * @param  Collection<int, int>  $selectedCameraIds
      * @return array{0: Carbon, 1: Carbon}
      */
-    private function reviewTimelineBounds(Collection $selectedCameraIds, ?string $requestedDay): array
+    private function reviewTimelineBounds(Collection $selectedCameraIds, ?string $requestedDateFrom, ?string $requestedDateTo): array
     {
-        $fallbackAnchor = $requestedDay !== null
-            ? $this->settings->startOfDisplayDayUtc($requestedDay)
-            : now()->setTimezone($this->settings->appTimezone())->startOfDay()->utc();
-        $fallbackStart = $fallbackAnchor->copy()->subDays(3);
-        $fallbackEnd = $fallbackStart->copy()->addDays(7);
+        [$normalizedDateFrom, $normalizedDateTo] = $this->normalizeRequestedReviewDateRange($requestedDateFrom, $requestedDateTo);
 
-        if ($selectedCameraIds->isEmpty()) {
-            return [$fallbackStart, $fallbackEnd];
+        if ($normalizedDateFrom !== null && $normalizedDateTo !== null) {
+            $rangeStart = $this->settings->startOfDisplayDayUtc($normalizedDateFrom);
+            $rangeEnd = $this->settings->startOfDisplayDayUtc($normalizedDateTo)->addDay();
+
+            return [$rangeStart, $rangeEnd];
         }
 
-        $bounds = CameraRecording::query()
-            ->whereIn('camera_id', $selectedCameraIds->all())
-            ->where('status', CameraRecording::STATUS_RECORDED)
-            ->selectRaw('MIN(COALESCE(started_at, scheduled_for)) as min_recording_at')
-            ->selectRaw('MAX(COALESCE(ended_at, started_at, scheduled_for)) as max_recording_at')
-            ->first();
+        [$defaultRangeStart, $defaultRangeEnd] = $this->defaultTimelineReviewBounds();
 
-        $minRecordingAt = $bounds?->min_recording_at ? Carbon::parse($bounds->min_recording_at, 'UTC')->utc() : null;
-        $maxRecordingAt = $bounds?->max_recording_at ? Carbon::parse($bounds->max_recording_at, 'UTC')->utc() : null;
+        return [$defaultRangeStart, $defaultRangeEnd];
+    }
 
-        if (!$minRecordingAt instanceof Carbon || !$maxRecordingAt instanceof Carbon) {
-            return [$fallbackStart, $fallbackEnd];
+    /**
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function normalizeRequestedReviewDateRange(?string $requestedDateFrom, ?string $requestedDateTo): array
+    {
+        if ($requestedDateFrom === null && $requestedDateTo === null) {
+            return [null, null];
         }
 
-        $timelineStart = $this->settings->toDisplayTimezone($minRecordingAt)->startOfDay()->subDays(3)->utc();
-        $timelineEnd = $this->settings->toDisplayTimezone($maxRecordingAt)->addDay()->startOfDay()->addDays(3)->utc();
+        $normalizedDateFrom = $requestedDateFrom ?? $requestedDateTo;
+        $normalizedDateTo = $requestedDateTo ?? $requestedDateFrom;
 
-        if ($timelineEnd->diffInHours($timelineStart) < (24 * 7)) {
-            $timelineEnd = $timelineStart->copy()->addDays(7);
+        if ($normalizedDateFrom === null || $normalizedDateTo === null) {
+            return [null, null];
         }
 
-        if ($timelineEnd->lessThanOrEqualTo($timelineStart)) {
-            $timelineEnd = $timelineStart->copy()->addDays(7);
+        if ($normalizedDateFrom > $normalizedDateTo) {
+            [$normalizedDateFrom, $normalizedDateTo] = [$normalizedDateTo, $normalizedDateFrom];
         }
 
-        return [$timelineStart, $timelineEnd];
+        return [$normalizedDateFrom, $normalizedDateTo];
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function defaultTimelineReviewBounds(): array
+    {
+        $currentDisplayDayStart = now()->setTimezone($this->settings->appTimezone())->startOfDay()->utc();
+        $rangeStart = $currentDisplayDayStart->copy()->subDay();
+
+        return [$rangeStart, $rangeStart->copy()->addDays(2)];
     }
 
     /**
@@ -401,9 +418,10 @@ class RecordingController extends Controller
         $ticks = collect();
         $cursor = $reviewWindowStart->copy();
         $totalHours = max(1, $this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd));
+        $tickIntervalMinutes = 15;
 
         while ($cursor->lessThan($reviewWindowEnd)) {
-            $nextCursor = $cursor->copy()->addHour();
+            $nextCursor = $cursor->copy()->addMinutes($tickIntervalMinutes);
 
             if ($nextCursor->greaterThan($reviewWindowEnd)) {
                 $nextCursor = $reviewWindowEnd->copy();
@@ -412,6 +430,10 @@ class RecordingController extends Controller
             $offsetHours = $this->timelineHourOffset($reviewWindowStart, $cursor);
             $heightHours = max(0, $this->timelineHourOffset($reviewWindowStart, $nextCursor) - $offsetHours);
             $localizedCursor = $this->settings->toDisplayTimezone($cursor);
+            $isPrimary = $localizedCursor->minute === 0;
+            $isDayStart = $isPrimary && $localizedCursor->format('H:i') === '00:00';
+            $intervalMinutes = max(1, (int) round(($nextCursor->valueOf() - $cursor->valueOf()) / 60000));
+            $labelVariant = $isDayStart ? 'day' : ($isPrimary ? 'hour' : 'minute');
 
             $ticks->push([
                 'focusMs' => $cursor->valueOf(),
@@ -421,13 +443,22 @@ class RecordingController extends Controller
                 'widthPercent' => round(($heightHours / $totalHours) * 100, 6),
                 'heightHours' => round($heightHours, 6),
                 'heightPercent' => round(($heightHours / $totalHours) * 100, 6),
-                'isDayStart' => $localizedCursor->format('H:i') === '00:00',
-                'label' => $localizedCursor->format('H:i') === '00:00'
+                'intervalMinutes' => $intervalMinutes,
+                'isDayStart' => $isDayStart,
+                'isPrimary' => $isPrimary,
+                'kind' => $isPrimary ? 'primary' : 'secondary',
+                'labelVariant' => $labelVariant,
+                'labelPrimary' => $isDayStart
+                    ? $localizedCursor->format('M')
+                    : ($isPrimary ? $localizedCursor->format('H') : null),
+                'labelSecondary' => $localizedCursor->format($isDayStart ? 'd' : 'i'),
+                'label' => $isDayStart
                     ? $localizedCursor->format('M d')
-                    : $localizedCursor->format('H:i'),
+                    : ($isPrimary ? $localizedCursor->format('H:i') : $localizedCursor->format('i')),
+                'ariaLabel' => $localizedCursor->format('Y-m-d H:i'),
             ]);
 
-            $cursor->addHour();
+            $cursor->addMinutes($tickIntervalMinutes);
         }
 
         return $ticks;
@@ -476,65 +507,11 @@ class RecordingController extends Controller
     }
 
     /**
-     * @param  Collection<int, Camera>  $selectedCameras
-     * @param  Collection<int, CameraRecording>  $reviewRecordings
-     * @return Collection<int, array<string, mixed>>
-     */
-    private function buildReviewTiles(
-        Collection $selectedCameras,
-        Collection $reviewRecordings,
-        Carbon $focusAt,
-        Carbon $reviewWindowStart,
-        Carbon $reviewWindowEnd,
-    ): Collection {
-        $recordingsByCamera = $reviewRecordings
-            ->filter(fn (mixed $recording): bool => $recording instanceof CameraRecording)
-            ->groupBy('camera_id');
-
-        return $selectedCameras->map(function (Camera $camera) use ($focusAt, $recordingsByCamera, $reviewWindowStart, $reviewWindowEnd): array {
-
-            /** @var Collection<int, CameraRecording> $cameraRecordings */
-            $cameraRecordings = $recordingsByCamera->get($camera->getKey(), collect())
-                ->sortBy(fn (CameraRecording $recording): int => (int) ($recording->scheduled_for?->getTimestamp() ?? 0))
-                ->values();
-
-            $segments = $cameraRecordings
-                ->map(fn (CameraRecording $recording): array => $this->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd))
-                ->values();
-
-            $selectedRecording = $this->selectRecordingForFocus($cameraRecordings, $focusAt);
-            $latestRecording = $cameraRecordings->last();
-            $selectedRecordingPayload = $selectedRecording instanceof CameraRecording
-                ? $this->recordingReviewPayload($selectedRecording, $reviewWindowStart, $reviewWindowEnd)
-                : null;
-            $latestRecordingPayload = $latestRecording instanceof CameraRecording
-                ? $this->recordingReviewPayload($latestRecording, $reviewWindowStart, $reviewWindowEnd)
-                : null;
-            $previewPayload = $selectedRecordingPayload ?? $latestRecordingPayload;
-
-            return [
-                'cameraId' => $camera->getKey(),
-                'cameraName' => $camera->name,
-                'cameraIp' => $camera->local_ip,
-                'orientation' => 'landscape',
-                'columnSpan' => 1,
-                'rowSpan' => 1,
-                'segments' => $segments->all(),
-                'segmentCount' => $segments->count(),
-                'selectedRecording' => $selectedRecordingPayload,
-                'latestRecordingLabel' => $latestRecordingPayload['timeLabel'] ?? null,
-                'previewThumbnailUrl' => $previewPayload['thumbnailUrl'] ?? null,
-                'previewTimeLabel' => $previewPayload['timeLabel'] ?? null,
-            ];
-        })->values();
-    }
-
-    /**
      * @param  Collection<int, array<string, mixed>>  $reviewTiles
      */
     private function resolveActiveCameraId(Collection $reviewTiles): int|string|null
     {
-        $activeTile = $reviewTiles->first(fn (array $tile): bool => is_array($tile['selectedRecording'] ?? null));
+        $activeTile = $reviewTiles->first(fn (array $tile): bool => !empty($tile['hasFocusSegment']));
 
         if (is_array($activeTile) && array_key_exists('cameraId', $activeTile)) {
             return $activeTile['cameraId'];
@@ -607,6 +584,7 @@ class RecordingController extends Controller
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $assetState['status'],
             'preferredStreamUrl' => $assetState['preview_available'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
+            'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),
             'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,

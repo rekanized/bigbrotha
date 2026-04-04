@@ -189,7 +189,7 @@ Current behavior:
 2. the dedicated timeline review page lives separately in navigation and behaves like a standalone synchronized review module rather than a second recordings browser.
 3. the module now opens into a single large preview stage with a right-hand vertical scrub rail and a bottom camera strip, so operators can keep one feed in focus while switching cameras quickly.
 4. the review screen auto-loads available recorded cameras into the bottom strip instead of starting with a separate camera-selection step or a saved wall layout.
-5. the review timeline loads a padded multi-day span for the loaded cameras so zooming out still exposes meaningful date range context even when clips only exist on one day.
+5. the review timeline now defaults to the previous display day plus the current display day, and operators can submit a custom `From` / `To` date span when they need a narrower or older range.
 6. the active stage loads the saved clip that overlaps the selected timeline focus time for the currently active camera, while cameras without a clip at that time stay visibly empty until the operator switches feeds or moves the focus.
 7. the timeline supports dragging the focus line, clicking thumbnail rail events, hour-jump labels, scrub sprite hover previews in the stage, and synchronized autoplay within the active preview stage.
 8. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.

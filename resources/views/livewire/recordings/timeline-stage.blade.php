@@ -1,18 +1,26 @@
 @php
     $cameraName = $tile['cameraName'] ?? 'No camera selected';
-    $segmentSourceUrl = is_array($segment)
-        ? (($segment['preferredStreamUrl'] ?? null) ?: ($segment['streamUrl'] ?? null))
-        : null;
-    $assetStatus = (($segment['previewStatus'] ?? null) === 'ready') ? 'Assets cached' : 'Direct stream';
+    $previewStreamUrl = is_array($segment) ? ($segment['preferredStreamUrl'] ?? null) : null;
+    $reviewStreamUrl = is_array($segment) ? ($segment['reviewStreamUrl'] ?? null) : null;
+    $directStreamUrl = is_array($segment) ? ($segment['streamUrl'] ?? null) : null;
+    $segmentSourceUrl = $previewStreamUrl ?: $directStreamUrl;
+    $assetStatus = $previewStreamUrl ? 'Assets cached' : 'Direct stream';
     $fallbackLatest = !empty($tile['latestRecordingLabel'])
         ? 'Latest clip: '.$tile['latestRecordingLabel']
         : 'Choose a camera below or drag the scrub rail onto a saved event.';
-    $audioState = $isMuted ? 'muted' : 'active';
-    $audioActionLabel = $isMuted ? 'Listen to '.$cameraName : 'Mute '.$cameraName;
-    $audioStatusLabel = $isMuted ? 'Muted' : 'Audio selected';
+    $audioActionLabel = 'Listen to '.$cameraName;
+    $audioStatusLabel = 'Muted';
 @endphp
 
-<div class="recording-review-focus__stage" data-role="timeline-stage" data-audio-state="{{ $audioState }}" data-playback-state="playing">
+<div
+    class="recording-review-focus__stage"
+    data-role="timeline-stage"
+    data-audio-state="muted"
+    data-playback-state="playing"
+    data-initial-playing="true"
+    data-initial-muted="true"
+    data-initial-volume="1"
+>
     <div class="recording-review-focus__viewer">
         <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
             <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
@@ -41,13 +49,20 @@
                 data-end-ms="{{ $segment['endMs'] ?? '' }}"
                 data-duration-seconds="{{ $segment['durationSeconds'] ?? '' }}"
                 data-fallback-stream-url="{{ $segment['streamUrl'] ?? '' }}"
-                data-is-muted="{{ $isMuted ? 'true' : 'false' }}"
+                data-preview-stream-url="{{ $previewStreamUrl ?? '' }}"
+                data-review-stream-url="{{ $reviewStreamUrl ?? '' }}"
+                data-direct-stream-url="{{ $directStreamUrl ?? '' }}"
+                data-preview-status-label="{{ $assetStatus }}"
+                data-review-status-label="Playback stream"
+                data-direct-status-label="Direct stream"
                 autoplay
                 playsinline
                 preload="auto"
-                @if ($isMuted) muted @endif
+                muted
                 @if ($segmentSourceUrl) src="{{ $segmentSourceUrl }}" @endif
             ></video>
+
+            <audio data-role="companion-audio" preload="auto" hidden></audio>
 
             <div class="recording-review-focus__overlay">
                 <div class="recording-review-focus__identity">
@@ -91,7 +106,7 @@
                 class="recording-review-focus__audio-toggle"
                 type="button"
                 data-role="audio-toggle"
-                aria-pressed="{{ $isMuted ? 'false' : 'true' }}"
+                aria-pressed="false"
                 aria-label="{{ $audioActionLabel }}"
             >
                 <span class="recording-review-focus__audio-icon" aria-hidden="true">

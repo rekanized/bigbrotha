@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Socialite\Contracts\Provider;
@@ -48,6 +49,9 @@ class GoogleAuthenticationTest extends TestCase
             'avatar_url' => 'https://example.com/avatar.jpg',
             'is_admin' => true,
         ]);
+        $this->assertDatabaseHas('allowed_login_emails', [
+            'email' => 'operator@example.com',
+        ]);
     }
 
     public function test_google_callback_links_an_existing_email_address(): void
@@ -55,6 +59,9 @@ class GoogleAuthenticationTest extends TestCase
         $user = User::factory()->create([
             'email' => 'operator@example.com',
             'google_id' => null,
+        ]);
+        AllowedLoginEmail::query()->create([
+            'email' => 'operator@example.com',
         ]);
 
         $provider = Mockery::mock(Provider::class);
@@ -68,6 +75,29 @@ class GoogleAuthenticationTest extends TestCase
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertSame('google-user-123', $user->fresh()->google_id);
         $this->assertTrue($user->fresh()->is_admin);
+    }
+
+    public function test_google_callback_rejects_non_allowlisted_email_after_bootstrap(): void
+    {
+        User::factory()->admin()->create([
+            'email' => 'admin@example.com',
+        ]);
+        AllowedLoginEmail::query()->create([
+            'email' => 'admin@example.com',
+        ]);
+
+        $provider = Mockery::mock(Provider::class);
+        $provider->shouldReceive('user')->once()->andReturn($this->fakeGoogleUser());
+
+        Socialite::shouldReceive('driver')->once()->with('google')->andReturn($provider);
+
+        $this->get(route('auth.google.callback'))
+            ->assertRedirect(route('login'));
+
+        $this->assertGuest();
+        $this->assertDatabaseMissing('users', [
+            'google_id' => 'google-user-123',
+        ]);
     }
 
     private function fakeGoogleUser(): SocialiteUser

@@ -247,6 +247,7 @@ body.page-dashboard .sidebar-brand__mark,
 body.auth-page .auth-card__mark {
     width: 40px;
     height: 40px;
+    padding: 6px;
     border-radius: 10px;
     background: #2f6fed;
     box-shadow: none;
@@ -973,6 +974,7 @@ body.page-recording-review .sidebar-brand {
 body.page-recording-review .sidebar-brand__mark {
     width: 40px;
     height: 40px;
+    padding: 6px;
     border-radius: 10px;
     background: #2f6fed;
     box-shadow: none;
@@ -994,6 +996,14 @@ body.page-recording-review .sidebar-link__label {
 body.page-recording-review .sidebar-nav,
 body.page-recording-review .sidebar-nav__links {
     gap: 6px;
+}
+
+body.page-recording-review .sidebar-group {
+    gap: 6px;
+}
+
+body.page-recording-review .sidebar-group__chevron {
+    color: #667085;
 }
 
 body.page-recording-review .sidebar-link {
@@ -1038,6 +1048,48 @@ body.page-recording-review .sidebar-link--active .sidebar-link__icon {
 }
 
 body.page-recording-review .sidebar-link__caption {
+    display: none;
+}
+
+body.page-recording-review .sidebar-group__links {
+    gap: 6px;
+    padding-left: 12px;
+}
+
+body.page-recording-review .sidebar-sublink {
+    padding: 8px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #0f172a;
+    transition: none;
+}
+
+body.page-recording-review .sidebar-sublink__label {
+    color: #0f172a;
+}
+
+body.page-recording-review .sidebar-sublink:hover,
+body.page-recording-review .sidebar-sublink:focus-visible {
+    transform: none;
+    background: #ffffff;
+    border-color: rgba(71, 85, 105, 0.28);
+    box-shadow: none;
+    color: #0f172a;
+}
+
+body.page-recording-review .sidebar-sublink--active {
+    background: #edf4ff;
+    border-color: rgba(47, 111, 237, 0.22);
+    box-shadow: none;
+    color: #174ea6;
+}
+
+body.page-recording-review .sidebar-sublink--active .sidebar-sublink__label {
+    color: #174ea6;
+}
+
+body.page-recording-review .sidebar-sublink__caption {
     display: none;
 }
 
@@ -1389,24 +1441,31 @@ body.page-recording-review .recording-review-focus__rail-track {
 }
 
 body.page-recording-review .recording-review-focus__rail-tick {
-    width: 62px;
-    padding: 0 6px;
+    width: calc(var(--recording-review-rail-axis-width) - 6px);
+    padding: 0 7px 0 8px;
     color: #667085;
     font-size: 0.68rem;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.02em;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick::before {
+    top: 0;
+    left: 8px;
+    width: 12px;
+    height: 2px;
+    opacity: 0.28;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick--secondary {
+    color: rgba(100, 116, 139, 0.92);
 }
 
 body.page-recording-review .recording-review-focus__rail-tick.is-day-start {
     color: #334155;
 }
 
-body.page-recording-review .recording-review-focus__rail-tick.is-day-start span {
-    padding: 1px 6px;
-    background: #eef4ff;
-}
-
 body.page-recording-review .recording-review-focus__rail-track {
-    --recording-review-rail-axis-width: 62px;
+    --recording-review-rail-axis-width: 96px;
     --recording-review-rail-event-width: 36px;
     --recording-review-rail-column-gap: 10px;
     --recording-review-rail-edge-gap: 8px;
@@ -1418,7 +1477,16 @@ body.page-recording-review .recording-review-focus__rail-track {
 
 body.page-recording-review .recording-review-focus__rail-axis-column {
     border-right-color: rgba(148, 163, 184, 0.22);
-    background: #eef1f5;
+    background: linear-gradient(180deg, #eef3f8 0%, #f8fafc 100%);
+}
+
+body.page-recording-review .recording-review-focus__rail-axis-column::after {
+    background: rgba(148, 163, 184, 0.22);
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label {
+    left: 26px;
+    max-width: calc(var(--recording-review-rail-axis-width) - 32px);
 }
 
 body.page-recording-review .recording-review-focus__rail-event-column {
@@ -1434,6 +1502,86 @@ body.page-recording-review .recording-review-focus__rail-event-column::before {
 body.page-recording-review .recording-review-focus__rail-thumb-column {
     border-left-color: rgba(148, 163, 184, 0.22);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(250, 251, 253, 0.96) 100%);
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--hour {
+    width: calc(var(--recording-review-rail-axis-width) - 36px);
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--hour::before {
+    content: '';
+    display: block;
+    flex: 0 0 auto;
+    width: 3px;
+    height: 16px;
+    border-radius: 999px;
+    background: #2f6fed;
+    box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.1);
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-part--primary {
+    color: #1e293b;
+    font-size: 0.9rem;
+    letter-spacing: -0.02em;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--hour .recording-review-focus__rail-tick-part--secondary {
+    margin-left: 0;
+    min-width: 20px;
+    justify-content: flex-end;
+    padding: 0;
+    background: transparent;
+    color: #5f87df;
+    font-size: 0.58rem;
+    letter-spacing: 0.03em;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--minute .recording-review-focus__rail-tick-part--secondary {
+    min-width: 22px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick--secondary::before {
+    width: 8px;
+    opacity: 0.28;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick.is-day-start::before {
+    width: 12px;
+    opacity: 0.4;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--day {
+    left: 18px;
+    max-width: calc(var(--recording-review-rail-axis-width) - 24px);
+    padding: 3px 8px;
+    border: 1px solid rgba(47, 111, 237, 0.18);
+    background: linear-gradient(180deg, #f2f7ff 0%, #e7f0ff 100%);
+    box-shadow: none;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--day .recording-review-focus__rail-tick-part--primary {
+    color: #5b7ac4;
+    font-size: 0.52rem;
+    letter-spacing: 0.12em;
+}
+
+body.page-recording-review .recording-review-focus__rail-tick-label--day .recording-review-focus__rail-tick-part--secondary {
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    letter-spacing: -0.01em;
 }
 
 body.page-recording-review .recording-review-focus__rail-cursor {
@@ -1486,13 +1634,10 @@ body.page-recording-review .recording-review-focus__rail-thumbnail-frame {
     background: #dde5ef;
 }
 
-body.page-recording-review .recording-review-focus__rail-thumbnail-time {
-    left: 6px;
-    right: 6px;
-    bottom: 6px;
-    padding: 5px 7px;
-    border-radius: 8px;
-    font-size: 0.66rem;
+body.page-recording-review .recording-review-focus__rail-ticks,
+body.page-recording-review .recording-review-focus__rail-segments,
+body.page-recording-review .recording-review-focus__rail-thumbnails {
+    contain: layout paint style;
 }
 
 body.page-recording-review .recording-review-switcher {
@@ -2083,6 +2228,33 @@ html[data-theme='dark'] body.page-recording-review .sidebar-link--active {
     color: #dbeafe;
 }
 
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink__label {
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink:hover,
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink:focus-visible {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(126, 166, 248, 0.32);
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink--active {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(96, 165, 250, 0.34);
+    color: #dbeafe;
+}
+
+html[data-theme='dark'] body.page-recording-review .sidebar-sublink--active .sidebar-sublink__label {
+    color: #dbeafe;
+}
+
 html[data-theme='dark'] body.page-recording-review .sidebar-link__icon {
     background: #202b37;
     color: #cbd5e1;
@@ -2151,6 +2323,10 @@ html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail
     background: #1a2430;
 }
 
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-axis-column::after {
+    background: rgba(148, 163, 184, 0.16);
+}
+
 html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-event-column {
     border-left-color: rgba(148, 163, 184, 0.18);
     border-right-color: rgba(148, 163, 184, 0.18);
@@ -2170,9 +2346,45 @@ html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail
     color: var(--text);
 }
 
-html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick.is-day-start span {
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--hour {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--hour::before {
+    background: #7ea6f8;
+    box-shadow: 0 0 0 3px rgba(126, 166, 248, 0.14);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-part--primary {
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--hour .recording-review-focus__rail-tick-part--secondary {
+    color: #bcd2ff;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--minute .recording-review-focus__rail-tick-part--secondary {
+    background: transparent;
+    color: #94a3b8;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick--secondary {
+    color: rgba(203, 213, 225, 0.72);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--day {
+    border-color: rgba(126, 166, 248, 0.32);
     background: var(--recording-review-dark-accent);
-    color: #dbeafe;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--day .recording-review-focus__rail-tick-part--primary {
+    color: #bfdbfe;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-tick-label--day .recording-review-focus__rail-tick-part--secondary {
+    color: #eff6ff;
 }
 
 html[data-theme='dark'] body.page-recording-review .recording-review-switcher__camera.is-active {
@@ -2209,10 +2421,6 @@ html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail
 html[data-theme='dark'] body.page-recording-review .recording-review-switcher__camera-thumb,
 html[data-theme='dark'] body.page-recording-review .recording-review-switcher__camera-fallback {
     background: #314357;
-}
-
-html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail-thumbnail-time {
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.18) 0%, rgba(15, 23, 42, 0.9) 100%);
 }
 
 html[data-theme='dark'] body.page-live-wall {
@@ -2369,15 +2577,69 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
     }
 
     body.page-recording-review .recording-review-focus__rail-tick {
-        width: 54px;
+        width: calc(var(--recording-review-rail-axis-width) - 6px);
+        padding: 0 5px 0 6px;
     }
 
     body.page-recording-review .recording-review-focus__rail-track {
-        --recording-review-rail-axis-width: 54px;
+        --recording-review-rail-axis-width: 82px;
         --recording-review-rail-event-width: 34px;
         --recording-review-rail-column-gap: 6px;
         --recording-review-rail-edge-gap: 6px;
         --recording-review-rail-thumb-height: 70px;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick::before {
+        top: 0;
+        left: 6px;
+        width: 9px;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label {
+        left: 19px;
+        max-width: calc(var(--recording-review-rail-axis-width) - 23px);
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--hour {
+        width: calc(var(--recording-review-rail-axis-width) - 25px);
+        justify-content: flex-start;
+        padding: 0;
+        gap: 2px;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--hour::before {
+        display: block;
+        flex: 0 0 auto;
+        width: 3px;
+        height: 14px;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-part--primary {
+        font-size: 0.82rem;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--hour .recording-review-focus__rail-tick-part--secondary {
+        min-width: 18px;
+        font-size: 0.5rem;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--minute {
+        left: 28px;
+        max-width: calc(var(--recording-review-rail-axis-width) - 32px);
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--minute .recording-review-focus__rail-tick-part--secondary {
+        font-size: 0.52rem;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--day {
+        left: 12px;
+        max-width: calc(var(--recording-review-rail-axis-width) - 16px);
+        padding: 2px 7px;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-tick-label--day .recording-review-focus__rail-tick-part--secondary {
+        font-size: 0.72rem;
     }
 
     body.page-live-wall .live-wall-wall-switcher {

@@ -5,8 +5,34 @@
         return;
     }
 
+    const defaultStageControllerState = () => ({
+        initialized: false,
+        isMuted: true,
+        isPlaying: true,
+        volume: 1,
+    });
+
+    const defaultRailState = () => ({
+        cameraId: null,
+        loadedRanges: [],
+        pendingKeys: new Set(),
+        renderFrame: null,
+        renderKey: '',
+        segments: [],
+        thumbnailObserver: null,
+        thumbnailObserverScope: null,
+        ticks: [],
+    });
+
+    const defaultStagePrewarmState = () => ({
+        container: null,
+        entries: new Map(),
+    });
+
     const state = {
         activeCameraId: null,
+        boundAudio: null,
+        boundAudioCleanup: null,
         boundVideo: null,
         boundVideoCleanup: null,
         boundViewport: null,
@@ -21,14 +47,18 @@
         observer: null,
         observerPauseDepth: 0,
         observerScope: null,
+        resizeObservedElements: [],
+        resizeObserver: null,
+        resizeObserverScope: null,
         scrubPreviewFocusMs: null,
         scrubPreviewRequestId: 0,
         scrubSpriteCache: new Map(),
         scrubSpritePending: new Map(),
         scrubPreviewVisible: false,
-        stageMuted: null,
-        stagePaused: null,
-        stageVolume: 1,
+        rail: defaultRailState(),
+        stage: defaultStageControllerState(),
+        stagePrewarm: defaultStagePrewarmState(),
+        stageAudioLastSyncAt: 0,
         pendingViewportRestore: false,
         viewportScrollTop: null,
         zoomScale: null,
@@ -37,6 +67,23 @@
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const clampVolume = (value) => clamp(Number(value) || 0, 0, 1);
+    const normalizeMediaUrl = (value) => {
+        if (typeof value !== 'string') {
+            return '';
+        }
+
+        const normalized = value.trim();
+
+        if (normalized === '') {
+            return '';
+        }
+
+        try {
+            return new URL(normalized, window.location.href).toString();
+        } catch (error) {
+            return normalized;
+        }
+    };
     const displayTimezone = (scope = root()) => scope instanceof HTMLElement && scope.dataset.displayTimezone
         ? scope.dataset.displayTimezone
         : 'UTC';
@@ -75,8 +122,13 @@
 
     const root = () => document.querySelector('[data-recording-review-root]');
     const rootFor = (element) => element instanceof Element ? element.closest('[data-recording-review-root]') : null;
+    const timelineRail = (scope) => scope?.querySelector('[data-role="timeline-rail"]') || null;
     const railViewport = (scope) => scope?.querySelector('[data-role="rail-viewport"]') || null;
     const railTrack = (scope) => scope?.querySelector('[data-role="rail-track"]') || null;
+    const railTicksLayer = (scope) => scope?.querySelector('[data-role="rail-ticks"]') || null;
+    const railSegmentsLayer = (scope) => scope?.querySelector('[data-role="rail-segments"]') || null;
+    const railThumbnailsLayer = (scope) => scope?.querySelector('[data-role="rail-thumbnails"]') || null;
+    const stageAudio = (scope) => scope?.querySelector('[data-role="companion-audio"]') || null;
     const stageRoot = (scope) => scope?.querySelector('[data-role="timeline-stage"]') || null;
     const stageVideo = (scope) => scope?.querySelector('[data-role="video"]') || null;
     const readNumber = (element, key, fallback = 0) => {
@@ -98,9 +150,13 @@
     const activeCameraId = (scope) => scope instanceof HTMLElement ? String(scope.dataset.activeCameraId || '') : '';
     const railBaseHourHeightPx = (scope) => Math.max(1, readNumber(scope, 'railBaseHourHeightPx', 88));
     const railMinTrackHeightPx = (scope) => Math.max(1, readNumber(scope, 'railMinTrackHeightPx', 1800));
+    const railChunkDurationMs = (scope) => Math.max(60000, readNumber(scope, 'railChunkDurationMs', 28800000));
+    const railBufferDurationMs = (scope) => Math.max(60000, readNumber(scope, 'railBufferDurationMs', 14400000));
     const minimumZoomScale = (scope) => Math.max(0.25, readNumber(scope, 'zoomMinScale', 1));
     const maximumZoomScale = (scope) => Math.max(minimumZoomScale(scope), readNumber(scope, 'zoomMaxScale', 8));
     const zoomStepFactor = (scope) => Math.max(1.01, readNumber(scope, 'zoomStepFactor', 1.18));
+    const secondaryTickIntervalMinutes = (scope) => Math.max(1, readNumber(scope, 'secondaryTickIntervalMinutes', 15));
+    const secondaryTickMinLabelSpacingPx = (scope) => Math.max(1, readNumber(scope, 'secondaryTickMinLabelSpacingPx', 20));
     const currentZoomScale = (scope) => clamp(state.zoomScale ?? readNumber(scope, 'zoomScale', 1), minimumZoomScale(scope), maximumZoomScale(scope));
     const setCurrentZoomScale = (scope, zoomScale) => {
         const nextScale = clamp(Number(zoomScale) || 1, minimumZoomScale(scope), maximumZoomScale(scope));
@@ -146,6 +202,20 @@
     const setText = (element, value) => {
         if (element instanceof HTMLElement) {
             element.textContent = value;
+        }
+    };
+
+    const parseJsonScript = (element, fallback = []) => {
+        if (!(element instanceof HTMLScriptElement)) {
+            return fallback;
+        }
+
+        try {
+            const parsed = JSON.parse(element.textContent || '[]');
+
+            return Array.isArray(parsed) ? parsed : fallback;
+        } catch (error) {
+            return fallback;
         }
     };
 
@@ -261,12 +331,59 @@
         return true;
     };
 
-    const updateStageVolumeUi = (scope) => {
+    const readStageInitialMuted = (scope) => {
+        const stage = stageRoot(scope);
+
+        return !(stage instanceof HTMLElement) || stage.dataset.initialMuted !== 'false';
+    };
+
+    const readStageInitialPlaying = (scope) => {
+        const stage = stageRoot(scope);
+
+        return !(stage instanceof HTMLElement) || stage.dataset.initialPlaying !== 'false';
+    };
+
+    const readStageInitialVolume = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return 1;
+        }
+
+        const slider = scope.querySelector('[data-role="audio-volume-slider"]');
+
+        if (slider instanceof HTMLInputElement) {
+            return clampVolume(Number(slider.value) / 100);
+        }
+
+        const stage = stageRoot(scope);
+
+        return stage instanceof HTMLElement ? clampVolume(stage.dataset.initialVolume ?? 1) : 1;
+    };
+
+    const ensureStageControllerState = (scope, video = stageVideo(scope)) => {
+        if (state.stage.initialized) {
+            return state.stage;
+        }
+
+        state.stage = {
+            initialized: true,
+            isMuted: video instanceof HTMLVideoElement ? video.muted : readStageInitialMuted(scope),
+            isPlaying: readStageInitialPlaying(scope),
+            volume: video instanceof HTMLVideoElement ? clampVolume(video.volume) : readStageInitialVolume(scope),
+        };
+
+        return state.stage;
+    };
+
+    const stageControllerSnapshot = (scope, video = stageVideo(scope)) => ({
+        ...ensureStageControllerState(scope, video),
+    });
+
+    const updateStageVolumeUi = (scope, volume = ensureStageControllerState(scope).volume) => {
         if (!(scope instanceof HTMLElement)) {
             return;
         }
 
-        const volumePercent = Math.round(state.stageVolume * 100);
+        const volumePercent = Math.round(clampVolume(volume) * 100);
 
         scope.querySelectorAll('[data-role="audio-volume-slider"]').forEach((element) => {
             if (element instanceof HTMLInputElement) {
@@ -279,21 +396,7 @@
         });
     };
 
-    const serverStageMuted = (scope) => {
-        const stage = stageRoot(scope);
-
-        return !(stage instanceof HTMLElement) || stage.dataset.audioState !== 'active';
-    };
-
-    const serverStagePaused = (scope) => {
-        const stage = stageRoot(scope);
-
-        return stage instanceof HTMLElement && stage.dataset.playbackState === 'paused';
-    };
-
-    const stageAudioState = (scope) => ((state.stageMuted ?? serverStageMuted(scope)) ? 'muted' : 'active');
-
-    const syncStagePlaybackUi = (scope, isPaused) => {
+    const syncStagePlaybackUi = (scope, isPlaying) => {
         if (!(scope instanceof HTMLElement)) {
             return;
         }
@@ -307,15 +410,15 @@
             : 'camera';
 
         if (stage instanceof HTMLElement) {
-            stage.dataset.playbackState = isPaused ? 'paused' : 'playing';
+            stage.dataset.playbackState = isPlaying ? 'playing' : 'paused';
         }
 
         if (playbackToggle instanceof HTMLButtonElement) {
-            playbackToggle.setAttribute('aria-pressed', isPaused ? 'false' : 'true');
-            playbackToggle.setAttribute('aria-label', isPaused ? `Play ${cameraName}` : `Pause ${cameraName}`);
+            playbackToggle.setAttribute('aria-pressed', isPlaying ? 'true' : 'false');
+            playbackToggle.setAttribute('aria-label', isPlaying ? `Pause ${cameraName}` : `Play ${cameraName}`);
         }
 
-        setText(playbackIndicator, isPaused ? 'Paused' : 'Playing');
+        setText(playbackIndicator, isPlaying ? 'Playing' : 'Paused');
     };
 
     const syncStageAudioUi = (scope, isMuted) => {
@@ -343,82 +446,421 @@
         setText(audioIndicator, isMuted ? 'Muted' : 'Audio selected');
     };
 
-    const applyStageAudioState = (video, isMuted, shouldPlay = false) => {
-        if (!(video instanceof HTMLVideoElement)) {
-            return;
-        }
-
-        video.defaultMuted = isMuted;
-        video.muted = isMuted;
-        video.volume = isMuted ? 0 : state.stageVolume;
-
-        if (shouldPlay && !isMuted) {
-            playVideo(video);
-        }
-    };
-
-    const syncStagePlaybackState = (scope, video = stageVideo(scope)) => {
+    const renderStageControllerUi = (scope, playerState = ensureStageControllerState(scope)) => {
         if (!(scope instanceof HTMLElement)) {
             return;
         }
 
-        if (state.stagePaused === null) {
-            state.stagePaused = serverStagePaused(scope);
+        const stage = stageRoot(scope);
+
+        if (stage instanceof HTMLElement) {
+            stage.dataset.playerMuted = playerState.isMuted ? 'true' : 'false';
+            stage.dataset.playerPlaying = playerState.isPlaying ? 'true' : 'false';
+            stage.dataset.playerVolume = String(playerState.volume);
         }
 
-        syncStagePlaybackUi(scope, state.stagePaused);
+        syncStagePlaybackUi(scope, playerState.isPlaying);
+        syncStageAudioUi(scope, playerState.isMuted);
+        updateStageVolumeUi(scope, playerState.volume);
+    };
+
+    const setStageControllerState = (scope, partialState = {}) => {
+        if (!(scope instanceof HTMLElement)) {
+            return defaultStageControllerState();
+        }
+
+        const currentState = ensureStageControllerState(scope);
+        const nextState = {
+            ...currentState,
+            ...partialState,
+            initialized: true,
+            volume: clampVolume(partialState.volume ?? currentState.volume),
+        };
+
+        state.stage = nextState;
+        renderStageControllerUi(scope, nextState);
+
+        return nextState;
+    };
+
+    const stagePreviewStreamUrl = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.previewStreamUrl || '').trim()
+        : '';
+
+    const stageReviewStreamUrl = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.reviewStreamUrl || '').trim()
+        : '';
+
+    const stageDirectStreamUrl = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.directStreamUrl || video.dataset.fallbackStreamUrl || '').trim()
+        : '';
+
+    const stagePreferredAssetStatusLabel = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.previewStatusLabel || 'Assets cached').trim()
+        : 'Assets cached';
+
+    const stageReviewAssetStatusLabel = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.reviewStatusLabel || 'Playback stream').trim()
+        : 'Playback stream';
+
+    const stageDirectAssetStatusLabel = (video) => video instanceof HTMLVideoElement
+        ? String(video.dataset.directStatusLabel || 'Direct stream').trim()
+        : 'Direct stream';
+
+    const desiredStageStreamUrl = (video) => {
+        const previewUrl = stagePreviewStreamUrl(video);
+        const directUrl = stageDirectStreamUrl(video);
+
+        return previewUrl || directUrl || stageReviewStreamUrl(video);
+    };
+
+    const desiredStageAudioUrl = (video) => {
+        const reviewUrl = stageReviewStreamUrl(video);
+        const directUrl = stageDirectStreamUrl(video);
+
+        return reviewUrl || directUrl;
+    };
+
+    const stageUsesPreviewSource = (video) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return false;
+        }
+
+        const normalizedPreviewUrl = normalizeMediaUrl(stagePreviewStreamUrl(video));
+        const normalizedCurrentSourceUrl = normalizeMediaUrl(video.currentSrc || video.getAttribute('src') || desiredStageStreamUrl(video));
+
+        return normalizedPreviewUrl !== '' && normalizedCurrentSourceUrl === normalizedPreviewUrl;
+    };
+
+    const stageUsesCompanionAudio = (video) => stageUsesPreviewSource(video) && desiredStageAudioUrl(video) !== '';
+
+    const stageAssetStatusLabelForUrl = (video, sourceUrl) => {
+        const normalizedSourceUrl = normalizeMediaUrl(sourceUrl);
+        const normalizedPreviewUrl = normalizeMediaUrl(stagePreviewStreamUrl(video));
+        const normalizedReviewUrl = normalizeMediaUrl(stageReviewStreamUrl(video));
+        const normalizedDirectUrl = normalizeMediaUrl(stageDirectStreamUrl(video));
+
+        if (normalizedSourceUrl !== '' && normalizedSourceUrl === normalizedPreviewUrl) {
+            return stagePreferredAssetStatusLabel(video);
+        }
+
+        if (normalizedSourceUrl !== '' && normalizedSourceUrl === normalizedReviewUrl) {
+            return stageReviewAssetStatusLabel(video);
+        }
+
+        if (normalizedSourceUrl !== '' && normalizedSourceUrl === normalizedDirectUrl) {
+            return stageDirectAssetStatusLabel(video);
+        }
+
+        if (normalizedReviewUrl !== '') {
+            return stageReviewAssetStatusLabel(video);
+        }
+
+        return normalizedDirectUrl !== '' ? stageDirectAssetStatusLabel(video) : stagePreferredAssetStatusLabel(video);
+    };
+
+    const updateStageAssetStatus = (scope, video, sourceUrl = null) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const assetStatus = scope.querySelector('[data-role="asset-status"]');
+        const resolvedSourceUrl = sourceUrl
+            ?? (video instanceof HTMLVideoElement ? (video.currentSrc || video.getAttribute('src') || '') : '');
+
+        setText(assetStatus, stageAssetStatusLabelForUrl(video, resolvedSourceUrl));
+    };
+
+    const pendingStageFocusMs = (video, fallback = null) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return fallback;
+        }
+
+        const resolved = Number(video.dataset.pendingFocusMs ?? fallback);
+
+        return Number.isFinite(resolved) ? resolved : fallback;
+    };
+
+    const setPendingStageFocusMs = (video, focusMs) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        const resolved = Number(focusMs);
+
+        if (!Number.isFinite(resolved)) {
+            delete video.dataset.pendingFocusMs;
+
+            return;
+        }
+
+        video.dataset.pendingFocusMs = String(resolved);
+    };
+
+    const clearPendingStageSourceLoad = (video) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        delete video.dataset.pendingSourceLoad;
+        delete video.dataset.pendingFocusMs;
+    };
+
+    const stageSourceIsLoading = (video) => video instanceof HTMLVideoElement && video.dataset.pendingSourceLoad === 'true';
+
+    const resetStagePrewarm = () => {
+        state.stagePrewarm.entries.forEach((entry) => {
+            if (!(entry?.element instanceof HTMLVideoElement)) {
+                return;
+            }
+
+            entry.element.removeAttribute('src');
+
+            try {
+                entry.element.load();
+            } catch (error) {
+            }
+
+            entry.element.remove();
+        });
+
+        state.stagePrewarm.entries.clear();
+
+        if (state.stagePrewarm.container instanceof HTMLElement) {
+            state.stagePrewarm.container.remove();
+        }
+
+        state.stagePrewarm = defaultStagePrewarmState();
+    };
+
+    const ensureStagePrewarmContainer = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return null;
+        }
+
+        if (state.stagePrewarm.container instanceof HTMLElement && state.stagePrewarm.container.isConnected) {
+            return state.stagePrewarm.container;
+        }
+
+        const container = document.createElement('div');
+
+        container.hidden = true;
+        container.setAttribute('aria-hidden', 'true');
+        container.dataset.role = 'stage-prewarm-cache';
+        scope.appendChild(container);
+        state.stagePrewarm.container = container;
+
+        return container;
+    };
+
+    const prewarmStageUrl = (scope, url) => {
+        const normalizedUrl = normalizeMediaUrl(url);
+
+        if (!(scope instanceof HTMLElement) || normalizedUrl === '') {
+            return;
+        }
+
+        const container = ensureStagePrewarmContainer(scope);
+
+        if (!(container instanceof HTMLElement)) {
+            return;
+        }
+
+        const existing = state.stagePrewarm.entries.get(normalizedUrl);
+
+        if (existing?.element instanceof HTMLVideoElement) {
+            existing.lastUsedAt = Date.now();
+
+            return;
+        }
+
+        const element = document.createElement('video');
+
+        element.muted = true;
+        element.preload = 'metadata';
+        element.playsInline = true;
+        element.tabIndex = -1;
+        element.setAttribute('aria-hidden', 'true');
+        element.src = normalizedUrl;
+        container.appendChild(element);
+
+        try {
+            element.load();
+        } catch (error) {
+        }
+
+        state.stagePrewarm.entries.set(normalizedUrl, {
+            element,
+            lastUsedAt: Date.now(),
+        });
+
+        while (state.stagePrewarm.entries.size > 3) {
+            const oldest = Array.from(state.stagePrewarm.entries.entries())
+                .sort((left, right) => left[1].lastUsedAt - right[1].lastUsedAt)[0];
+
+            if (!oldest) {
+                break;
+            }
+
+            const [oldestUrl, entry] = oldest;
+
+            if (entry?.element instanceof HTMLVideoElement) {
+                entry.element.removeAttribute('src');
+
+                try {
+                    entry.element.load();
+                } catch (error) {
+                }
+
+                entry.element.remove();
+            }
+
+            state.stagePrewarm.entries.delete(oldestUrl);
+        }
+    };
+
+    const prewarmStageNeighbors = (scope, segment) => {
+        if (!(scope instanceof HTMLElement) || !(segment && typeof segment === 'object')) {
+            return;
+        }
+
+        readRailBootstrapData(scope);
+
+        const orderedSegments = state.rail.segments
+            .filter((candidate) => candidate && typeof candidate === 'object')
+            .slice()
+            .sort((left, right) => {
+                const leftStart = Number(left.startMs || 0);
+                const rightStart = Number(right.startMs || 0);
+
+                if (leftStart !== rightStart) {
+                    return leftStart - rightStart;
+                }
+
+                return Number(left.id || 0) - Number(right.id || 0);
+            });
+        const currentIndex = orderedSegments.findIndex((candidate) => Number(candidate.id || 0) === Number(segment.id || 0));
+
+        if (currentIndex < 0) {
+            return;
+        }
+
+        [orderedSegments[currentIndex - 1], orderedSegments[currentIndex + 1]].forEach((neighbor) => {
+            if (!(neighbor && typeof neighbor === 'object')) {
+                return;
+            }
+
+            const previewUrl = normalizeMediaUrl(String(neighbor.preferredStreamUrl || ''));
+
+            if (previewUrl !== '') {
+                prewarmStageUrl(scope, previewUrl);
+            }
+        });
+    };
+
+    const seekStageVideoToFocus = (scope, video, focusMs = null) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+            return null;
+        }
+
+        const resolvedFocusMs = clamp(
+            Number(focusMs ?? currentFocusMs(scope)),
+            timelineStartMs(scope),
+            timelineMaximumFocusMs(scope),
+        );
+        const startMs = readNumber(video, 'startMs', 0);
+        const durationSeconds = Math.max(0, Number(video.dataset.durationSeconds || 0));
+        const seekSeconds = clamp((resolvedFocusMs - startMs) / 1000, 0, Math.max(0, durationSeconds - 0.2));
+
+        try {
+            if (Math.abs(Number(video.currentTime || 0) - seekSeconds) > 0.35) {
+                video.currentTime = seekSeconds;
+            }
+        } catch (error) {
+        }
+
+        return seekSeconds;
+    };
+
+    const seekStagePlaybackToFocus = (scope, focusMs = null) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const video = stageVideo(scope);
 
         if (!(video instanceof HTMLVideoElement)) {
             return;
         }
 
-        if (state.stagePaused) {
-            video.pause();
+        const resolvedFocusMs = clamp(
+            Number(focusMs ?? currentFocusMs(scope)),
+            timelineStartMs(scope),
+            timelineMaximumFocusMs(scope),
+        );
+
+        if (stageSourceIsLoading(video)) {
+            setPendingStageFocusMs(video, resolvedFocusMs);
 
             return;
         }
 
-        playVideo(video);
+        const applySeek = () => {
+            try {
+                video.pause();
+            } catch (error) {
+            }
+
+            const seekSeconds = seekStageVideoToFocus(scope, video, resolvedFocusMs);
+
+            if (seekSeconds === null) {
+                applyStageControllerStateToVideo(scope, video);
+
+                return;
+            }
+
+            const finalizeSeek = () => {
+                syncCompanionAudioTime(video, stageAudio(scope), true);
+                applyStageControllerStateToVideo(scope, video);
+            };
+
+            if (Math.abs(Number(video.currentTime || 0) - seekSeconds) <= 0.35) {
+                finalizeSeek();
+
+                return;
+            }
+
+            const handleSeeked = () => {
+                video.removeEventListener('seeked', handleSeeked);
+                finalizeSeek();
+            };
+
+            video.addEventListener('seeked', handleSeeked, { once: true });
+
+            try {
+                video.currentTime = seekSeconds;
+            } catch (error) {
+                video.removeEventListener('seeked', handleSeeked);
+                finalizeSeek();
+            }
+        };
+
+        if (video.readyState >= 1) {
+            applySeek();
+
+            return;
+        }
+
+        const handleLoadedMetadata = () => {
+            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            applySeek();
+        };
+
+        video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
     };
 
-    const syncStageAudioState = (scope, video = stageVideo(scope), shouldPlay = false) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        if (state.stageMuted === null) {
-            state.stageMuted = serverStageMuted(scope);
-        }
-
-        syncStageAudioUi(scope, state.stageMuted);
-
-        if (!(video instanceof HTMLVideoElement)) {
-            return;
-        }
-
-        applyStageAudioState(video, state.stageMuted, shouldPlay);
-    };
-
-    const toggleStagePlayback = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        state.stagePaused = !(state.stagePaused ?? serverStagePaused(scope));
-        syncStagePlaybackState(scope, stageVideo(scope));
-    };
-
-    const toggleStageAudio = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        state.stageMuted = !(state.stageMuted ?? serverStageMuted(scope));
-        syncStageAudioState(scope, stageVideo(scope), !state.stageMuted && !(state.stagePaused ?? serverStagePaused(scope)));
-    };
-
-    const playVideo = (video) => {
-        if (!(video instanceof HTMLVideoElement)) {
+    const playVideo = (video, onRejected = null) => {
+        if (!(video instanceof HTMLMediaElement)) {
             return;
         }
 
@@ -426,8 +868,320 @@
 
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {
+                if (typeof onRejected === 'function') {
+                    onRejected();
+                }
             });
         }
+    };
+
+    const ensureStageVideoSource = (scope, video, shouldPlay = false) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+            return false;
+        }
+
+        const targetSourceUrl = desiredStageStreamUrl(video);
+
+        if (targetSourceUrl === '') {
+            updateStageAssetStatus(scope, video);
+
+            return false;
+        }
+
+        const normalizedTargetSourceUrl = normalizeMediaUrl(targetSourceUrl);
+        const normalizedCurrentSourceUrl = normalizeMediaUrl(video.currentSrc || video.getAttribute('src') || '');
+
+        if (normalizedCurrentSourceUrl === normalizedTargetSourceUrl) {
+            clearPendingStageSourceLoad(video);
+            updateStageAssetStatus(scope, video, targetSourceUrl);
+
+            return false;
+        }
+
+        const handleSourceLoaded = () => {
+            const nextFocusMs = pendingStageFocusMs(video, currentFocusMs(scope));
+
+            clearPendingStageSourceLoad(video);
+            seekStageVideoToFocus(scope, video, nextFocusMs);
+            updateStageAssetStatus(scope, video, targetSourceUrl);
+            const resolvedPlayerState = ensureStageControllerState(scope, video);
+
+            if (shouldPlay && !resolvedPlayerState.isPlaying) {
+                state.stage = {
+                    ...resolvedPlayerState,
+                    initialized: true,
+                    isPlaying: true,
+                };
+            }
+
+            applyStageControllerStateToVideo(scope, video);
+        };
+
+        video.dataset.pendingSourceLoad = 'true';
+        video.addEventListener('loadedmetadata', handleSourceLoaded, { once: true });
+        video.src = targetSourceUrl;
+        video.load();
+        updateStageAssetStatus(scope, video, targetSourceUrl);
+
+        return true;
+    };
+
+    const syncStageControllerFromVideo = (scope, video = stageVideo(scope)) => {
+        if (!(scope instanceof HTMLElement)) {
+            return stageControllerSnapshot(scope, video);
+        }
+
+        const currentState = ensureStageControllerState(scope, video);
+        const usesCompanionAudio = stageUsesCompanionAudio(video);
+        const nextState = {
+            ...currentState,
+            initialized: true,
+            isMuted: usesCompanionAudio ? currentState.isMuted : (video instanceof HTMLVideoElement ? video.muted : currentState.isMuted),
+            isPlaying: video instanceof HTMLVideoElement ? !video.paused && !video.ended : currentState.isPlaying,
+            volume: usesCompanionAudio ? currentState.volume : (video instanceof HTMLVideoElement ? clampVolume(video.volume) : currentState.volume),
+        };
+
+        state.stage = nextState;
+        renderStageControllerUi(scope, nextState);
+
+        if (video instanceof HTMLVideoElement) {
+            updateStageAssetStatus(scope, video);
+        }
+
+        return nextState;
+    };
+
+    const syncCompanionAudioTime = (video, audio, force = false) => {
+        if (!(video instanceof HTMLVideoElement) || !(audio instanceof HTMLAudioElement) || audio.readyState < 1) {
+            return;
+        }
+
+        const nextTime = Number(video.currentTime || 0);
+        const driftSeconds = Math.abs(Number(audio.currentTime || 0) - nextTime);
+
+        if (!force) {
+            const syncedRecently = (Date.now() - state.stageAudioLastSyncAt) < 1500;
+
+            if (audio.paused || driftSeconds < 1.25 || syncedRecently) {
+                return;
+            }
+        }
+
+        if (force && driftSeconds < 0.08) {
+            return;
+        }
+
+        try {
+            audio.currentTime = nextTime;
+            state.stageAudioLastSyncAt = Date.now();
+        } catch (error) {
+        }
+    };
+
+    const cleanupAudioBinding = () => {
+        if (typeof state.boundAudioCleanup === 'function') {
+            state.boundAudioCleanup();
+        }
+
+        state.boundAudio = null;
+        state.boundAudioCleanup = null;
+        state.stageAudioLastSyncAt = 0;
+    };
+
+    const bindStageAudio = (scope, video = stageVideo(scope)) => {
+        if (!(scope instanceof HTMLElement)) {
+            cleanupAudioBinding();
+
+            return;
+        }
+
+        const audio = stageAudio(scope);
+
+        if (!(audio instanceof HTMLAudioElement) || !(video instanceof HTMLVideoElement)) {
+            cleanupAudioBinding();
+
+            return;
+        }
+
+        if (state.boundAudio === audio) {
+            return;
+        }
+
+        cleanupAudioBinding();
+
+        const handleLoadedMetadata = () => {
+            syncCompanionAudioTime(video, audio, true);
+        };
+
+        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+        if (stageUsesPreviewSource(video)) {
+            ensureStageAudioSource(scope, audio, video);
+        }
+
+        state.boundAudio = audio;
+        state.boundAudioCleanup = () => {
+            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            audio.muted = true;
+            audio.volume = 0;
+
+            try {
+                audio.pause();
+            } catch (error) {
+            }
+
+            audio.removeAttribute('src');
+
+            try {
+                audio.load();
+            } catch (error) {
+            }
+        };
+    };
+
+    const ensureStageAudioSource = (scope, audio, video) => {
+        if (!(scope instanceof HTMLElement) || !(audio instanceof HTMLAudioElement) || !(video instanceof HTMLVideoElement)) {
+            return false;
+        }
+
+        const targetSourceUrl = desiredStageAudioUrl(video);
+
+        if (targetSourceUrl === '') {
+            return false;
+        }
+
+        const normalizedTargetSourceUrl = normalizeMediaUrl(targetSourceUrl);
+        const normalizedCurrentSourceUrl = normalizeMediaUrl(audio.currentSrc || audio.getAttribute('src') || '');
+
+        if (normalizedCurrentSourceUrl === normalizedTargetSourceUrl) {
+            return false;
+        }
+
+        audio.src = targetSourceUrl;
+        audio.load();
+
+        return true;
+    };
+
+    const applyStageCompanionAudioState = (scope, video, playerState, audio = stageAudio(scope)) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement) || !(audio instanceof HTMLAudioElement)) {
+            return false;
+        }
+
+        const shouldUseCompanionAudio = stageUsesCompanionAudio(video);
+
+        if (!shouldUseCompanionAudio) {
+            audio.muted = true;
+            audio.volume = 0;
+
+            try {
+                audio.pause();
+            } catch (error) {
+            }
+
+            return false;
+        }
+
+        const audioSourceChanged = ensureStageAudioSource(scope, audio, video);
+        audio.muted = playerState.isMuted;
+        audio.volume = playerState.volume;
+
+        const shouldForceSync = audioSourceChanged
+            || audio.paused
+            || Math.abs(Number(audio.currentTime || 0) - Number(video.currentTime || 0)) > 2.5;
+
+        syncCompanionAudioTime(video, audio, shouldForceSync);
+
+        if (!playerState.isMuted && playerState.isPlaying) {
+            playVideo(audio, () => {
+                syncCompanionAudioTime(video, audio, true);
+            });
+        } else {
+            try {
+                audio.pause();
+            } catch (error) {
+            }
+        }
+
+        return true;
+    };
+
+    const applyStageControllerStateToVideo = (scope, video = stageVideo(scope)) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const playerState = stageControllerSnapshot(scope, video);
+        const audio = stageAudio(scope);
+
+        renderStageControllerUi(scope, playerState);
+
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        bindStageAudio(scope, video);
+
+        if (ensureStageVideoSource(scope, video, playerState.isPlaying)) {
+            return;
+        }
+
+        const usingCompanionAudio = applyStageCompanionAudioState(scope, video, playerState, audio);
+
+        video.defaultMuted = usingCompanionAudio ? true : playerState.isMuted;
+        video.muted = usingCompanionAudio ? true : playerState.isMuted;
+
+        if (usingCompanionAudio) {
+            if (Math.abs(video.volume) > 0.01) {
+                video.volume = 0;
+            }
+        } else if (Math.abs(video.volume - playerState.volume) > 0.01) {
+            video.volume = playerState.volume;
+        }
+
+        if (!playerState.isPlaying) {
+            video.pause();
+
+            return;
+        }
+
+        playVideo(video, () => {
+            syncStageControllerFromVideo(scope, video);
+        });
+    };
+
+    const syncStagePlaybackState = (scope, video = stageVideo(scope)) => {
+        applyStageControllerStateToVideo(scope, video);
+    };
+
+    const syncStageAudioState = (scope, video = stageVideo(scope)) => {
+        applyStageControllerStateToVideo(scope, video);
+    };
+
+    const toggleStagePlayback = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const playerState = stageControllerSnapshot(scope);
+
+        setStageControllerState(scope, {
+            isPlaying: !playerState.isPlaying,
+        });
+        applyStageControllerStateToVideo(scope, stageVideo(scope));
+    };
+
+    const toggleStageAudio = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const playerState = stageControllerSnapshot(scope);
+
+        setStageControllerState(scope, {
+            isMuted: !playerState.isMuted,
+        });
+        applyStageControllerStateToVideo(scope, stageVideo(scope));
     };
 
     const focusMsForVideoPlayback = (scope, video) => {
@@ -451,6 +1205,32 @@
         }
 
         return Math.max(track.scrollHeight, track.offsetHeight, 1);
+    };
+
+    const secondaryTickLabelSpacingPx = (scope, trackHeight = railTrackHeight(scope)) => (
+        (Math.max(1, trackHeight) * secondaryTickIntervalMinutes(scope) * 60000) / timelineDurationMs(scope)
+    );
+
+    const updateTimelineTickLabelVisibility = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const shouldShowSecondaryLabels = secondaryTickLabelSpacingPx(scope) >= secondaryTickMinLabelSpacingPx(scope);
+
+        scope.querySelectorAll('[data-role="rail-tick"][data-tick-kind="secondary"]').forEach((tick) => {
+            if (!(tick instanceof HTMLElement)) {
+                return;
+            }
+
+            const label = tick.querySelector('[data-role="rail-tick-label"]');
+
+            tick.classList.toggle('is-label-hidden', !shouldShowSecondaryLabels);
+
+            if (label instanceof HTMLElement) {
+                label.classList.toggle('hide-label', !shouldShowSecondaryLabels);
+            }
+        });
     };
 
     const viewportOffsetFromClientY = (viewport, clientY) => {
@@ -513,6 +1293,764 @@
 
         const scrubPreviewTime = scope.querySelector('[data-role="scrub-preview-time"]');
         setText(scrubPreviewTime, label);
+    };
+
+    const cleanupRailThumbnailObserver = () => {
+        if (state.rail.thumbnailObserver instanceof IntersectionObserver) {
+            state.rail.thumbnailObserver.disconnect();
+        }
+
+        state.rail.thumbnailObserver = null;
+        state.rail.thumbnailObserverScope = null;
+    };
+
+    const resetRailState = () => {
+        if (Number.isInteger(state.rail.renderFrame)) {
+            window.cancelAnimationFrame(state.rail.renderFrame);
+        }
+
+        cleanupRailThumbnailObserver();
+        state.rail = defaultRailState();
+    };
+
+    const normalizeRailRange = (scope, startMs, endMs) => {
+        const normalizedStartMs = clamp(Number(startMs || timelineStartMs(scope)), timelineStartMs(scope), timelineEndMs(scope));
+        const normalizedEndMs = clamp(
+            Math.max(normalizedStartMs + 1000, Number(endMs || normalizedStartMs + 1000)),
+            normalizedStartMs + 1000,
+            timelineEndMs(scope),
+        );
+
+        return {
+            endMs: normalizedEndMs,
+            startMs: normalizedStartMs,
+        };
+    };
+
+    const mergeRailRanges = (ranges, nextRange) => {
+        const sortedRanges = [...ranges, nextRange]
+            .filter((range) => range && Number.isFinite(range.startMs) && Number.isFinite(range.endMs))
+            .sort((left, right) => left.startMs - right.startMs);
+        const mergedRanges = [];
+
+        sortedRanges.forEach((range) => {
+            const currentRange = {
+                endMs: Math.max(range.startMs + 1000, range.endMs),
+                startMs: range.startMs,
+            };
+            const previousRange = mergedRanges[mergedRanges.length - 1] || null;
+
+            if (!previousRange || currentRange.startMs > previousRange.endMs) {
+                mergedRanges.push(currentRange);
+
+                return;
+            }
+
+            previousRange.endMs = Math.max(previousRange.endMs, currentRange.endMs);
+        });
+
+        return mergedRanges;
+    };
+
+    const railRangeCovered = (ranges, startMs, endMs) => {
+        let cursorMs = startMs;
+
+        for (const range of ranges) {
+            if (range.endMs < cursorMs) {
+                continue;
+            }
+
+            if (range.startMs > cursorMs) {
+                return false;
+            }
+
+            cursorMs = Math.max(cursorMs, range.endMs);
+
+            if (cursorMs >= endMs) {
+                return true;
+            }
+        }
+
+        return cursorMs >= endMs;
+    };
+
+    const railSegmentKey = (segment) => {
+        const id = segment && segment.id !== undefined && segment.id !== null ? String(segment.id) : '';
+
+        return id !== '' ? id : `${segment?.cameraId || 'camera'}:${segment?.startMs || 0}:${segment?.endMs || 0}`;
+    };
+
+    const normalizeRailSegment = (segment) => {
+        if (!segment || typeof segment !== 'object') {
+            return null;
+        }
+
+        const startMs = Number(segment.startMs || 0);
+        const endMs = Math.max(startMs + 1000, Number(segment.endMs || startMs + 1000));
+
+        return {
+            ...segment,
+            endMs,
+            focusMs: Number(segment.focusMs || startMs),
+            id: segment.id ?? null,
+            startMs,
+        };
+    };
+
+    const storeRailSegments = (segments) => {
+        const mergedSegments = new Map(state.rail.segments.map((segment) => [railSegmentKey(segment), segment]));
+
+        segments.forEach((segment) => {
+            const normalizedSegment = normalizeRailSegment(segment);
+
+            if (!normalizedSegment) {
+                return;
+            }
+
+            mergedSegments.set(railSegmentKey(normalizedSegment), normalizedSegment);
+        });
+
+        state.rail.segments = Array.from(mergedSegments.values())
+            .sort((left, right) => left.startMs - right.startMs);
+    };
+
+    const activeRailSegmentId = (scope) => {
+        const host = timelineRail(scope);
+
+        return host instanceof HTMLElement ? String(host.dataset.activeSegmentId || '') : '';
+    };
+
+    const ensureRailThumbnailObserver = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            cleanupRailThumbnailObserver();
+
+            return null;
+        }
+
+        const viewport = railViewport(scope);
+
+        if (!(viewport instanceof HTMLElement) || typeof IntersectionObserver === 'undefined') {
+            cleanupRailThumbnailObserver();
+
+            return null;
+        }
+
+        if (state.rail.thumbnailObserver instanceof IntersectionObserver && state.rail.thumbnailObserverScope === scope) {
+            return state.rail.thumbnailObserver;
+        }
+
+        cleanupRailThumbnailObserver();
+
+        state.rail.thumbnailObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (!entry.isIntersecting || !(entry.target instanceof HTMLElement)) {
+                    return;
+                }
+
+                const thumbnail = entry.target.closest('[data-role="rail-thumbnail"]');
+
+                if (thumbnail instanceof HTMLElement) {
+                    hydrateRailThumbnail(thumbnail);
+                }
+
+                state.rail.thumbnailObserver?.unobserve(entry.target);
+            });
+        }, {
+            root: viewport,
+            rootMargin: '320px 0px 320px 0px',
+            threshold: 0.01,
+        });
+        state.rail.thumbnailObserverScope = scope;
+
+        return state.rail.thumbnailObserver;
+    };
+
+    const hydrateRailThumbnail = (thumbnail) => {
+        if (!(thumbnail instanceof HTMLElement)) {
+            return;
+        }
+
+        const frame = thumbnail.querySelector('[data-role="rail-thumbnail-frame"]');
+        const thumbnailUrl = String(thumbnail.dataset.thumbnailUrl || '').trim();
+        const thumbnailAlt = String(thumbnail.dataset.thumbnailAlt || '').trim();
+
+        if (!(frame instanceof HTMLElement) || thumbnailUrl === '' || frame.querySelector('img')) {
+            return;
+        }
+
+        const image = document.createElement('img');
+
+        image.alt = thumbnailAlt;
+        image.decoding = 'async';
+        image.loading = 'lazy';
+        image.src = thumbnailUrl;
+        frame.appendChild(image);
+    };
+
+    const observeRailThumbnails = (scope) => {
+        const observer = ensureRailThumbnailObserver(scope);
+
+        scope.querySelectorAll('[data-role="rail-thumbnail-frame"]').forEach((frame) => {
+            if (!(frame instanceof HTMLElement)) {
+                return;
+            }
+
+            if (observer) {
+                observer.observe(frame);
+
+                return;
+            }
+
+            const thumbnail = frame.closest('[data-role="rail-thumbnail"]');
+
+            if (thumbnail instanceof HTMLElement) {
+                hydrateRailThumbnail(thumbnail);
+            }
+        });
+    };
+
+    const railWindowForViewport = (scope) => {
+        const viewport = railViewport(scope);
+        const trackHeight = railTrackHeight(scope);
+
+        if (!(viewport instanceof HTMLElement)) {
+            return normalizeRailRange(scope, timelineStartMs(scope), timelineEndMs(scope));
+        }
+
+        const bufferPx = Math.max(viewport.clientHeight, 320);
+        const windowStartPx = Math.max(0, viewport.scrollTop - bufferPx);
+        const windowEndPx = Math.min(trackHeight, viewport.scrollTop + viewport.clientHeight + bufferPx);
+        const startRatio = clamp(windowStartPx / trackHeight, 0, 1);
+        const endRatio = clamp(windowEndPx / trackHeight, 0, 1);
+
+        return normalizeRailRange(
+            scope,
+            timelineStartMs(scope) + (timelineDurationMs(scope) * startRatio),
+            timelineStartMs(scope) + (timelineDurationMs(scope) * endRatio),
+        );
+    };
+
+    const readRailBootstrapData = (scope) => {
+        const host = timelineRail(scope);
+
+        if (!(host instanceof HTMLElement)) {
+            resetRailState();
+
+            return state.rail;
+        }
+
+        const nextCameraId = String(host.dataset.cameraId || activeCameraId(scope));
+        const cameraDidChange = state.rail.cameraId !== nextCameraId;
+
+        if (cameraDidChange) {
+            resetRailState();
+            state.rail.cameraId = nextCameraId;
+        }
+
+        if (cameraDidChange || state.rail.ticks.length === 0) {
+            state.rail.ticks = parseJsonScript(host.querySelector('[data-role="rail-ticks-json"]'), []);
+        }
+
+        if (cameraDidChange || state.rail.segments.length === 0) {
+            const initialSegments = parseJsonScript(host.querySelector('[data-role="rail-segments-json"]'), []);
+            const initialRange = normalizeRailRange(
+                scope,
+                readNumber(host, 'initialWindowStartMs', timelineStartMs(scope)),
+                readNumber(host, 'initialWindowEndMs', timelineEndMs(scope)),
+            );
+
+            storeRailSegments(initialSegments);
+            state.rail.loadedRanges = mergeRailRanges(cameraDidChange ? [] : state.rail.loadedRanges, initialRange);
+        }
+
+        return state.rail;
+    };
+
+    const buildRailThumbnailSegments = (scope, segments) => {
+        const track = railTrack(scope);
+
+        if (!(track instanceof HTMLElement) || segments.length === 0) {
+            return [];
+        }
+
+        const trackHeight = railTrackHeight(scope);
+        const computedStyle = window.getComputedStyle(track);
+        const thumbnailHeight = Math.max(1, readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-height'), 84));
+        const thumbnailGap = Math.max(0, readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-gap'), 12));
+        const maxThumbnailTopPx = Math.max(0, trackHeight - thumbnailHeight);
+        const activeSegment = activeRailSegmentId(scope);
+        const occupiedRanges = [];
+
+        return segments
+            .map((segment) => {
+                const desiredTopPx = clamp(railTrackOffsetPxForMs(scope, segment.startMs, trackHeight), 0, maxThumbnailTopPx);
+
+                return {
+                    ...segment,
+                    isActive: activeSegment !== '' && String(segment.id ?? '') === activeSegment,
+                    thumbnailTopPx: desiredTopPx,
+                };
+            })
+            .sort((left, right) => {
+                if (left.isActive !== right.isActive) {
+                    return left.isActive ? -1 : 1;
+                }
+
+                const leftDurationMs = Math.max(1, left.endMs - left.startMs);
+                const rightDurationMs = Math.max(1, right.endMs - right.startMs);
+
+                if (leftDurationMs !== rightDurationMs) {
+                    return rightDurationMs - leftDurationMs;
+                }
+
+                return left.startMs - right.startMs;
+            })
+            .filter((segment) => {
+                const topPx = Number(segment.thumbnailTopPx || 0);
+                const bottomPx = topPx + thumbnailHeight;
+                const overlaps = occupiedRanges.some((range) => topPx < (range.bottomPx + thumbnailGap)
+                    && (bottomPx + thumbnailGap) > range.topPx);
+
+                if (overlaps) {
+                    return false;
+                }
+
+                occupiedRanges.push({
+                    bottomPx,
+                    topPx,
+                });
+
+                return true;
+            })
+            .sort((left, right) => left.startMs - right.startMs);
+    };
+
+    const createRailTickElement = (tick) => {
+        const button = document.createElement('button');
+        const label = document.createElement('span');
+        const rawVariant = typeof tick?.labelVariant === 'string' ? tick.labelVariant : '';
+        const variant = ['day', 'hour', 'minute'].includes(rawVariant)
+            ? rawVariant
+            : (tick?.isDayStart ? 'day' : (tick?.kind === 'primary' ? 'hour' : 'minute'));
+        const fallbackLabel = String(tick?.label || '');
+        const fallbackDayParts = fallbackLabel.split(/\s+/, 2);
+        const fallbackHourParts = fallbackLabel.split(':', 2);
+        const primaryText = variant === 'day'
+            ? String(tick?.labelPrimary || fallbackDayParts[0] || '')
+            : (variant === 'hour' ? String(tick?.labelPrimary || fallbackHourParts[0] || '') : '');
+        const secondaryText = variant === 'day'
+            ? String(tick?.labelSecondary || fallbackDayParts[1] || '')
+            : (variant === 'hour'
+                ? String(tick?.labelSecondary || fallbackHourParts[1] || '')
+                : String(tick?.labelSecondary || fallbackLabel || ''));
+
+        button.type = 'button';
+        button.className = `recording-review-focus__rail-tick recording-review-focus__rail-tick--${tick.kind || 'primary'}${tick.isDayStart ? ' is-day-start' : ''}`;
+        button.dataset.role = 'rail-tick';
+        button.dataset.tickKind = String(tick.kind || 'primary');
+        button.dataset.focusMs = String(tick.focusMs || 0);
+        button.dataset.topPercent = String(tick.topPercent || 0);
+        button.style.top = `${Number(tick.topPercent || 0)}%`;
+        button.style.height = `${Number(tick.heightPercent || 0)}%`;
+        button.setAttribute('aria-label', String(tick.ariaLabel || tick.label || ''));
+        button.title = String(tick.ariaLabel || tick.label || '');
+
+        label.className = `recording-review-focus__rail-tick-label recording-review-focus__rail-tick-label--${variant}`;
+        label.dataset.role = 'rail-tick-label';
+
+        if (primaryText !== '') {
+            const primary = document.createElement('span');
+
+            primary.className = 'recording-review-focus__rail-tick-part recording-review-focus__rail-tick-part--primary';
+            primary.textContent = primaryText;
+            label.appendChild(primary);
+        }
+
+        if (secondaryText !== '') {
+            const secondary = document.createElement('span');
+
+            secondary.className = 'recording-review-focus__rail-tick-part recording-review-focus__rail-tick-part--secondary';
+            secondary.textContent = secondaryText;
+            label.appendChild(secondary);
+        }
+
+        button.appendChild(label);
+
+        return button;
+    };
+
+    const createRailSegmentElement = (scope, segment) => {
+        const button = document.createElement('button');
+        const bar = document.createElement('span');
+        const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
+        const activeSegment = activeRailSegmentId(scope);
+        const trackHeight = railTrackHeight(scope);
+        const range = clippedSegmentRangeMs(scope, segment.startMs, segment.endMs);
+        const topPx = railTrackOffsetPxForMs(scope, range.startMs, trackHeight);
+        const heightPx = Math.max(1, railTrackOffsetPxForMs(scope, range.endMs, trackHeight) - topPx);
+        const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
+
+        button.type = 'button';
+        button.className = `recording-review-focus__rail-segment recording-review-focus__rail-segment--${captureMode}${activeSegment !== '' && String(segment.id ?? '') === activeSegment ? ' is-active' : ''}`;
+        button.dataset.role = 'rail-segment';
+        button.dataset.recordingId = String(segment.id ?? '');
+        button.dataset.focusMs = String(segment.startMs || 0);
+        button.dataset.startMs = String(segment.startMs || 0);
+        button.dataset.endMs = String(segment.endMs || 0);
+        button.dataset.topPercent = String(segment.topPercent || 0);
+        button.dataset.renderHeightPercent = String(segment.renderHeightPercent || segment.heightPercent || 0);
+        button.dataset.cameraName = cameraName;
+        button.dataset.scrubSpriteUrl = String(segment.scrubSpriteUrl || '');
+        button.dataset.scrubFrameCount = String(segment.scrubFrameCount || 0);
+        button.dataset.scrubFrameWidth = String(segment.scrubFrameWidth || 0);
+        button.dataset.scrubFrameHeight = String(segment.scrubFrameHeight || 0);
+        button.dataset.scrubColumns = String(segment.scrubColumns || 0);
+        button.dataset.scrubRows = String(segment.scrubRows || 0);
+        button.dataset.scrubFrameIntervalMs = String(segment.scrubFrameIntervalMs || 0);
+        button.style.top = `${topPx}px`;
+        button.style.height = `${heightPx}px`;
+        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} ${segment.modeLabel || 'Recorded clip'}`);
+        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
+
+        bar.className = 'recording-review-focus__rail-segment-bar';
+        button.appendChild(bar);
+
+        return button;
+    };
+
+    const createRailThumbnailElement = (scope, segment) => {
+        const button = document.createElement('button');
+        const frame = document.createElement('span');
+        const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
+        const activeSegment = activeRailSegmentId(scope);
+        const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
+
+        button.type = 'button';
+        button.className = `recording-review-focus__rail-thumbnail recording-review-focus__rail-thumbnail--${captureMode}${activeSegment !== '' && String(segment.id ?? '') === activeSegment ? ' is-active' : ''}`;
+        button.dataset.role = 'rail-thumbnail';
+        button.dataset.recordingId = String(segment.id ?? '');
+        button.dataset.focusMs = String(segment.startMs || 0);
+        button.dataset.thumbnailUrl = String(segment.thumbnailUrl || '');
+        button.dataset.thumbnailAlt = `${cameraName} ${segment.timeLabel || 'Segment preview'} preview`;
+        button.style.top = `${Number(segment.thumbnailTopPx || 0)}px`;
+        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail`);
+        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
+
+        frame.className = 'recording-review-focus__rail-thumbnail-frame';
+        frame.dataset.role = 'rail-thumbnail-frame';
+
+        button.appendChild(frame);
+
+        return button;
+    };
+
+    const renderRailWindow = (scope, force = false) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const ticksLayer = railTicksLayer(scope);
+        const segmentsLayer = railSegmentsLayer(scope);
+        const thumbnailsLayer = railThumbnailsLayer(scope);
+
+        if (!(ticksLayer instanceof HTMLElement) || !(segmentsLayer instanceof HTMLElement) || !(thumbnailsLayer instanceof HTMLElement)) {
+            return;
+        }
+
+        readRailBootstrapData(scope);
+
+        const visibleWindow = railWindowForViewport(scope);
+        const tickBufferMs = secondaryTickIntervalMinutes(scope) * 60000;
+        const visibleTicks = state.rail.ticks.filter((tick) => {
+            const focusMs = Number(tick.focusMs || 0);
+
+            return focusMs >= (visibleWindow.startMs - tickBufferMs)
+                && focusMs <= (visibleWindow.endMs + tickBufferMs);
+        });
+        const visibleSegments = state.rail.segments.filter((segment) => segment.endMs >= visibleWindow.startMs && segment.startMs <= visibleWindow.endMs);
+        const visibleThumbnailSegments = buildRailThumbnailSegments(scope, visibleSegments);
+        const renderKey = [
+            state.rail.cameraId,
+            activeRailSegmentId(scope),
+            visibleTicks.length,
+            visibleTicks[0]?.focusMs || 'none',
+            visibleTicks[visibleTicks.length - 1]?.focusMs || 'none',
+            visibleSegments.length,
+            visibleSegments[0]?.id || 'none',
+            visibleSegments[visibleSegments.length - 1]?.id || 'none',
+            visibleThumbnailSegments.length,
+            visibleThumbnailSegments[0]?.id || 'none',
+            visibleThumbnailSegments[visibleThumbnailSegments.length - 1]?.id || 'none',
+        ].join(':');
+
+        if (!force && state.rail.renderKey === renderKey) {
+            observeRailThumbnails(scope);
+            updateTimelineTickLabelVisibility(scope);
+
+            return;
+        }
+
+        state.rail.renderKey = renderKey;
+        state.observerPauseDepth += 1;
+
+        try {
+            const tickFragment = document.createDocumentFragment();
+            const segmentFragment = document.createDocumentFragment();
+            const thumbnailFragment = document.createDocumentFragment();
+
+            visibleTicks.forEach((tick) => {
+                tickFragment.appendChild(createRailTickElement(tick));
+            });
+
+            visibleSegments.forEach((segment) => {
+                segmentFragment.appendChild(createRailSegmentElement(scope, segment));
+            });
+
+            visibleThumbnailSegments.forEach((segment) => {
+                thumbnailFragment.appendChild(createRailThumbnailElement(scope, segment));
+            });
+
+            ticksLayer.replaceChildren(tickFragment);
+            segmentsLayer.replaceChildren(segmentFragment);
+            thumbnailsLayer.replaceChildren(thumbnailFragment);
+        } finally {
+            state.observerPauseDepth = Math.max(0, state.observerPauseDepth - 1);
+        }
+
+        observeRailThumbnails(scope);
+        updateTimelineTickLabelVisibility(scope);
+    };
+
+    const segmentPayloadForFocus = (scope, focusMs) => {
+        if (!(scope instanceof HTMLElement)) {
+            return null;
+        }
+
+        readRailBootstrapData(scope);
+
+        const resolvedFocusMs = Number(focusMs || currentFocusMs(scope));
+        const exact = state.rail.segments.find((segment) => {
+            if (!segment || typeof segment !== 'object') {
+                return false;
+            }
+
+            if (segment.endMs <= segment.startMs) {
+                return segment.startMs === resolvedFocusMs;
+            }
+
+            return segment.startMs <= resolvedFocusMs && resolvedFocusMs < segment.endMs;
+        });
+
+        return exact || null;
+    };
+
+    const updateStageText = (scope, role, value) => {
+        scope.querySelectorAll(`[data-role="${role}"]`).forEach((element) => {
+            setText(element, value);
+        });
+    };
+
+    const applyStageSegment = (scope, segment, focusMs = null) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const videoShell = scope.querySelector('[data-role="video-shell"]');
+        const emptyState = scope.querySelector('[data-role="empty"]');
+        const video = stageVideo(scope);
+        const actions = scope.querySelector('.recording-review-focus__actions');
+        const downloadLink = scope.querySelector('[data-role="download-link"]');
+        const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
+
+        updateStageText(scope, 'camera-label', cameraName);
+
+        if (!(segment && typeof segment === 'object')) {
+            if (videoShell instanceof HTMLElement) {
+                videoShell.setAttribute('hidden', 'hidden');
+            }
+
+            if (emptyState instanceof HTMLElement) {
+                emptyState.removeAttribute('hidden');
+            }
+
+            if (actions instanceof HTMLElement) {
+                actions.setAttribute('hidden', 'hidden');
+            }
+
+            updateStageText(scope, 'time-label', 'No clip selected');
+            updateStageText(scope, 'mode-label', 'Select a clip from the rail');
+            updateStageText(scope, 'duration-label', 'No duration');
+            updateStageText(scope, 'size-label', 'No file saved');
+            updateStageText(scope, 'asset-status', 'No clip selected');
+
+            if (video instanceof HTMLVideoElement) {
+                video.dataset.recordingId = '';
+                video.dataset.startMs = '';
+                video.dataset.endMs = '';
+                video.dataset.durationSeconds = '';
+                video.dataset.fallbackStreamUrl = '';
+                video.dataset.previewStreamUrl = '';
+                video.dataset.reviewStreamUrl = '';
+                video.dataset.directStreamUrl = '';
+                video.dataset.previewStatusLabel = 'Assets cached';
+                video.dataset.reviewStatusLabel = 'Playback stream';
+                video.dataset.directStatusLabel = 'Direct stream';
+                video.removeAttribute('src');
+
+                try {
+                    video.pause();
+                    video.load();
+                } catch (error) {
+                }
+            }
+
+            return;
+        }
+
+        if (videoShell instanceof HTMLElement) {
+            videoShell.removeAttribute('hidden');
+        }
+
+        if (emptyState instanceof HTMLElement) {
+            emptyState.setAttribute('hidden', 'hidden');
+        }
+
+        if (actions instanceof HTMLElement) {
+            actions.removeAttribute('hidden');
+        }
+
+        updateStageText(scope, 'time-label', String(segment.timeLabel || 'Saved clip'));
+        updateStageText(scope, 'mode-label', String(segment.modeLabel || 'Recorded clip'));
+        updateStageText(scope, 'duration-label', String(segment.durationLabel || 'No duration'));
+        updateStageText(scope, 'size-label', String(segment.fileSizeLabel || 'No file saved'));
+
+        if (downloadLink instanceof HTMLAnchorElement) {
+            if (segment.downloadUrl) {
+                downloadLink.href = String(segment.downloadUrl);
+                downloadLink.removeAttribute('hidden');
+            } else {
+                downloadLink.setAttribute('hidden', 'hidden');
+            }
+        }
+
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        setPendingStageFocusMs(video, Number(focusMs ?? currentFocusMs(scope)));
+
+        const previewUrl = String(segment.preferredStreamUrl || '');
+        const reviewUrl = String(segment.reviewStreamUrl || '');
+        const directUrl = String(segment.streamUrl || '');
+        const previewStatusLabel = previewUrl !== '' ? 'Assets cached' : 'Direct stream';
+
+        video.dataset.recordingId = String(segment.id || '');
+        video.dataset.startMs = String(segment.startMs || '');
+        video.dataset.endMs = String(segment.endMs || '');
+        video.dataset.durationSeconds = String(segment.durationSeconds || '');
+        video.dataset.fallbackStreamUrl = directUrl;
+        video.dataset.previewStreamUrl = previewUrl;
+        video.dataset.reviewStreamUrl = reviewUrl;
+        video.dataset.directStreamUrl = directUrl;
+        video.dataset.previewStatusLabel = previewStatusLabel;
+        video.dataset.reviewStatusLabel = 'Playback stream';
+        video.dataset.directStatusLabel = 'Direct stream';
+
+        applyStageControllerStateToVideo(scope, video);
+        prewarmStageNeighbors(scope, segment);
+    };
+
+    const scheduleRailRender = (scope, force = false) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        readRailBootstrapData(scope);
+
+        if (Number.isInteger(state.rail.renderFrame)) {
+            return;
+        }
+
+        state.rail.renderFrame = window.requestAnimationFrame(() => {
+            state.rail.renderFrame = null;
+            renderRailWindow(scope, force);
+        });
+    };
+
+    const requestRailWindow = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const component = livewireComponent(scope);
+        const host = timelineRail(scope);
+
+        if (!component || typeof component.call !== 'function' || !(host instanceof HTMLElement)) {
+            return;
+        }
+
+        readRailBootstrapData(scope);
+
+        const cameraId = Number(host.dataset.cameraId || activeCameraId(scope) || 0);
+
+        if (!Number.isFinite(cameraId) || cameraId <= 0) {
+            return;
+        }
+
+        const viewportWindow = railWindowForViewport(scope);
+        const desiredRange = normalizeRailRange(
+            scope,
+            viewportWindow.startMs - railBufferDurationMs(scope),
+            viewportWindow.endMs + railBufferDurationMs(scope),
+        );
+
+        if (railRangeCovered(state.rail.loadedRanges, desiredRange.startMs, desiredRange.endMs)) {
+            return;
+        }
+
+        const chunkDuration = railChunkDurationMs(scope);
+        let requestStartMs = desiredRange.startMs;
+        let requestEndMs = Math.min(timelineEndMs(scope), Math.max(requestStartMs + chunkDuration, desiredRange.endMs));
+
+        if ((requestEndMs - requestStartMs) < chunkDuration) {
+            requestStartMs = Math.max(timelineStartMs(scope), requestEndMs - chunkDuration);
+        }
+
+        const requestRange = normalizeRailRange(scope, requestStartMs, requestEndMs);
+        const requestKey = `${cameraId}:${requestRange.startMs}:${requestRange.endMs}`;
+
+        if (state.rail.pendingKeys.has(requestKey)) {
+            return;
+        }
+
+        state.rail.pendingKeys.add(requestKey);
+
+        component.call('loadRailChunk', cameraId, requestRange.startMs, requestRange.endMs)
+            .then((payload) => {
+                const currentRoot = root();
+                const currentRail = currentRoot instanceof HTMLElement ? timelineRail(currentRoot) : null;
+
+                if (!(currentRoot instanceof HTMLElement) || !(currentRail instanceof HTMLElement)) {
+                    return;
+                }
+
+                if (String(payload?.cameraId || '') !== String(currentRail.dataset.cameraId || '')) {
+                    return;
+                }
+
+                storeRailSegments(Array.isArray(payload?.segments) ? payload.segments : []);
+                state.rail.loadedRanges = mergeRailRanges(state.rail.loadedRanges, normalizeRailRange(
+                    currentRoot,
+                    Number(payload?.windowStartMs || requestRange.startMs),
+                    Number(payload?.windowEndMs || requestRange.endMs),
+                ));
+                renderRailWindow(currentRoot, true);
+            })
+            .catch(() => {
+            })
+            .finally(() => {
+                state.rail.pendingKeys.delete(requestKey);
+            });
     };
 
     const segmentExactMatch = (segment, focusMs) => {
@@ -793,6 +2331,8 @@
             return;
         }
 
+        readRailBootstrapData(scope);
+
         const track = railTrack(scope);
         const viewport = railViewport(scope);
 
@@ -805,8 +2345,6 @@
 
         track.style.height = `${nextTrackHeight}px`;
         track.style.setProperty('--recording-review-zoom-scale', String(zoomScale));
-        layoutRailSegments(scope);
-        layoutRailThumbnails(scope);
 
         if (viewport instanceof HTMLElement) {
             const restoredScrollTop = state.pendingViewportRestore && Number.isFinite(state.viewportScrollTop)
@@ -818,8 +2356,10 @@
             state.pendingViewportRestore = false;
         }
 
-        updateVisibleRange(scope);
         updateFocusCursor(scope, currentFocusMs(scope));
+        renderRailWindow(scope, true);
+        requestRailWindow(scope);
+        updateTimelineTickLabelVisibility(scope);
         updateZoomUi(scope, zoomScale);
     };
 
@@ -833,7 +2373,8 @@
 
         state.lastNativeScrollAt = Date.now();
         state.viewportScrollTop = viewport.scrollTop;
-        updateVisibleRange(scope);
+        scheduleRailRender(scope);
+        requestRailWindow(scope);
     };
 
     const handleViewportWheel = (event) => {
@@ -924,6 +2465,64 @@
         };
     };
 
+    const cleanupResizeObserver = () => {
+        if (typeof ResizeObserver !== 'undefined' && state.resizeObserver instanceof ResizeObserver) {
+            state.resizeObserver.disconnect();
+        }
+
+        state.resizeObserver = null;
+        state.resizeObserverScope = null;
+        state.resizeObservedElements = [];
+    };
+
+    const bindResizeObserver = (scope) => {
+        if (!(scope instanceof HTMLElement) || typeof ResizeObserver === 'undefined') {
+            cleanupResizeObserver();
+
+            return;
+        }
+
+        const viewport = railViewport(scope);
+        const track = railTrack(scope);
+        const observedElements = [viewport, track].filter((element) => element instanceof HTMLElement);
+
+        if (observedElements.length === 0) {
+            cleanupResizeObserver();
+
+            return;
+        }
+
+        const isSameScope = state.resizeObserverScope === scope;
+        const hasSameElements = isSameScope
+            && state.resizeObservedElements.length === observedElements.length
+            && state.resizeObservedElements.every((element, index) => element === observedElements[index]);
+
+        if (hasSameElements) {
+            return;
+        }
+
+        cleanupResizeObserver();
+
+        state.resizeObserverScope = scope;
+        state.resizeObservedElements = observedElements;
+        state.resizeObserver = new ResizeObserver(() => {
+            const currentRoot = root();
+
+            if (!(currentRoot instanceof HTMLElement)) {
+                return;
+            }
+
+            updateVisibleRange(currentRoot);
+            scheduleRailRender(currentRoot, true);
+            requestRailWindow(currentRoot);
+            updateTimelineTickLabelVisibility(currentRoot);
+        });
+
+        observedElements.forEach((element) => {
+            state.resizeObserver?.observe(element);
+        });
+    };
+
     const withObserverPaused = (callback) => {
         const observedScope = state.observerScope;
 
@@ -953,13 +2552,48 @@
         } finally {
             state.observerPauseDepth = 0;
             state.observer.observe(observedScope, {
-                attributes: true,
-                attributeFilter: ['data-audio-state'],
                 childList: true,
                 subtree: true,
+                attributes: true,
+                attributeFilter: ['data-active-camera-id'],
             });
         }
     };
+
+    const observerRefreshSelectors = [
+        '[data-role="timeline-stage"]',
+        '[data-role="video"]',
+        '[data-role="video-shell"]',
+        '[data-role="empty"]',
+        '[data-role="download-link"]',
+        '[data-role="rail-viewport"]',
+        '[data-role="rail-track"]',
+        '[data-role="rail-segments"]',
+        '[data-role="rail-segment"]',
+        '[data-role="rail-thumbnail"]',
+        '[data-role="camera-switch"]',
+    ].join(', ');
+
+    const mutationNodeNeedsRefresh = (node) => {
+        if (!(node instanceof Element)) {
+            return false;
+        }
+
+        return node.matches(observerRefreshSelectors) || node.querySelector(observerRefreshSelectors) !== null;
+    };
+
+    const mutationsNeedRefresh = (mutations, scope) => mutations.some((mutation) => {
+        if (mutation.type === 'attributes') {
+            return mutation.target === scope && mutation.attributeName === 'data-active-camera-id';
+        }
+
+        if (mutation.type !== 'childList') {
+            return false;
+        }
+
+        return Array.from(mutation.addedNodes).some(mutationNodeNeedsRefresh)
+            || Array.from(mutation.removedNodes).some(mutationNodeNeedsRefresh);
+    });
 
     const refreshScope = (scope) => {
         if (!(scope instanceof HTMLElement)) {
@@ -973,16 +2607,22 @@
             if (cameraDidChange) {
                 state.pendingViewportRestore = false;
                 state.viewportScrollTop = null;
+                resetStagePrewarm();
             }
 
             bindRailViewport(scope);
+            bindResizeObserver(scope);
+            readRailBootstrapData(scope);
             applyTimelineScale(scope);
             bindStageVideo(scope);
+            bindStageAudio(scope);
             syncStagePlaybackState(scope);
             syncStageAudioState(scope);
+            seekStagePlaybackToFocus(scope, currentFocusMs(scope));
             updateStageVolumeUi(scope);
             updateFocusCursor(scope, currentFocusMs(scope));
             warmScrubSprites(scope);
+            prewarmStageNeighbors(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)));
 
             if (cameraDidChange) {
                 centerViewportOnFocus(scope, currentFocusMs(scope));
@@ -1267,7 +2907,18 @@
 
         if (component && typeof component.call === 'function') {
             cancelPendingZoomSync();
-            component.call('selectFocus', Math.round(focusMs), normalizedZoomScale(scope));
+            const request = component.call('selectFocus', Math.round(focusMs), normalizedZoomScale(scope));
+
+            if (request && typeof request.then === 'function') {
+                request.then(() => {
+                    const currentRoot = root();
+
+                    if (currentRoot instanceof HTMLElement) {
+                        seekStagePlaybackToFocus(currentRoot, focusMs);
+                    }
+                }).catch(() => {
+                });
+            }
         }
     };
 
@@ -1282,6 +2933,7 @@
 
     const bindStageVideo = (scope) => {
         if (!(scope instanceof HTMLElement)) {
+            cleanupAudioBinding();
             cleanupVideoBinding();
 
             return;
@@ -1290,14 +2942,14 @@
         const video = stageVideo(scope);
 
         if (!(video instanceof HTMLVideoElement)) {
+            cleanupAudioBinding();
             cleanupVideoBinding();
 
             return;
         }
 
         if (state.boundVideo === video) {
-            syncStagePlaybackState(scope, video);
-            syncStageAudioState(scope, video);
+            applyStageControllerStateToVideo(scope, video);
 
             return;
         }
@@ -1305,20 +2957,8 @@
         cleanupVideoBinding();
 
         const seekToFocus = () => {
-            const focusMs = currentFocusMs(scope);
-            const startMs = readNumber(video, 'startMs', 0);
-            const durationSeconds = Math.max(0, Number(video.dataset.durationSeconds || 0));
-            const seekSeconds = clamp((focusMs - startMs) / 1000, 0, Math.max(0, durationSeconds - 0.2));
-
-            try {
-                if (Math.abs(Number(video.currentTime || 0) - seekSeconds) > 0.35) {
-                    video.currentTime = seekSeconds;
-                }
-            } catch (error) {
-            }
-
-            syncStageAudioState(scope, video);
-            syncStagePlaybackState(scope, video);
+            seekStageVideoToFocus(scope, video);
+            applyStageControllerStateToVideo(scope, video);
         };
 
         const handleError = () => {
@@ -1329,19 +2969,21 @@
             }
 
             const resumeAt = Number(video.currentTime || 0);
+
+            video.dataset.pendingSourceLoad = 'true';
             video.src = fallbackUrl;
             video.load();
 
             const handleFallbackLoaded = () => {
                 video.removeEventListener('loadedmetadata', handleFallbackLoaded);
+                clearPendingStageSourceLoad(video);
 
                 try {
                     video.currentTime = resumeAt;
                 } catch (error) {
                 }
 
-                syncStageAudioState(scope, video);
-                syncStagePlaybackState(scope, video);
+                applyStageControllerStateToVideo(scope, video);
             };
 
             video.addEventListener('loadedmetadata', handleFallbackLoaded);
@@ -1354,8 +2996,18 @@
             const nextSegment = nextSegmentForVideo(scope, video);
 
             if (!(nextSegment instanceof HTMLElement)) {
+                syncStageControllerFromVideo(scope, video);
+
                 return;
             }
+
+            const playerState = stageControllerSnapshot(scope, video);
+
+            state.stage = {
+                ...playerState,
+                initialized: true,
+                isPlaying: true,
+            };
 
             const nextFocus = readNumber(nextSegment, 'focusMs', readNumber(nextSegment, 'startMs', currentFocusMs(scope)));
 
@@ -1366,18 +3018,20 @@
         };
 
         const handlePlay = () => {
-            state.stagePaused = false;
-            syncStagePlaybackUi(scope, false);
+            const playerState = syncStageControllerFromVideo(scope, video);
+            syncCompanionAudioTime(video, stageAudio(scope), true);
+            applyStageCompanionAudioState(scope, video, playerState, stageAudio(scope));
             updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
         };
 
         const handlePause = () => {
-            if (!video.ended) {
-                state.stagePaused = true;
-            }
-
-            syncStagePlaybackUi(scope, true);
+            const playerState = syncStageControllerFromVideo(scope, video);
+            applyStageCompanionAudioState(scope, video, playerState, stageAudio(scope));
             updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
+        };
+
+        const handleVolumeChange = () => {
+            syncStageControllerFromVideo(scope, video);
         };
 
         const handleTimeUpdate = () => {
@@ -1389,6 +3043,7 @@
         };
 
         const handleSeeked = () => {
+            syncCompanionAudioTime(video, stageAudio(scope), true);
             updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
         };
 
@@ -1402,6 +3057,7 @@
         video.addEventListener('ended', handleEnded);
         video.addEventListener('play', handlePlay);
         video.addEventListener('pause', handlePause);
+        video.addEventListener('volumechange', handleVolumeChange);
         video.addEventListener('timeupdate', handleTimeUpdate);
         video.addEventListener('seeked', handleSeeked);
 
@@ -1411,8 +3067,27 @@
             video.removeEventListener('ended', handleEnded);
             video.removeEventListener('play', handlePlay);
             video.removeEventListener('pause', handlePause);
+            video.removeEventListener('volumechange', handleVolumeChange);
             video.removeEventListener('timeupdate', handleTimeUpdate);
             video.removeEventListener('seeked', handleSeeked);
+
+            // Livewire can replace the stage video node during mute state updates.
+            // Explicitly stop the old element so detached audio cannot continue playing.
+            video.defaultMuted = true;
+            video.muted = true;
+            video.volume = 0;
+
+            try {
+                video.pause();
+            } catch (error) {
+            }
+
+            video.removeAttribute('src');
+
+            try {
+                video.load();
+            } catch (error) {
+            }
         };
     };
 
@@ -1524,6 +3199,8 @@
         updateLocalFocus(scope, nextFocus);
         centerViewportOnFocus(scope, nextFocus, releaseOffsetY);
         hideScrubPreview(scope);
+        applyStageSegment(scope, segmentPayloadForFocus(scope, nextFocus), nextFocus);
+        seekStagePlaybackToFocus(scope, nextFocus);
         state.drag = null;
         commitFocus(scope, nextFocus);
     };
@@ -1536,9 +3213,13 @@
             return;
         }
 
-        state.stageVolume = clampVolume(Number(target.value) / 100);
-        updateStageVolumeUi(scope);
-        syncStageAudioState(scope, stageVideo(scope));
+        const nextVolume = clampVolume(Number(target.value) / 100);
+
+        setStageControllerState(scope, {
+            volume: nextVolume,
+            isMuted: nextVolume <= 0 ? true : false,
+        });
+        applyStageControllerStateToVideo(scope, stageVideo(scope));
     };
 
     const handleClick = (event) => {
@@ -1615,6 +3296,8 @@
 
             updateLocalFocus(scope, nextFocus);
             hideScrubPreview(scope);
+            applyStageSegment(scope, segmentPayloadForFocus(scope, nextFocus), nextFocus);
+            seekStagePlaybackToFocus(scope, nextFocus);
             commitFocus(scope, nextFocus);
             event.preventDefault();
         }
@@ -1627,10 +3310,14 @@
 
         state.observerScope = scope;
 
-        state.observer = new MutationObserver(() => {
+        state.observer = new MutationObserver((mutations) => {
             const currentRoot = root();
 
             if (!(currentRoot instanceof HTMLElement) || state.observerPauseDepth > 0 || state.drag) {
+                return;
+            }
+
+            if (!mutationsNeedRefresh(mutations, currentRoot)) {
                 return;
             }
 
@@ -1638,10 +3325,10 @@
         });
 
         state.observer.observe(scope, {
-            attributes: true,
-            attributeFilter: ['data-audio-state'],
             childList: true,
             subtree: true,
+            attributes: true,
+            attributeFilter: ['data-active-camera-id'],
         });
     };
 
@@ -1650,6 +3337,7 @@
         state.cleanupFns = [];
 
         cleanupViewportBinding();
+        cleanupResizeObserver();
 
         if (state.observer) {
             state.observer.disconnect();
@@ -1658,7 +3346,9 @@
 
         state.observerScope = null;
 
+        cleanupAudioBinding();
         cleanupVideoBinding();
+        resetRailState();
         state.drag = null;
         state.lastNativeScrollAt = 0;
         state.lastScrollbarPointerAt = 0;
@@ -1669,6 +3359,8 @@
         state.scrubPreviewVisible = false;
         state.viewportScrollTop = null;
         state.zoomScale = null;
+        state.stage = defaultStageControllerState();
+        resetStagePrewarm();
         cancelPendingZoomSync();
     };
 

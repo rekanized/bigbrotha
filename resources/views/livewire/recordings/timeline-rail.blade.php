@@ -1,7 +1,15 @@
 @php
-    $segments = is_array($tile['segments'] ?? null)
-        ? array_values(array_filter($tile['segments'], static fn (mixed $segment): bool => is_array($segment)))
+    $segments = is_array($initialSegments ?? null)
+        ? array_values(array_filter($initialSegments, static fn (mixed $segment): bool => is_array($segment)))
         : [];
+
+    $tickBufferMs = 15 * 60 * 1000;
+    $renderTicks = array_values(array_filter($timelineTicks, static function (array $tick) use ($initialWindowStartMs, $initialWindowEndMs, $tickBufferMs): bool {
+        $focusMs = (int) ($tick['focusMs'] ?? 0);
+
+        return $focusMs >= ($initialWindowStartMs - $tickBufferMs)
+            && $focusMs <= ($initialWindowEndMs + $tickBufferMs);
+    }));
 
     usort($segments, static fn (array $left, array $right): int => ((int) ($left['startMs'] ?? 0)) <=> ((int) ($right['startMs'] ?? 0)));
 
@@ -102,7 +110,15 @@
     usort($thumbnailSegments, static fn (array $left, array $right): int => ((int) ($left['startMs'] ?? 0)) <=> ((int) ($right['startMs'] ?? 0)));
 @endphp
 
-<aside class="recording-review-focus__rail">
+<aside
+    class="recording-review-focus__rail"
+    data-role="timeline-rail"
+    data-camera-id="{{ $tile['cameraId'] ?? '' }}"
+    data-camera-name="{{ $tile['cameraName'] ?? 'Camera' }}"
+    data-active-segment-id="{{ $activeSegmentId ?? '' }}"
+    data-initial-window-start-ms="{{ $initialWindowStartMs }}"
+    data-initial-window-end-ms="{{ $initialWindowEndMs }}"
+>
     <div class="recording-review-focus__rail-shell">
         <div class="recording-review-focus__rail-viewport" data-role="rail-viewport">
             <div class="recording-review-focus__rail-track" data-role="rail-track" style="height: {{ $trackHeightPx }}px;">
@@ -112,17 +128,36 @@
                     <div class="recording-review-focus__rail-thumb-column"></div>
                 </div>
 
-                @foreach ($timelineTicks as $tick)
-                    <button
-                        class="recording-review-focus__rail-tick{{ !empty($tick['isDayStart']) ? ' is-day-start' : '' }}"
-                        type="button"
-                        data-role="rail-tick"
-                        data-focus-ms="{{ $tick['focusMs'] ?? 0 }}"
-                        style="top: {{ $tick['topPercent'] ?? 0 }}%; height: {{ $tick['heightPercent'] ?? 0 }}%;"
-                    >
-                        <span>{{ $tick['label'] ?? '' }}</span>
-                    </button>
-                @endforeach
+                <script type="application/json" data-role="rail-ticks-json">@json($timelineTicks)</script>
+                <script type="application/json" data-role="rail-segments-json">@json($segments)</script>
+
+                <div class="recording-review-focus__rail-ticks" data-role="rail-ticks">
+                    @foreach ($renderTicks as $tick)
+                        @php($tickLabelVariant = in_array(($tick['labelVariant'] ?? null), ['day', 'hour', 'minute'], true) ? $tick['labelVariant'] : (!empty($tick['isDayStart']) ? 'day' : (($tick['kind'] ?? 'secondary') === 'primary' ? 'hour' : 'minute')))
+                        @php($tickLabelPrimary = $tick['labelPrimary'] ?? null)
+                        @php($tickLabelSecondary = $tick['labelSecondary'] ?? ($tick['label'] ?? ''))
+                        <button
+                            class="recording-review-focus__rail-tick recording-review-focus__rail-tick--{{ $tick['kind'] ?? 'primary' }}{{ !empty($tick['isDayStart']) ? ' is-day-start' : '' }}"
+                            type="button"
+                            data-role="rail-tick"
+                            data-tick-kind="{{ $tick['kind'] ?? 'primary' }}"
+                            data-focus-ms="{{ $tick['focusMs'] ?? 0 }}"
+                            data-top-percent="{{ number_format((float) ($tick['topPercent'] ?? 0), 6, '.', '') }}"
+                            aria-label="{{ $tick['ariaLabel'] ?? ($tick['label'] ?? '') }}"
+                            title="{{ $tick['ariaLabel'] ?? ($tick['label'] ?? '') }}"
+                            style="top: {{ $tick['topPercent'] ?? 0 }}%; height: {{ $tick['heightPercent'] ?? 0 }}%;"
+                        >
+                            <span class="recording-review-focus__rail-tick-label recording-review-focus__rail-tick-label--{{ $tickLabelVariant }}" data-role="rail-tick-label">
+                                @if ($tickLabelPrimary !== null && $tickLabelPrimary !== '')
+                                    <span class="recording-review-focus__rail-tick-part recording-review-focus__rail-tick-part--primary">{{ $tickLabelPrimary }}</span>
+                                @endif
+                                @if ($tickLabelSecondary !== null && $tickLabelSecondary !== '')
+                                    <span class="recording-review-focus__rail-tick-part recording-review-focus__rail-tick-part--secondary">{{ $tickLabelSecondary }}</span>
+                                @endif
+                            </span>
+                        </button>
+                    @endforeach
+                </div>
 
                 <div class="recording-review-focus__rail-segments" data-role="rail-segments">
                     @foreach ($segments as $segment)
@@ -157,11 +192,10 @@
                     @endforeach
                 </div>
 
-                <div class="recording-review-focus__rail-thumbnails">
+                <div class="recording-review-focus__rail-thumbnails" data-role="rail-thumbnails">
                     @foreach ($thumbnailSegments as $segment)
                         @php($captureMode = ($segment['captureMode'] ?? null) === 'motion' ? 'motion' : 'continuous')
                         @php($segmentFocusMs = (int) ($segment['startMs'] ?? 0))
-                        @php($thumbnailLabel = $segment['startLabel'] ?? ($segment['timeLabel'] ?? 'Saved clip'))
                         @php($thumbnailTopPx = number_format((float) ($segment['thumbnailTopPx'] ?? $segment['_topPx'] ?? 0), 3, '.', ''))
                         <button
                             class="recording-review-focus__rail-thumbnail recording-review-focus__rail-thumbnail--{{ $captureMode }}{{ $activeSegmentId === (int) ($segment['id'] ?? 0) ? ' is-active' : '' }}"
@@ -169,14 +203,15 @@
                             data-role="rail-thumbnail"
                             data-recording-id="{{ $segment['id'] ?? '' }}"
                             data-focus-ms="{{ $segmentFocusMs }}"
+                            data-thumbnail-url="{{ $segment['thumbnailUrl'] ?? '' }}"
+                            data-thumbnail-alt="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Segment preview').' preview' }}"
                             aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' preview thumbnail' }}"
                             title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip') }}"
                             style="top: {{ $thumbnailTopPx }}px;"
                         >
-                            <span class="recording-review-focus__rail-thumbnail-frame">
-                                <img src="{{ $segment['thumbnailUrl'] ?? '' }}" alt="{{ $tile['cameraName'] ?? 'Camera' }} {{ $segment['timeLabel'] ?? 'Segment preview' }} preview">
+                            <span class="recording-review-focus__rail-thumbnail-frame" data-role="rail-thumbnail-frame">
+                                <img src="{{ $segment['thumbnailUrl'] ?? '' }}" alt="{{ $tile['cameraName'] ?? 'Camera' }} {{ $segment['timeLabel'] ?? 'Segment preview' }} preview" loading="lazy" decoding="async">
                             </span>
-                            <span class="recording-review-focus__rail-thumbnail-time">{{ $thumbnailLabel }}</span>
                         </button>
                     @endforeach
                 </div>
@@ -190,19 +225,4 @@
         </div>
     </div>
 
-    <div class="recording-review-focus__rail-header">
-        <span class="recording-review-tile__eyebrow">Visible range</span>
-        <strong data-role="visible-range-label">{{ $reviewRangeLabel }}</strong>
-        <div class="recording-review-focus__rail-toolbar">
-            <div class="recording-review-focus__rail-zoom" role="group" aria-label="Timeline zoom controls">
-                <button class="recording-review-focus__rail-zoom-button" type="button" data-role="zoom-out" aria-label="Zoom out timeline">-</button>
-                <button class="recording-review-focus__rail-zoom-button recording-review-focus__rail-zoom-button--reset" type="button" data-role="zoom-reset" aria-label="Reset timeline zoom">
-                    <span>Reset</span>
-                    <strong data-role="zoom-label">{{ number_format($timelineZoomScale, 2) }}x</strong>
-                </button>
-                <button class="recording-review-focus__rail-zoom-button" type="button" data-role="zoom-in" aria-label="Zoom in timeline">+</button>
-            </div>
-            <p class="recording-review-focus__rail-help">Mouse wheel zoom stays anchored to the point under the cursor.</p>
-        </div>
-    </div>
 </aside>

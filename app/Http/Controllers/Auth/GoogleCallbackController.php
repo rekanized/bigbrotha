@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,11 +24,18 @@ class GoogleCallbackController extends Controller
         }
 
         $email = Str::lower(trim((string) $googleUser->getEmail()));
+        $isBootstrapSignIn = !User::query()->exists();
 
         if ($email === '') {
             return redirect()
                 ->route('login')
                 ->with('auth_error', 'Google did not return an email address for this account.');
+        }
+
+        if (!$isBootstrapSignIn && !AllowedLoginEmail::isAllowed($email)) {
+            return redirect()
+                ->route('login')
+                ->with('auth_error', 'This Google email address is not approved for operator access yet. Ask an admin to add it under Admin > Operator access.');
         }
 
         $user = User::query()
@@ -52,6 +60,11 @@ class GoogleCallbackController extends Controller
         if (!User::query()->where('is_admin', true)->exists()) {
             $user->forceFill(['is_admin' => true])->save();
         }
+
+        AllowedLoginEmail::query()->firstOrCreate(
+            ['email' => $email],
+            ['added_by_user_id' => $isBootstrapSignIn ? $user->id : auth()->id()]
+        );
 
         auth()->login($user, remember: true);
         $request->session()->regenerate();

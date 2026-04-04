@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | Recording review')
+@section('title', config('app.name', 'Bigbrotha').' | Recording review')
 
 @section('body_class', 'page-dashboard')
 

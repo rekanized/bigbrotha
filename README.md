@@ -15,6 +15,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - ffmpeg and ffprobe for RTSP diagnostics and preview generation.
 - ffmpeg stream-copy recording with optional motion-triggered capture on a cropped analysis region.
 - MediaMTX for shared WebRTC fan-out from RTSP camera sources.
+- Admin-managed Google sign-in allowlist with automatic first-user bootstrap.
 - Scheduled preview refreshes and recording retention cleanup can run with Laravel's scheduler so saved thumbnails and recording segments stay current without operator intervention.
 
 ## Important Constraints
@@ -32,7 +33,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - `/camera-fleet` camera inventory and management.
 - `/recordings` recording browser and saved segment search.
 - `/recordings/{recording}` recording playback and review screen.
-- `/admin/users` admin-only current user browser.
+- `/admin/users` admin-only operator access page for approved sign-in emails, stored users, and admin roles.
 - `/admin/settings` admin-only operator settings such as the display timezone.
 - `/wall-tiles` named wall and tile layout builder.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` private preview image endpoint.

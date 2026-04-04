@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | Live Wall')
+@section('title', config('app.name', 'Bigbrotha').' | Live Wall')
 
 @section('layout_mode', 'immersive')
 

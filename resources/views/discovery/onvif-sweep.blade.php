@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | ONVIF Sweep')
+@section('title', config('app.name', 'Bigbrotha').' | ONVIF Sweep')
 
 @section('body_class', 'page-dashboard')
 

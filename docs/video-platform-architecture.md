@@ -84,6 +84,8 @@ Current behavior:
 
 - guest users are redirected to `/login`.
 - `/auth/google/redirect` and `/auth/google/callback` complete Google OAuth through Laravel Socialite.
+- the first successful Google sign-in is allowed to bootstrap the system, is promoted to admin automatically, and is inserted into the operator allowlist.
+- once bootstrap is complete, Google callback only admits email addresses stored in the admin-managed operator allowlist.
 - `App\Http\Controllers\Auth\LogoutController` destroys the Laravel session.
 - the top bar renders the authenticated operator name and sign-out action.
 - MediaMTX reads are not treated as public access; the web session is used only to bootstrap short-lived relay tokens.
@@ -191,7 +193,9 @@ Current recording management behavior:
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
 - the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.
+- the timeline rail now hydrates only summary camera-strip data on first load, server-renders a small focus-centered segment window, and asks the parent Livewire review shell for additional segment windows as the operator scrolls.
 - the review screen still loads a padded multi-day span for the selected cameras, but the JavaScript layer is now limited to transient rail dragging, scrub-preview overlays, and stage seek synchronization across Livewire rerenders.
+- the vertical rail DOM is virtualized in plain JavaScript so only the visible tick, segment, and thumbnail nodes remain mounted, while thumbnail images hydrate through an `IntersectionObserver` rooted to the rail viewport.
 - timeline segment selection now treats clip bounds as half-open ranges, so a focus time exactly on a shared clip edge resolves to the following adjacent segment instead of double-matching the earlier one.
 - saved segments can generate private review assets under their `_review` directory, including a preview MP4, poster thumbnail, and scrub sprite sheet used for in-rail hover previews.
 

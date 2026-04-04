@@ -37,6 +37,7 @@ Current design assumptions:
 
 - Google OAuth is the primary sign-in mechanism.
 - The first authenticated operator is promoted to admin automatically if no admin account exists yet.
+- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete sign-in.
 - MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.
@@ -154,8 +155,10 @@ Current behavior:
 - each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
 - those files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
 - the timeline preview page uses a Livewire parent component to own the active camera and focus time while child stage and rail components react to that shared review state.
+- the review shell should keep only camera-summary data in its public Livewire state; the rail now loads segment windows on demand instead of hydrating every segment for every selected camera into the initial payload.
 - the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the buffered review stream.
 - if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the buffered review stream instead of showing a blank player.
+- the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
 - timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 
 ## Live Wall Delivery Tradeoff

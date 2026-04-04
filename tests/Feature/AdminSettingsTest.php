@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -60,7 +61,8 @@ class AdminSettingsTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.users.index'))
             ->assertOk()
-            ->assertSee('Current users')
+            ->assertSee('Operator access')
+            ->assertSee('Pending Google sign-in emails')
             ->assertSee('Admin Operator')
             ->assertSee('Standard Operator')
             ->assertSee(route('admin.users.index'), false)
@@ -115,6 +117,63 @@ class AdminSettingsTest extends TestCase
             ->assertRedirect(route('admin.users.index'));
 
         $this->assertTrue($operator->fresh()->is_admin);
+    }
+
+    public function test_admin_can_allow_a_google_sign_in_email(): void
+    {
+        $admin = User::factory()->admin()->create([
+            'email' => 'admin@example.com',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.users.allowed-emails.store'), [
+                'email' => 'Operator@Example.com',
+            ])
+            ->assertRedirect(route('admin.users.index'));
+
+        $this->assertDatabaseHas('allowed_login_emails', [
+            'email' => 'operator@example.com',
+            'added_by_user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_admin_can_remove_a_non_admin_google_sign_in_email(): void
+    {
+        $admin = User::factory()->admin()->create([
+            'email' => 'admin@example.com',
+        ]);
+        $entry = AllowedLoginEmail::query()->create([
+            'email' => 'operator@example.com',
+            'added_by_user_id' => $admin->id,
+        ]);
+
+        $this->actingAs($admin)
+            ->delete(route('admin.users.allowed-emails.destroy', ['allowedLoginEmail' => $entry]))
+            ->assertRedirect(route('admin.users.index'));
+
+        $this->assertDatabaseMissing('allowed_login_emails', [
+            'id' => $entry->id,
+        ]);
+    }
+
+    public function test_last_admin_sign_in_email_cannot_be_removed(): void
+    {
+        $admin = User::factory()->admin()->create([
+            'email' => 'admin@example.com',
+        ]);
+        $entry = AllowedLoginEmail::query()->create([
+            'email' => 'admin@example.com',
+            'added_by_user_id' => $admin->id,
+        ]);
+
+        $this->actingAs($admin)
+            ->delete(route('admin.users.allowed-emails.destroy', ['allowedLoginEmail' => $entry]))
+            ->assertRedirect(route('admin.users.index'));
+
+        $this->assertDatabaseHas('allowed_login_emails', [
+            'id' => $entry->id,
+            'email' => 'admin@example.com',
+        ]);
     }
 
     public function test_admin_can_demote_another_admin_when_multiple_admins_exist(): void

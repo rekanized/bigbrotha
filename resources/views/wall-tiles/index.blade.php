@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | Wall Tiles')
+@section('title', config('app.name', 'Bigbrotha').' | Wall Tiles')
 
 @section('body_class', 'page-dashboard')
 

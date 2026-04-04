@@ -9,13 +9,16 @@
     place-items: center;
     width: 52px;
     height: 52px;
+    padding: 8px;
     border-radius: 18px;
     background: linear-gradient(145deg, hsl(193 69% 53%) 0%, hsl(204 79% 25%) 100%);
-    color: hsl(0 0% 100%);
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
     box-shadow: inset 0 1px 0 hsla(0 0% 100% / 0.34);
+}
+
+.sidebar-brand__logo {
+    display: block;
+    width: 100%;
+    height: 100%;
 }
 
 .sidebar-brand__meta {

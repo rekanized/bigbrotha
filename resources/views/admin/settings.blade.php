@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', config('app.name', 'BigBrothas').' | Admin settings')
+@section('title', config('app.name', 'Bigbrotha').' | Admin settings')
 
 @section('body_class', 'page-dashboard')
 
@@ -42,7 +42,7 @@
                 @csrf
                 @method('PUT')
 
-                <div class="recording-browser__filters">
+                <div class="inline-action-form-row">
                     <label class="field-stack field-stack--wide">
                         <span>Display timezone</span>
                         <select class="form-select" name="app_timezone">
@@ -54,10 +54,10 @@
                             <span class="field-error">{{ $message }}</span>
                         @enderror
                     </label>
-                </div>
 
-                <div class="probe-actions">
-                    <button class="button button--primary" type="submit">Save settings</button>
+                    <div class="probe-form-grid__actions">
+                        <button class="button button--primary" type="submit">Save settings</button>
+                    </div>
                 </div>
             </form>
         </section>

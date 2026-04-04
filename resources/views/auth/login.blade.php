@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#edf2f6">
 
-        <title>{{ config('app.name', 'BigBrothas') }} | Sign in</title>
+        <title>{{ config('app.name', 'Bigbrotha') }} | Sign in</title>
 
         <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     </head>
@@ -13,10 +13,12 @@
         <main class="auth-layout">
             <section class="auth-brief page-card">
                 <div class="auth-brief__brand">
-                    <div class="auth-card__mark">BB</div>
+                    <div class="auth-card__mark" aria-hidden="true">
+                        <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                    </div>
                     <div>
                         <div class="auth-card__eyebrow">Camera operations platform</div>
-                        <strong>{{ config('app.name', 'BigBrothas') }}</strong>
+                        <strong>{{ config('app.name', 'Bigbrotha') }}</strong>
                     </div>
                 </div>
 
@@ -40,7 +42,8 @@
                 </div>
 
                 <ul class="auth-card__list">
-                    <li>Google OAuth establishes the operator session.</li>
+                    <li>The first successful Google sign-in becomes admin automatically.</li>
+                    <li>After bootstrap, only admin-approved Google email addresses can sign in.</li>
                     <li>Laravel issues signed stream tokens per secure wall connection.</li>
                     <li>MediaMTX validates those reads before serving camera video.</li>
                 </ul>
@@ -48,7 +51,9 @@
 
             <section class="auth-card page-card">
                 <div class="auth-card__brand">
-                    <div class="auth-card__mark">BB</div>
+                    <div class="auth-card__mark" aria-hidden="true">
+                        <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                    </div>
                     <div>
                         <div class="auth-card__eyebrow">Secure operator access</div>
                         <strong>Operator sign-in</strong>
@@ -57,7 +62,7 @@
 
                 <div class="auth-card__intro">
                     <h2 class="auth-card__title">Open the operator workspace</h2>
-                    <p class="auth-card__copy">Authenticate with Google to continue into the dashboard and secure player views.</p>
+                    <p class="auth-card__copy">Authenticate with Google to continue into the dashboard and secure player views. After the first admin is created, Google login is checked against the admin-managed allowlist.</p>
                 </div>
 
                 @if (session('auth_error'))

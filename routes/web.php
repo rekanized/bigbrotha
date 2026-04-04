@@ -31,6 +31,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/', DashboardController::class)->name('dashboard');
     Route::prefix('admin')->name('admin.')->middleware('admin')->group(function (): void {
         Route::get('/users', [AdminUsersController::class, 'index'])->name('users.index');
+        Route::post('/users/allowed-emails', [AdminUsersController::class, 'storeAllowedEmail'])->name('users.allowed-emails.store');
+        Route::delete('/users/allowed-emails/{allowedLoginEmail}', [AdminUsersController::class, 'destroyAllowedEmail'])->name('users.allowed-emails.destroy');
         Route::put('/users/{user}/admin-role', [AdminUsersController::class, 'updateAdminRole'])->name('users.admin-role');
         Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings.index');
         Route::put('/settings', [AdminSettingsController::class, 'update'])->name('settings.update');
