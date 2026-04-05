@@ -56,7 +56,7 @@ return [
         'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
         'allow_origins' => array_values(array_filter(array_map('trim', explode(',', (string) env('MEDIAMTX_WEBRTC_ALLOW_ORIGINS', '*'))))),
         'local_udp_address' => env('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS', ':8189'),
-        'local_tcp_address' => env('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS', ':8189'),
+        'local_tcp_address' => env('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS', ''),
         'additional_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS', ''))))),
         'iframe_query' => http_build_query([
             'controls' => 'false',
@@ -86,6 +86,6 @@ return [
         'audio_sample_rate' => max(8000, (int) env('MEDIAMTX_TRANSCODE_AUDIO_SAMPLE_RATE', 48000)),
         'gop' => max(15, (int) env('MEDIAMTX_TRANSCODE_GOP', 30)),
         'start_timeout' => env('MEDIAMTX_RUN_ON_DEMAND_START_TIMEOUT', '20s'),
-        'close_after' => env('MEDIAMTX_RUN_ON_DEMAND_CLOSE_AFTER', '15s'),
+        'close_after' => env('MEDIAMTX_RUN_ON_DEMAND_CLOSE_AFTER', '30s'),
     ],
 ];

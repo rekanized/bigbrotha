@@ -131,7 +131,8 @@ Current live viewing behavior:
 - uses a shared MediaMTX WebRTC relay for operator wall playback.
 - preserves optional camera audio in the shared relay by publishing an Opus audio track alongside the browser-safe H.264 wall video.
 - lets operators select exactly one wall tile for live audio output at a time, with a shared wall volume control in the bottom dock and the active audio source marked directly on the wall.
-- transcodes once per active camera into WebRTC-safe H.264 baseline output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer.
+- copies source H.264 video into the shared relay when the selected profile is already browser-safe, otherwise transcodes once per active camera into WebRTC-safe H.264 output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer.
+- normalizes live audio timestamps and transcodes audio to Opus in the shared relay path so cameras with unstable AAC timing do not corrupt live playback.
 - serves a Laravel-rendered player shell and an authenticated session bootstrap endpoint instead of embedding the stock public MediaMTX iframe page.
 - uses `public/js/live-wall-player.js` to fetch session bootstrap data and then load the official per-path MediaMTX `reader.js` implementation.
 - issues short-lived Laravel-signed MediaMTX read tokens per authenticated operator and per camera path.
@@ -150,7 +151,7 @@ The current secure playback sequence is:
 5. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
 6. MediaMTX calls `App\Http\Controllers\Relay\MediaMtxAuthController` with `action=read` and `protocol=webrtc`.
 7. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
-8. ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to the same MediaMTX path over RTSP.
+8. ffmpeg pulls the selected camera RTSP URI, copies H.264 video when the source is already browser-safe or otherwise transcodes to browser-safe H.264, normalizes audio timestamps while transcoding audio to Opus, and republishes locally to the same MediaMTX path over RTSP.
 9. MediaMTX calls the same auth controller with `action=publish` and `protocol=rtsp` for that internal republish.
 10. The auth controller accepts that local publish only when the configured publisher credentials match and the request IP is loopback.
 11. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.

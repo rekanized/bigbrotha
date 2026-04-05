@@ -57,7 +57,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 5. The browser calls `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token plus the WHEP URL for the selected camera path.
 6. `public/js/live-wall-player.js` loads the official per-path MediaMTX `reader.js` and passes the signed token as a bearer token.
 7. MediaMTX calls `/relay/auth/mediamtx` before allowing a WebRTC read.
-8. If the path is idle, MediaMTX starts ffmpeg through `runOnDemand`, ffmpeg pulls the selected camera RTSP URI, transcodes to browser-safe H.264 baseline, and republishes locally to `rtsp://publisher:...@127.0.0.1:8554/$MTX_PATH`.
+8. If the path is idle, MediaMTX starts ffmpeg through `runOnDemand`, ffmpeg pulls the selected camera RTSP URI, copies H.264 video when the source is already browser-safe or otherwise transcodes to browser-safe H.264, normalizes audio timestamps while transcoding audio to Opus, and republishes locally to `rtsp://publisher:...@127.0.0.1:8554/$MTX_PATH`.
 9. The auth callback accepts that local RTSP publish only when it matches the configured internal publisher credentials and comes from loopback.
 
 ## Relay Settings

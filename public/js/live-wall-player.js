@@ -12,6 +12,10 @@
             tile: null,
             time: 0,
         },
+        lastTouchFocusToggle: {
+            tile: null,
+            time: 0,
+        },
         masterVolume: 1,
         players: [],
     };
@@ -83,6 +87,18 @@
             return;
         }
 
+        const recentTouchToggle = state.lastTouchFocusToggle.tile === tile
+            && (Date.now() - state.lastTouchFocusToggle.time) <= 450;
+
+        if (recentTouchToggle) {
+            state.lastTouchFocusToggle = {
+                tile: null,
+                time: 0,
+            };
+
+            return;
+        }
+
         toggleFocusedTile(tile);
     };
 
@@ -109,6 +125,10 @@
 
         if (isRepeatedTap) {
             toggleFocusedTile(tile);
+            state.lastTouchFocusToggle = {
+                tile,
+                time: now,
+            };
             state.lastTap = {
                 tile: null,
                 time: 0,
@@ -533,6 +553,10 @@
         state.players = [];
         state.activeAudioPlayer = null;
         state.lastTap = {
+            tile: null,
+            time: 0,
+        };
+        state.lastTouchFocusToggle = {
             tile: null,
             time: 0,
         };

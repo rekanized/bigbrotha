@@ -132,7 +132,7 @@ class MediaMtxConfigService
             $lines[] = '  '.$definition['path'].':';
             $lines[] = '    source: publisher';
             $lines[] = '    runOnDemand: >-';
-            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition['authenticated_uri'], $definition['transport']);
+            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition['profile'], $definition['authenticated_uri'], $definition['transport']);
             $lines[] = '    runOnDemandRestart: false';
             $lines[] = '    runOnDemandStartTimeout: '.config('mediamtx.transcode.start_timeout', '20s');
             $lines[] = '    runOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
@@ -171,12 +171,16 @@ class MediaMtxConfigService
         return $scheme.'://'.$host.($port > 0 ? ':'.$port : '');
     }
 
-    private function buildRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function buildRunOnDemandCommand(string $ffmpegBinary, array $profile, string $authenticatedUri, string $transport): string
     {
         $gop = (int) config('mediamtx.transcode.gop', 30);
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
-
-        return implode(' ', [
+        $inputAnalyzeDuration = (int) config('ffmpeg.streaming.input_analyze_duration', 0);
+        $inputProbeSize = (int) config('ffmpeg.streaming.input_probe_size', 32768);
+        $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
             '-hide_banner',
@@ -188,32 +192,49 @@ class MediaMtxConfigService
             'nobuffer',
             '-flags',
             'low_delay',
+            '-analyzeduration',
+            escapeshellarg((string) $inputAnalyzeDuration),
+            '-probesize',
+            escapeshellarg((string) $inputProbeSize),
             '-i',
             escapeshellarg($authenticatedUri),
             '-map',
             '0:v:0',
             '-map',
             '0:a:0?',
-            '-c:v',
-            'libx264',
-            '-pix_fmt',
-            'yuv420p',
-            '-profile:v',
-            'baseline',
-            '-preset',
-            escapeshellarg((string) config('mediamtx.transcode.preset', 'ultrafast')),
-            '-tune',
-            'zerolatency',
-            '-bf',
-            '0',
-            '-g',
-            escapeshellarg((string) $gop),
-            '-keyint_min',
-            escapeshellarg((string) $gop),
-            '-sc_threshold',
-            '0',
-            '-b:v',
-            escapeshellarg((string) config('mediamtx.transcode.video_bitrate', '1200k')),
+        ];
+
+        if ($this->shouldCopyVideo($profile)) {
+            $command[] = '-c:v';
+            $command[] = 'copy';
+        } else {
+            array_push($command,
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-profile:v',
+                'baseline',
+                '-preset',
+                escapeshellarg((string) config('mediamtx.transcode.preset', 'ultrafast')),
+                '-tune',
+                'zerolatency',
+                '-bf',
+                '0',
+                '-g',
+                escapeshellarg((string) $gop),
+                '-keyint_min',
+                escapeshellarg((string) $gop),
+                '-sc_threshold',
+                '0',
+                '-b:v',
+                escapeshellarg((string) config('mediamtx.transcode.video_bitrate', '1200k')),
+            );
+        }
+
+        array_push($command,
+            '-af',
+            escapeshellarg('aresample=async=1:first_pts=0'),
             '-c:a',
             escapeshellarg((string) config('mediamtx.transcode.audio_codec', 'libopus')),
             '-ac',
@@ -222,12 +243,30 @@ class MediaMtxConfigService
             escapeshellarg((string) config('mediamtx.transcode.audio_sample_rate', 48000)),
             '-b:a',
             escapeshellarg((string) config('mediamtx.transcode.audio_bitrate', '96k')),
+            '-flush_packets',
+            '1',
+            '-muxdelay',
+            '0',
+            '-muxpreload',
+            '0',
             '-f',
             'rtsp',
             '-rtsp_transport',
             'tcp',
             $publishTarget,
-        ]);
+        );
+
+        return implode(' ', $command);
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function shouldCopyVideo(array $profile): bool
+    {
+        $codec = strtolower(trim((string) ($profile['video_codec'] ?? $profile['encoding'] ?? '')));
+
+        return in_array($codec, ['h264', 'h.264'], true);
     }
 
     private function internalPublishUrl(string $path): string

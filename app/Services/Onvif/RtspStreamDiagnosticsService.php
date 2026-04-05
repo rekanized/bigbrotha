@@ -35,6 +35,7 @@ class RtspStreamDiagnosticsService
         $probeCheckedAt = now()->utc()->format('Y-m-d H:i:s').' UTC';
         $previewPath = $this->buildPreviewRelativePath($camera, $profile, $profileIndex);
         $absolutePreviewPath = storage_path('app/private/'.$previewPath);
+        $temporaryPreviewPath = $this->temporaryPreviewPath($absolutePreviewPath);
 
         $probeProcess = new Process([
             $ffprobeBinary,
@@ -80,14 +81,23 @@ class RtspStreamDiagnosticsService
             '1',
             '-q:v',
             '2',
-            $absolutePreviewPath,
+            $temporaryPreviewPath,
         ]);
         $previewProcess->setTimeout($timeoutSeconds);
         $previewProcess->run();
 
-        $previewMessage = $previewProcess->isSuccessful() && is_file($absolutePreviewPath)
-            ? 'Snapshot captured successfully.'
-            : $this->summarizeProcessFailure($previewProcess, 'Connected to the stream, but snapshot capture failed.');
+        $previewMessage = 'Snapshot captured successfully.';
+
+        if ($previewProcess->isSuccessful() && is_file($temporaryPreviewPath)) {
+            try {
+                $this->promotePreviewCapture($temporaryPreviewPath, $absolutePreviewPath);
+            } catch (RuntimeException $exception) {
+                $previewMessage = $exception->getMessage();
+            }
+        } else {
+            @unlink($temporaryPreviewPath);
+            $previewMessage = $this->summarizeProcessFailure($previewProcess, 'Connected to the stream, but snapshot capture failed.');
+        }
 
         return array_merge($profile, [
             'probe_status' => 'Healthy',
@@ -180,6 +190,36 @@ class RtspStreamDiagnosticsService
             $camera,
             Str::slug($baseName).'-'.($profileIndex + 1).'.jpg',
         );
+    }
+
+    private function temporaryPreviewPath(string $absolutePreviewPath): string
+    {
+        return dirname($absolutePreviewPath).'/.preview-'.Str::uuid()->toString().'.jpg';
+    }
+
+    private function promotePreviewCapture(string $temporaryPreviewPath, string $absolutePreviewPath): void
+    {
+        if (!is_file($temporaryPreviewPath)) {
+            throw new RuntimeException('Connected to the stream, but snapshot capture failed.');
+        }
+
+        if (!@rename($temporaryPreviewPath, $absolutePreviewPath)) {
+            if (is_file($absolutePreviewPath)) {
+                @unlink($absolutePreviewPath);
+            }
+
+            if (!@rename($temporaryPreviewPath, $absolutePreviewPath)) {
+                $error = error_get_last();
+                @unlink($temporaryPreviewPath);
+
+                throw new RuntimeException(
+                    'Connected to the stream, but snapshot capture could not replace the saved thumbnail'.
+                    (is_array($error) && is_string($error['message'] ?? null) ? ': '.trim($error['message']) : '.')
+                );
+            }
+        }
+
+        @chmod($absolutePreviewPath, 0664);
     }
 
     private function injectCredentials(string $uri, ?string $username, ?string $password): string
