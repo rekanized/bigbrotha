@@ -2737,6 +2737,16 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
         grid-template-columns: 1fr;
     }
 
+    body.page-recording-review .app-shell {
+        width: calc(100% - 20px);
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    body.page-recording-review .app-rail__inner {
+        padding: 16px 14px;
+    }
+
     body.page-dashboard .dashboard-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -2822,6 +2832,30 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
         grid-template-columns: 1fr;
     }
 
+    body.page-recording-review .app-shell {
+        width: calc(100% - 16px);
+        padding-top: 10px;
+        padding-bottom: 20px;
+        gap: 12px;
+    }
+
+    body.page-recording-review .app-rail__inner {
+        gap: 14px;
+        padding: 14px;
+    }
+
+    body.page-recording-review .sidebar-link,
+    body.page-recording-review .sidebar-sublink {
+        align-items: center;
+        padding: 10px;
+    }
+
+    body.page-recording-review .sidebar-link__label,
+    body.page-recording-review .sidebar-sublink__label {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
     body.page-recording-review .recording-review,
     body.page-live-wall .live-wall-canvas {
         padding: 10px 10px calc(176px + env(safe-area-inset-bottom, 0px));
@@ -2843,6 +2877,52 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
         grid-template-columns: 1fr;
     }
 
+    body.page-recording-review .recording-review__hero,
+    body.page-recording-review .recording-review__hero-actions,
+    body.page-recording-review .recording-review-focus__actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    body.page-recording-review .recording-review__hero-actions {
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review__hero-actions .button,
+    body.page-recording-review .recording-review__date-range-actions .button {
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review__date-range-card {
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review__date-range,
+    body.page-recording-review .recording-review__date-range--compact {
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review__date-range-title {
+        align-self: start;
+    }
+
+    body.page-recording-review .recording-review-focus__overlay-badges {
+        display: none;
+    }
+
+    body.page-recording-review .recording-review-focus__audio-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review-focus__volume {
+        flex: 1 1 220px;
+        min-width: 0;
+        width: 100%;
+    }
+
     body.page-recording-review .recording-review-focus__rail-tick {
         width: calc(var(--recording-review-rail-axis-width) - 6px);
         padding: 0 5px 0 6px;
@@ -2854,6 +2934,7 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
         --recording-review-rail-column-gap: 6px;
         --recording-review-rail-edge-gap: 6px;
         --recording-review-rail-thumb-height: 70px;
+        min-width: 280px;
     }
 
     body.page-recording-review .recording-review-focus__rail-tick::before {
@@ -2890,12 +2971,6 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
         font-size: 0.5rem;
     }
 
-
-@media (max-width: 600px) {
-    body.page-live-wall .wall-monitor-tile__identity {
-        display: none;
-    }
-}
     body.page-recording-review .recording-review-focus__rail-tick-label--minute {
         left: 28px;
         max-width: calc(var(--recording-review-rail-axis-width) - 32px);
@@ -2930,5 +3005,37 @@ html[data-theme='dark'] body.page-live-wall .live-wall-wall-switcher__menu-link:
 
     body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] {
         --live-wall-focused-padding: 10px;
+    }
+}
+
+@media (max-width: 600px) {
+    body.page-live-wall .wall-monitor-tile__identity {
+        display: none;
+    }
+
+    body.page-recording-review .recording-review-focus__overlay {
+        padding: 10px;
+    }
+
+    body.page-recording-review .recording-review-focus__overlay-badges {
+        gap: 6px;
+    }
+
+    body.page-recording-review .recording-review-switcher__camera {
+        grid-template-columns: 48px minmax(0, 1fr);
+    }
+
+    body.page-recording-review .recording-review-switcher__camera-thumb {
+        width: 48px;
+        height: 36px;
+    }
+
+    body.page-recording-review .recording-review-focus__volume {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    body.page-recording-review .recording-review-focus__volume-value {
+        text-align: left;
     }
 }
