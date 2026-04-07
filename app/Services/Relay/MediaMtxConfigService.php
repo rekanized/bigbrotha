@@ -17,7 +17,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraRelayDefinition(Camera $camera): ?array
     {
@@ -28,6 +28,7 @@ class MediaMtxConfigService
         }
 
         return [
+            'mode' => 'live',
             'path' => $this->cameraPathName($camera),
             'index' => $selection['index'],
             'profile' => $selection['profile'],
@@ -42,7 +43,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -53,6 +54,7 @@ class MediaMtxConfigService
         }
 
         return [
+            'mode' => 'recording',
             'path' => $this->recordingPathName($camera, $profileIndex),
             'index' => $selection['index'],
             'profile' => $selection['profile'],
@@ -169,7 +171,7 @@ class MediaMtxConfigService
             $lines[] = '  '.$definition['path'].':';
             $lines[] = '    source: publisher';
             $lines[] = '    runOnDemand: >-';
-            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition['profile'], $definition['authenticated_uri'], $definition['transport']);
+            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition['mode'], $definition['profile'], $definition['authenticated_uri'], $definition['transport']);
             $lines[] = '    runOnDemandRestart: false';
             $lines[] = '    runOnDemandStartTimeout: '.config('mediamtx.transcode.start_timeout', '20s');
             $lines[] = '    runOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
@@ -179,7 +181,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return Collection<int, array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+    * @return Collection<int, array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
     private function enabledRelayDefinitions(): Collection
     {
@@ -194,7 +196,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return Collection<int, array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+    * @return Collection<int, array{mode: 'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
     private function recordingRelayDefinitions(): Collection
     {
@@ -245,7 +247,17 @@ class MediaMtxConfigService
     /**
      * @param  array<string, string|null>  $profile
      */
-    private function buildRunOnDemandCommand(string $ffmpegBinary, array $profile, string $authenticatedUri, string $transport): string
+    private function buildRunOnDemandCommand(string $ffmpegBinary, string $mode, array $profile, string $authenticatedUri, string $transport): string
+    {
+        return $mode === 'recording'
+            ? $this->buildRecordingRunOnDemandCommand($ffmpegBinary, $authenticatedUri, $transport)
+            : $this->buildLiveRunOnDemandCommand($ffmpegBinary, $profile, $authenticatedUri, $transport);
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function buildLiveRunOnDemandCommand(string $ffmpegBinary, array $profile, string $authenticatedUri, string $transport): string
     {
         $gop = (int) config('mediamtx.transcode.gop', 30);
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
@@ -344,6 +356,72 @@ class MediaMtxConfigService
             escapeshellarg((string) config('mediamtx.transcode.audio_bitrate', '96k')),
             '-max_muxing_queue_size',
             escapeshellarg((string) config('ffmpeg.live.max_muxing_queue_size', 1024)),
+            '-f',
+            'rtsp',
+            '-rtsp_transport',
+            'tcp',
+            $publishTarget,
+        );
+
+        return implode(' ', $command);
+    }
+
+    private function buildRecordingRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
+    {
+        $publishTarget = $this->internalPublishUrl('$MTX_PATH');
+        $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
+        $inputProbeSize = (int) config('ffmpeg.recording.input_probe_size', 262144);
+        $inputFflags = trim((string) config('ffmpeg.recording.input_fflags', '+genpts+discardcorrupt'));
+        $fpsMode = trim((string) config('ffmpeg.recording.fps_mode', 'passthrough'));
+        $avoidNegativeTs = trim((string) config('ffmpeg.recording.avoid_negative_ts', 'make_zero'));
+        $command = [
+            escapeshellarg($ffmpegBinary),
+            '-nostdin',
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-rtsp_transport',
+            escapeshellarg($transport),
+            '-thread_queue_size',
+            escapeshellarg((string) config('ffmpeg.recording.thread_queue_size', 1024)),
+            '-timeout',
+            escapeshellarg((string) config('ffmpeg.recording.rw_timeout', 20000000)),
+            '-rtbufsize',
+            escapeshellarg((string) config('ffmpeg.recording.rtbufsize', '128M')),
+            '-fflags',
+            escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
+            '-use_wallclock_as_timestamps',
+            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) ? '1' : '0'),
+            '-analyzeduration',
+            escapeshellarg((string) $inputAnalyzeDuration),
+            '-probesize',
+            escapeshellarg((string) $inputProbeSize),
+            '-i',
+            escapeshellarg($authenticatedUri),
+            '-map',
+            '0:v:0',
+            '-map',
+            '0:a:0?',
+            '-sn',
+            '-dn',
+        ];
+
+        if ($fpsMode !== '') {
+            $command[] = '-fps_mode';
+            $command[] = escapeshellarg($fpsMode);
+        }
+
+        if ($avoidNegativeTs !== '') {
+            $command[] = '-avoid_negative_ts';
+            $command[] = escapeshellarg($avoidNegativeTs);
+        }
+
+        array_push($command,
+            '-c',
+            'copy',
+            '-copyinkf',
+            '-max_muxing_queue_size',
+            escapeshellarg((string) config('ffmpeg.recording.max_muxing_queue_size', 1024)),
             '-f',
             'rtsp',
             '-rtsp_transport',

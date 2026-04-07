@@ -8,15 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->boolean('is_admin')->default(false)->after('avatar_url');
+        Schema::create('cache_locks', function (Blueprint $table): void {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->bigInteger('expiration')->index();
         });
     }
 
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->dropColumn('is_admin');
-        });
+        Schema::dropIfExists('cache_locks');
     }
 };

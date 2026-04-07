@@ -37,12 +37,16 @@ class RecordingReviewAssetService
 
     public function recordJobFailure(CameraRecording $recording, string $message): void
     {
+        $manifestRelativePath = $this->manifestRelativePath($recording);
+        $previewRelativePath = $this->previewRelativePath($recording);
+        $thumbnailRelativePath = $this->thumbnailRelativePath($recording);
+        $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
         $manifestAbsolutePath = $this->manifestAbsolutePath($recording, true);
         $previewAbsolutePath = $this->previewAbsolutePath($recording, true);
         $thumbnailAbsolutePath = $this->thumbnailAbsolutePath($recording, true);
         $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording, true);
 
-        if ($manifestAbsolutePath === null || $previewAbsolutePath === null || $thumbnailAbsolutePath === null || $scrubSpriteAbsolutePath === null) {
+        if ($manifestRelativePath === null || $previewRelativePath === null || $thumbnailRelativePath === null || $scrubSpriteRelativePath === null || $manifestAbsolutePath === null || $previewAbsolutePath === null || $thumbnailAbsolutePath === null || $scrubSpriteAbsolutePath === null) {
             return;
         }
 
@@ -52,8 +56,8 @@ class RecordingReviewAssetService
             'version' => $this->assetVersion($recording),
             'generated_at' => now()->utc()->toIso8601String(),
             'duration_seconds' => $this->recordingDurationSeconds($recording),
-            'preview_relative_path' => $this->storage->recordingRelativePathFromAbsolute($previewAbsolutePath),
-            'thumbnail_relative_path' => $this->storage->recordingRelativePathFromAbsolute($thumbnailAbsolutePath),
+            'preview_relative_path' => $previewRelativePath,
+            'thumbnail_relative_path' => $thumbnailRelativePath,
             'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
             'preview_width' => $this->previewWidth(),
             'thumbnail_width' => $this->thumbnailWidth(),
@@ -68,6 +72,7 @@ class RecordingReviewAssetService
         }
 
         file_put_contents($manifestAbsolutePath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $this->storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
     }
 
     /**
@@ -75,13 +80,23 @@ class RecordingReviewAssetService
      */
     public function manifest(CameraRecording $recording): ?array
     {
-        $manifestAbsolutePath = $this->manifestAbsolutePath($recording);
+        $manifestRelativePath = $this->manifestRelativePath($recording);
+
+        if ($manifestRelativePath === null || !$this->storage->privateFileExists($manifestRelativePath)) {
+            return null;
+        }
+
+        $manifestAbsolutePath = $this->storage->resolveReviewAssetAbsolutePath($manifestRelativePath);
 
         if ($manifestAbsolutePath === null || !is_file($manifestAbsolutePath)) {
             return null;
         }
 
-        $decoded = json_decode((string) file_get_contents($manifestAbsolutePath), true);
+        try {
+            $decoded = json_decode((string) file_get_contents($manifestAbsolutePath), true);
+        } finally {
+            $this->storage->deleteTemporaryFile($manifestAbsolutePath);
+        }
 
         return is_array($decoded) ? $decoded : null;
     }
@@ -92,13 +107,13 @@ class RecordingReviewAssetService
     public function assetState(CameraRecording $recording): array
     {
         $manifest = $this->manifest($recording);
-        $previewAbsolutePath = $this->previewAbsolutePath($recording);
-        $thumbnailAbsolutePath = $this->thumbnailAbsolutePath($recording);
-        $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording);
+        $previewRelativePath = $this->previewRelativePath($recording);
+        $thumbnailRelativePath = $this->thumbnailRelativePath($recording);
+        $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
         $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
-        $previewFileAvailable = $previewAbsolutePath !== null && is_file($previewAbsolutePath);
-        $thumbnailFileAvailable = $thumbnailAbsolutePath !== null && is_file($thumbnailAbsolutePath);
-        $scrubSpriteFileAvailable = $scrubSpriteAbsolutePath !== null && is_file($scrubSpriteAbsolutePath);
+        $previewFileAvailable = $previewRelativePath !== null && $this->storage->privateFileExists($previewRelativePath);
+        $thumbnailFileAvailable = $thumbnailRelativePath !== null && $this->storage->privateFileExists($thumbnailRelativePath);
+        $scrubSpriteFileAvailable = $scrubSpriteRelativePath !== null && $this->storage->privateFileExists($scrubSpriteRelativePath);
         $previewAvailable = $versionCurrent && $previewFileAvailable;
         $thumbnailAvailable = $versionCurrent && $thumbnailFileAvailable;
         $scrubSpriteAvailable = $versionCurrent && $scrubSpriteFileAvailable;
@@ -136,6 +151,10 @@ class RecordingReviewAssetService
 
         $version = $this->assetVersion($recording);
         $existingManifest = $this->manifest($recording);
+    $manifestRelativePath = $this->manifestRelativePath($recording);
+    $previewRelativePath = $this->previewRelativePath($recording);
+    $thumbnailRelativePath = $this->thumbnailRelativePath($recording);
+    $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
         $previewAbsolutePath = $this->previewAbsolutePath($recording, true);
         $thumbnailAbsolutePath = $this->thumbnailAbsolutePath($recording, true);
         $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording, true);
@@ -146,20 +165,24 @@ class RecordingReviewAssetService
             is_array($existingManifest)
             && ($existingManifest['version'] ?? null) === $version
             && ($existingManifest['status'] ?? null) === self::STATUS_READY
-            && $previewAbsolutePath !== null
-            && is_file($previewAbsolutePath)
-            && $thumbnailAbsolutePath !== null
-            && is_file($thumbnailAbsolutePath)
+            && $previewRelativePath !== null
+            && $this->storage->privateFileExists($previewRelativePath)
+            && $thumbnailRelativePath !== null
+            && $this->storage->privateFileExists($thumbnailRelativePath)
             && (
-                (($existingManifest['scrub_status'] ?? null) === self::STATUS_READY && $scrubSpriteAbsolutePath !== null && is_file($scrubSpriteAbsolutePath))
+                (($existingManifest['scrub_status'] ?? null) === self::STATUS_READY && $scrubSpriteRelativePath !== null && $this->storage->privateFileExists($scrubSpriteRelativePath))
                 || (($existingManifest['scrub_status'] ?? null) === self::STATUS_FAILED)
                 || (($existingManifest['scrub_status'] ?? null) === self::STATUS_MISSING && $expectedScrubStatus === self::STATUS_MISSING)
             )
         ) {
+            $this->storage->deleteTemporaryFile($absoluteRecordingPath);
+
             return $existingManifest;
         }
 
-        if ($previewAbsolutePath === null || $thumbnailAbsolutePath === null || $scrubSpriteAbsolutePath === null || $manifestAbsolutePath === null) {
+        if ($manifestRelativePath === null || $previewRelativePath === null || $thumbnailRelativePath === null || $scrubSpriteRelativePath === null || $previewAbsolutePath === null || $thumbnailAbsolutePath === null || $scrubSpriteAbsolutePath === null || $manifestAbsolutePath === null) {
+            $this->storage->deleteTemporaryFile($absoluteRecordingPath);
+
             throw new RuntimeException('Unable to resolve the review asset storage paths.');
         }
 
@@ -170,8 +193,8 @@ class RecordingReviewAssetService
             'version' => $version,
             'generated_at' => now()->utc()->toIso8601String(),
             'duration_seconds' => $this->recordingDurationSeconds($recording),
-            'preview_relative_path' => $this->storage->recordingRelativePathFromAbsolute($previewAbsolutePath),
-            'thumbnail_relative_path' => $this->storage->recordingRelativePathFromAbsolute($thumbnailAbsolutePath),
+            'preview_relative_path' => $previewRelativePath,
+            'thumbnail_relative_path' => $thumbnailRelativePath,
             'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
             'preview_width' => $this->previewWidth(),
             'thumbnail_width' => $this->thumbnailWidth(),
@@ -209,8 +232,8 @@ class RecordingReviewAssetService
                 'version' => $version,
                 'generated_at' => now()->utc()->toIso8601String(),
                 'duration_seconds' => $this->recordingDurationSeconds($recording),
-                'preview_relative_path' => $this->storage->recordingRelativePathFromAbsolute($previewAbsolutePath),
-                'thumbnail_relative_path' => $this->storage->recordingRelativePathFromAbsolute($thumbnailAbsolutePath),
+                'preview_relative_path' => $previewRelativePath,
+                'thumbnail_relative_path' => $thumbnailRelativePath,
                 'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
                 'preview_width' => $this->previewWidth(),
                 'thumbnail_width' => $this->thumbnailWidth(),
@@ -241,6 +264,14 @@ class RecordingReviewAssetService
             }
 
             file_put_contents($manifestAbsolutePath, json_encode($readyManifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $this->storage->finalizeStagedWrite($previewRelativePath, $previewAbsolutePath);
+            $this->storage->finalizeStagedWrite($thumbnailRelativePath, $thumbnailAbsolutePath);
+
+            if (($readyManifest['scrub_status'] ?? null) === self::STATUS_READY) {
+                $this->storage->finalizeStagedWrite($scrubSpriteRelativePath, $scrubSpriteAbsolutePath);
+            }
+
+            $this->storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
 
             return $readyManifest;
         } catch (\Throwable $exception) {
@@ -257,8 +288,15 @@ class RecordingReviewAssetService
             $failedManifest['error_message'] = Str::limit($exception->getMessage(), 240);
 
             file_put_contents($manifestAbsolutePath, json_encode($failedManifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $this->storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
 
             throw $exception;
+        } finally {
+            $this->storage->deleteTemporaryFile($absoluteRecordingPath);
+            $this->storage->deleteTemporaryFile($previewAbsolutePath);
+            $this->storage->deleteTemporaryFile($thumbnailAbsolutePath);
+            $this->storage->deleteTemporaryFile($scrubSpriteAbsolutePath);
+            $this->storage->deleteTemporaryFile($manifestAbsolutePath);
         }
     }
 
@@ -302,32 +340,56 @@ class RecordingReviewAssetService
 
         $available = is_array($manifest)
             && ($manifest['scrub_status'] ?? null) === self::STATUS_READY
-            && is_file($scrubSpriteAbsolutePath);
+            && $this->storage->privateFileExists($this->scrubSpriteRelativePath($recording));
 
-        return [
-            'relative_path' => is_string($manifest['scrub_sprite_relative_path'] ?? null)
-                ? $manifest['scrub_sprite_relative_path']
-                : $computedManifest['scrub_sprite_relative_path'],
-            'frame_count' => is_numeric($manifest['scrub_frame_count'] ?? null)
-                ? (int) $manifest['scrub_frame_count']
-                : (int) $computedManifest['scrub_frame_count'],
-            'frame_interval_seconds' => is_numeric($manifest['scrub_frame_interval_seconds'] ?? null)
-                ? (int) $manifest['scrub_frame_interval_seconds']
-                : (int) $computedManifest['scrub_frame_interval_seconds'],
-            'frame_width' => is_numeric($manifest['scrub_frame_width'] ?? null)
-                ? (int) $manifest['scrub_frame_width']
-                : (int) $computedManifest['scrub_frame_width'],
-            'frame_height' => is_numeric($manifest['scrub_frame_height'] ?? null)
-                ? (int) $manifest['scrub_frame_height']
-                : (int) $computedManifest['scrub_frame_height'],
-            'columns' => is_numeric($manifest['scrub_columns'] ?? null)
-                ? (int) $manifest['scrub_columns']
-                : (int) $computedManifest['scrub_columns'],
-            'rows' => is_numeric($manifest['scrub_rows'] ?? null)
-                ? (int) $manifest['scrub_rows']
-                : (int) $computedManifest['scrub_rows'],
-            'available' => $available,
-        ];
+        try {
+            return [
+                'relative_path' => is_string($manifest['scrub_sprite_relative_path'] ?? null)
+                    ? $manifest['scrub_sprite_relative_path']
+                    : $computedManifest['scrub_sprite_relative_path'],
+                'frame_count' => is_numeric($manifest['scrub_frame_count'] ?? null)
+                    ? (int) $manifest['scrub_frame_count']
+                    : (int) $computedManifest['scrub_frame_count'],
+                'frame_interval_seconds' => is_numeric($manifest['scrub_frame_interval_seconds'] ?? null)
+                    ? (int) $manifest['scrub_frame_interval_seconds']
+                    : (int) $computedManifest['scrub_frame_interval_seconds'],
+                'frame_width' => is_numeric($manifest['scrub_frame_width'] ?? null)
+                    ? (int) $manifest['scrub_frame_width']
+                    : (int) $computedManifest['scrub_frame_width'],
+                'frame_height' => is_numeric($manifest['scrub_frame_height'] ?? null)
+                    ? (int) $manifest['scrub_frame_height']
+                    : (int) $computedManifest['scrub_frame_height'],
+                'columns' => is_numeric($manifest['scrub_columns'] ?? null)
+                    ? (int) $manifest['scrub_columns']
+                    : (int) $computedManifest['scrub_columns'],
+                'rows' => is_numeric($manifest['scrub_rows'] ?? null)
+                    ? (int) $manifest['scrub_rows']
+                    : (int) $computedManifest['scrub_rows'],
+                'available' => $available,
+            ];
+        } finally {
+            $this->storage->deleteTemporaryFile($scrubSpriteAbsolutePath);
+        }
+    }
+
+    private function previewRelativePath(CameraRecording $recording): ?string
+    {
+        return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'preview.mp4');
+    }
+
+    private function thumbnailRelativePath(CameraRecording $recording): ?string
+    {
+        return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'poster.jpg');
+    }
+
+    private function scrubSpriteRelativePath(CameraRecording $recording): ?string
+    {
+        return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'scrub-sprite.jpg');
+    }
+
+    private function manifestRelativePath(CameraRecording $recording): ?string
+    {
+        return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'manifest.json');
     }
 
     private function manifestAbsolutePath(CameraRecording $recording, bool $ensureDirectory = false): ?string

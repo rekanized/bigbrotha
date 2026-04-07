@@ -27,11 +27,15 @@ class CameraFleetStreamPreviewController extends Controller
             return $this->placeholderResponse();
         }
 
-        return response()->file($absolutePath, [
+        $response = response()->file($absolutePath, [
             'Content-Type' => $imageMimeType,
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'Pragma' => 'no-cache',
         ]);
+
+        $response->deleteFileAfterSend($storage->isTemporaryManagedPath($absolutePath));
+
+        return $response;
     }
 
     private function placeholderResponse(): Response

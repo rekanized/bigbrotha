@@ -68,9 +68,9 @@ Important model helpers:
 
 - `App\Services\Onvif\OnvifRtspStreamService` retrieves ONVIF media capabilities, profiles, and RTSP stream URIs.
 - `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity and captures preview frames.
-- `App\Services\CameraStorageService` manages per-camera storage folders.
+- `App\Services\CameraStorageService` manages per-camera storage folders, stages ffmpeg writes locally when needed, and routes the logical `cameras/...` private tree onto either the local private disk or the admin-configured SMB disk.
 - `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
-- `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, records motion clips through a single buffered motion-only capture window whose pre-roll and post-trigger timing can be configured per camera, retains the pre-roll portion as context only, saves the full clip when motion crosses the threshold during the monitored span after pre-roll, prefers the local MediaMTX recording relay when available so motion jobs do not reopen the camera directly, and prunes expired footage.
+- `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, records motion clips through a single buffered motion-only capture window whose pre-roll and post-trigger timing can be configured per camera, retains the pre-roll portion as context only, saves the full clip when motion crosses the threshold during the monitored span after pre-roll, prefers the local MediaMTX recording relay when available so motion jobs do not reopen the camera directly, keeps that recording relay on a copy-oriented codec path instead of the live wall's browser-safe audio transcode, and prunes expired footage.
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
 - `App\Services\Relay\MediaMtxInstaller` downloads the pinned MediaMTX release into private storage.
@@ -115,7 +115,7 @@ Current behavior includes:
 - a dedicated playback page per saved segment.
 - private playback remuxing through Laravel using ffmpeg stream copy from the saved container into fragmented MP4, with the review-stream route now streamed directly instead of buffering the full remuxed clip in PHP memory.
 - direct download of the original private segment file for archival or external review.
-- review of failed and skipped motion decisions alongside successful recordings so operators can troubleshoot policy behavior.
+- review of failed captures alongside successful recordings, while quiet motion evaluations are discarded instead of being kept as durable segment rows.
 
 ## Live Wall Delivery
 
@@ -186,14 +186,14 @@ Current recording management behavior:
 - the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap, recovery, and segment-import safety net instead of the primary clip boundary.
 - recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
 - motion recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
-- continuous mode now keeps one per-camera ffmpeg process alive with the segment muxer, writes timestamped direct-to-disk files under the normal camera recordings directory, and imports completed files back into `camera_recordings` rows so playback, review assets, and pruning keep the same downstream model.
+- continuous mode now keeps one per-camera ffmpeg process alive with the segment muxer, writes timestamped files into the active camera storage target, and imports completed files back into `camera_recordings` rows so playback, review assets, and pruning keep the same downstream model.
 - imported continuous segments derive `scheduled_for`, `started_at`, and `ended_at` from the segment filename timestamp plus the configured segment duration instead of from minute scheduler timing or per-segment PHP cleanup time.
-- motion mode now captures a single motion-only buffered clip, evaluates the saved detection window inside that buffered clip against the painted mask, and only keeps the buffered clip when the threshold is crossed.
-- motion events set a short active-event guard so later scheduler ticks skip duplicate motion triggers while the current motion clip is still being recorded and compiled.
-- successful recordings are stored as per-camera segment files under private storage and expired files are removed by the hourly prune task.
+- motion mode now captures a single motion-only buffered clip, evaluates the saved detection window inside that buffered clip against the painted mask, discards quiet evaluations with no threshold crossing, discards stale pending evaluations that no longer represent a current live window, and only persists a `camera_recordings` row when a clip is saved or the capture fails.
+- motion events set a short active-event guard so later scheduler ticks skip duplicate motion triggers while the current motion clip is still being recorded and compiled, and the scheduler also suppresses new motion queue rows while an older motion row for the same camera is still pending.
+- successful recordings are stored as per-camera segment files under private storage, while the hourly prune task also reclassifies any `recorded` rows whose segment file has already disappeared so the browser stops treating them as playable footage.
 - recording capture and motion analysis now use workload-specific ffmpeg RTSP input profiles, while the live wall and relay paths keep the more aggressive low-latency probe settings.
 - prune eligibility now uses `camera_recordings.created_at < now()->subDays(recording_retention_days)` per camera, while `camera-recordings:prune-audit` reports the same candidates without deleting files or rows.
-- stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever.
+- stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever, except for transient motion rows whose buffered live window is no longer relevant and are therefore discarded.
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
 - the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.
@@ -241,6 +241,14 @@ Preview metadata stores relative paths like:
 Recording metadata stores relative paths like:
 
 `cameras/{id}/recordings/{YYYY}/{MM}/{DD}/{timestamp}-{mode}.mkv`
+
+Camera storage routing notes:
+
+- the logical `cameras/...` tree still uses the relative paths above inside database rows and review-asset manifests.
+- when admin settings leave network storage disabled, `filesystems.camera_private` points at the local `storage/app/private/cameras` directory.
+- when admin settings enable a valid SMB path, `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter and camera-tree reads or writes are routed there instead.
+- ffmpeg capture, continuous segment muxing, and review-asset generation still use local filesystem paths while processing, then `App\Services\CameraStorageService` finalizes those staged files onto the active camera storage disk.
+- streamed previews, downloads, and playback build temporary local cache files on demand when the active camera storage disk is remote.
 
 Older `storage/app/private/stream-previews` folders may still exist from previous iterations, but new preview writes should use the per-camera layout above.
 

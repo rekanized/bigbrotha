@@ -153,7 +153,7 @@ Artisan::command('camera-recordings:tick', function (): int {
                     continue;
                 }
 
-                if ($recordings->isMotionRecordingActive($camera)) {
+                if ($recordings->isMotionRecordingActive($camera) || $recordings->hasPendingMotionRecording($camera)) {
                     continue;
                 }
 
@@ -234,9 +234,17 @@ Artisan::command('camera-recordings:install-worker-service {--no-start} {--grace
 })->purpose('Install and optionally start the recordings worker user systemd unit');
 
 Artisan::command('camera-recordings:prune', function (): int {
-    $deleted = app(CameraRecordingService::class)->pruneExpiredRecordings();
+    $recordings = app(CameraRecordingService::class);
+    $reconciled = $recordings->reconcileMissingRecordedFiles();
+    $deleted = $recordings->pruneExpiredRecordings();
 
-    $this->components->info('Pruned '.$deleted.' expired recording segment'.($deleted === 1 ? '' : 's').'.');
+    $message = 'Pruned '.$deleted.' expired recording segment'.($deleted === 1 ? '' : 's').'.';
+
+    if ($reconciled > 0) {
+        $message .= ' Reconciled '.$reconciled.' recorded row'.($reconciled === 1 ? '' : 's').' whose segment file was already missing.';
+    }
+
+    $this->components->info($message);
 
     return 0;
 })->purpose('Delete expired camera recording segments based on per-camera retention policies');

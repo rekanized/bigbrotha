@@ -105,6 +105,8 @@ class TimelineReviewTest extends TestCase
             'message' => 'Window segment',
         ]);
 
+        $this->writeRecordedSegment($inWindow);
+
         CameraRecording::query()->create([
             'camera_id' => $camera->id,
             'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
@@ -148,6 +150,108 @@ class TimelineReviewTest extends TestCase
         $this->assertSame($camera->id, $payload['cameraId']);
         $this->assertCount(1, $payload['segments']);
         $this->assertSame($inWindow->id, $payload['segments'][0]['id']);
+    }
+
+    public function test_timeline_review_initial_stage_falls_back_to_the_latest_clip_before_focus(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $this->writeRecordedSegment($recording);
+
+        Livewire::test(TimelineReview::class, [
+            'timelineCameraOptions' => [
+                ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+            ],
+            'reviewTiles' => [
+                [
+                    'cameraId' => $camera->id,
+                    'cameraName' => 'North Gate',
+                    'cameraIp' => '192.168.1.70',
+                    'hasFocusSegment' => false,
+                    'segmentCount' => 1,
+                    'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
+                ],
+            ],
+            'timelinePayload' => [
+                'dayStartMs' => now()->utc()->setDate(2026, 4, 3)->startOfDay()->valueOf(),
+                'dayEndMs' => now()->utc()->setDate(2026, 4, 4)->startOfDay()->valueOf(),
+                'focusAtMs' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 5, 0)->valueOf(),
+                'activeCameraId' => $camera->id,
+            ],
+        ])
+            ->assertSeeHtml('data-recording-id="'.$recording->id.'"');
+    }
+
+    public function test_timeline_review_stage_selector_prefers_the_latest_clip_before_focus_when_no_exact_match_exists(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $previousRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $nextRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 10, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 10, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 11, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/next-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Next window segment',
+        ]);
+
+        $this->writeRecordedSegment($previousRecording);
+        $this->writeRecordedSegment($nextRecording);
+
+        $selectedRecording = app(\App\Services\RecordingTimelineReviewService::class)->selectRecordingForStage(
+            collect([$previousRecording, $nextRecording]),
+            now()->utc()->setDate(2026, 4, 3)->setTime(12, 5, 0),
+        );
+
+        $this->assertInstanceOf(CameraRecording::class, $selectedRecording);
+        $this->assertSame($previousRecording->id, $selectedRecording->id);
     }
 
     public function test_timeline_stage_renders_audio_toggle_state(): void
@@ -300,5 +404,20 @@ class TimelineReviewTest extends TestCase
         $this->assertSame(1, substr_count($html, 'data-role="rail-thumbnail"'));
         $this->assertMatchesRegularExpression('/data-role="rail-thumbnail"[^>]*data-recording-id="82"/s', $html);
         $this->assertDoesNotMatchRegularExpression('/data-role="rail-thumbnail"[^>]*data-recording-id="81"/s', $html);
+    }
+
+    private function writeRecordedSegment(CameraRecording $recording, string $contents = 'recorded-segment'): void
+    {
+        if (!is_string($recording->relative_path) || trim($recording->relative_path) === '') {
+            return;
+        }
+
+        $absolutePath = app(\App\Services\CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+        \Illuminate\Support\Facades\File::ensureDirectoryExists(dirname($absolutePath));
+        \Illuminate\Support\Facades\File::put($absolutePath, $contents);
+
+        $recording->forceFill([
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+        ])->save();
     }
 }

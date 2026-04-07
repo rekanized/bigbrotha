@@ -10,6 +10,7 @@ use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -128,6 +129,51 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('2026-04-04 14:00');
     }
 
+    public function test_recordings_browser_hides_reconciled_missing_recordings_from_the_default_recorded_filter(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'South Lot',
+            'local_ip' => '192.168.1.181',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 7)->setTime(11, 30),
+            'started_at' => now()->utc()->setDate(2026, 4, 7)->setTime(11, 30),
+            'ended_at' => now()->utc()->setDate(2026, 4, 7)->setTime(11, 31),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/south-lot-missing.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Clip saved.',
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.index'))
+            ->assertOk()
+            ->assertSee('No recording segments matched the current filters.')
+            ->assertDontSee(route('recordings.show', ['recording' => $recording]), false);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.index', ['status' => CameraRecording::STATUS_FAILED]))
+            ->assertOk()
+            ->assertSee('South Lot')
+            ->assertSee('missing from active storage');
+    }
+
     public function test_timeline_rail_emits_precise_hour_offsets_for_segment_and_thumbnail_positions(): void
     {
         app(ApplicationSettingsService::class)->saveAppTimezone('Europe/Amsterdam');
@@ -157,6 +203,8 @@ class RecordingBrowserTest extends TestCase
             'file_size_bytes' => 1024,
             'message' => 'Continuous segment saved.',
         ]);
+
+        $this->writeRecordedSegment($recording);
 
         $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
@@ -212,6 +260,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Continuous segment saved.',
         ]);
 
+        $this->writeRecordedSegment($recording);
+
         $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('recordings.timeline', [
@@ -265,6 +315,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Continuous segment saved.',
         ]);
 
+        $this->writeRecordedSegment(CameraRecording::query()->latest('id')->firstOrFail());
+
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]))
@@ -272,6 +324,42 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('data-tick-kind="secondary"', false)
             ->assertSee('recording-review-focus__rail-tick--secondary', false)
             ->assertSee('>15<', false);
+    }
+
+    public function test_timeline_review_excludes_recorded_rows_with_missing_files(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Missing File Camera',
+            'local_ip' => '192.168.1.190',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 4)->setTime(12, 1),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/04/missing-file.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Recorded row without a backing file.',
+        ]);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]))
+            ->assertOk()
+            ->assertSee('No recorded segment at the selected time.')
+            ->assertDontSee('data-recording-id="'.$recording->id.'"', false);
     }
 
     public function test_timeline_route_defaults_to_latest_recorded_day_and_honors_a_custom_date_span(): void
@@ -305,6 +393,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Older segment saved.',
         ]);
 
+        $this->writeRecordedSegment($olderRecording);
+
         $latestRecording = CameraRecording::query()->create([
             'camera_id' => $camera->id,
             'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
@@ -316,6 +406,8 @@ class RecordingBrowserTest extends TestCase
             'file_size_bytes' => 1024,
             'message' => 'Latest segment saved.',
         ]);
+
+        $this->writeRecordedSegment($latestRecording);
 
         $defaultResponse = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
@@ -450,6 +542,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Continuous segment saved.',
         ]);
 
+        $this->writeRecordedSegment($frontDoorRecording);
+
         $frontDoorLatestRecording = CameraRecording::query()->create([
             'camera_id' => $frontDoor->id,
             'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
@@ -462,6 +556,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Continuous segment saved.',
         ]);
 
+        $this->writeRecordedSegment($frontDoorLatestRecording);
+
         $garageRecording = CameraRecording::query()->create([
             'camera_id' => $garage->id,
             'capture_mode' => Camera::RECORDING_MODE_MOTION,
@@ -473,6 +569,8 @@ class RecordingBrowserTest extends TestCase
             'file_size_bytes' => 2048,
             'message' => 'Motion segment saved.',
         ]);
+
+        $this->writeRecordedSegment($garageRecording);
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
@@ -530,6 +628,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Clip saved.',
         ]);
 
+        $this->writeRecordedSegment($recording);
+
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
@@ -565,6 +665,8 @@ class RecordingBrowserTest extends TestCase
             'file_size_bytes' => 1024,
             'message' => 'Clip saved.',
         ]);
+
+        $this->writeRecordedSegment($recording);
 
         $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
         File::put($previewPath, 'preview-stream');
@@ -655,6 +757,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Clip saved.',
         ]);
 
+        $this->writeRecordedSegment($recording);
+
         $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
         File::put($previewPath, 'preview-stream');
         $this->writeCurrentReviewManifest($recording, [
@@ -670,7 +774,7 @@ class RecordingBrowserTest extends TestCase
                 'focus_at' => '2026-04-03 12:45:30',
             ]))
             ->assertOk()
-            ->assertSee('src="'.route('recordings.preview-stream', ['recording' => $recording]).'"', false);
+            ->assertSee('Assets cached');
     }
 
     public function test_timeline_exact_clip_boundary_keeps_the_following_adjacent_segment_available_in_the_rail_payload(): void
@@ -701,6 +805,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'First clip saved.',
         ]);
 
+        $this->writeRecordedSegment($firstRecording);
+
         $secondRecording = CameraRecording::query()->create([
             'camera_id' => $camera->id,
             'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
@@ -712,6 +818,8 @@ class RecordingBrowserTest extends TestCase
             'file_size_bytes' => 1024,
             'message' => 'Second clip saved.',
         ]);
+
+        $this->writeRecordedSegment($secondRecording);
 
         $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
@@ -757,6 +865,8 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Clip saved.',
         ]);
 
+        $this->writeRecordedSegment($recording);
+
         $storage = app(CameraStorageService::class);
         $previewPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
         $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
@@ -785,6 +895,58 @@ class RecordingBrowserTest extends TestCase
             ]))
             ->assertOk()
             ->assertSee('data-recording-id="'.$recording->id.'"', false)
+            ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
+            ->assertSee('Direct stream');
+    }
+
+    public function test_timeline_initial_stage_does_not_prefer_preview_streams_while_assets_are_still_pending(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Loading Dock',
+            'local_ip' => '192.168.1.174',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/04/loading-dock.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Clip saved.',
+        ]);
+
+        $this->writeRecordedSegment($recording);
+
+        $storage = app(CameraStorageService::class);
+        $previewPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
+
+        File::put($previewPath, 'pending-preview-stream');
+        $this->writeCurrentReviewManifest($recording, [
+            'status' => RecordingReviewAssetService::STATUS_PENDING,
+            'preview_relative_path' => $previewPath !== null ? $storage->recordingRelativePathFromAbsolute($previewPath) : null,
+        ]);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-04',
+                'date_to' => '2026-04-04',
+                'focus_at' => '2026-04-04 20:10:30',
+            ]))
+            ->assertOk()
             ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
             ->assertSee('Direct stream');
     }
@@ -876,6 +1038,73 @@ class RecordingBrowserTest extends TestCase
             ->assertDownload('back-lot-'.$recording->scheduled_for->format('Ymd_His').'.mkv');
     }
 
+    public function test_network_storage_playback_and_download_use_the_original_recording_extension(): void
+    {
+        app(\App\Services\ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Lot',
+            'local_ip' => '192.168.1.191',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinute(),
+            'started_at' => now()->utc()->subMinute(),
+            'ended_at' => now()->utc(),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/download-network-segment.mkv',
+            'file_size_bytes' => 16,
+            'message' => 'Ready for network playback and download.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $stagedPath = $storage->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($stagedPath));
+        File::put($stagedPath, 'download-segment');
+        $storage->finalizeStagedWrite($recording->relative_path, $stagedPath);
+
+        $streamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.stream', ['recording' => $recording]));
+
+        $streamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertSame('playback-stream', $streamResponse->streamedContent());
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.download', ['recording' => $recording]))
+            ->assertOk()
+            ->assertDownload('back-lot-'.$recording->scheduled_for->format('Ymd_His').'.mkv');
+    }
+
     private function assertTimelineSegmentPlacement(
         TestResponse $response,
         Carbon $reviewWindowStart,
@@ -931,6 +1160,21 @@ BASH);
         chmod($binaryPath, 0755);
 
         return $binaryPath;
+    }
+
+    private function writeRecordedSegment(CameraRecording $recording, string $contents = 'recorded-segment'): void
+    {
+        if (!is_string($recording->relative_path) || trim($recording->relative_path) === '') {
+            return;
+        }
+
+        $absolutePath = app(CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, $contents);
+
+        $recording->forceFill([
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+        ])->save();
     }
 
     /**

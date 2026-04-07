@@ -95,6 +95,17 @@ class CameraRecordingService
         return Cache::has($this->motionRecordingCacheKey($camera));
     }
 
+    public function hasPendingMotionRecording(Camera|int $camera): bool
+    {
+        $cameraId = $camera instanceof Camera ? (int) $camera->getKey() : (int) $camera;
+
+        return CameraRecording::query()
+            ->where('camera_id', $cameraId)
+            ->where('capture_mode', Camera::RECORDING_MODE_MOTION)
+            ->whereIn('status', CameraRecording::pendingStatuses())
+            ->exists();
+    }
+
     public function dispatchRecording(CameraRecording $recording, string $message): bool
     {
         $this->markRecordingQueued($recording, $message);
@@ -131,6 +142,20 @@ class CameraRecordingService
                     $ageSeconds = $recording->updated_at instanceof Carbon
                         ? $recording->updated_at->diffInSeconds(now()->utc())
                         : $this->stalePendingSeconds();
+
+                    if ($recording->capture_mode === Camera::RECORDING_MODE_MOTION
+                        && $this->shouldDiscardTransientMotionRecording($recording)) {
+                        $this->discardTransientMotionRecording(
+                            $recording,
+                            'Discarded a stale pending motion evaluation after '.$ageSeconds.' seconds without progress.',
+                            [
+                                'stale_age_seconds' => $ageSeconds,
+                                'previous_status' => $recording->status,
+                            ],
+                        );
+
+                        continue;
+                    }
 
                     if ($this->dispatchRecording(
                         $recording,
@@ -311,6 +336,12 @@ class CameraRecordingService
         }
 
         if (!$camera->hasRecordingEnabled()) {
+            if ($this->shouldDiscardTransientMotionRecording($recording)) {
+                $this->discardTransientMotionRecording($recording, 'Recording is no longer enabled for this camera.');
+
+                return;
+            }
+
             $this->markRecording($recording, CameraRecording::STATUS_SKIPPED, 'Recording is not enabled for this camera.', [
                 'ended_at' => $recording->ended_at ?? now()->utc(),
             ]);
@@ -354,6 +385,27 @@ class CameraRecordingService
         });
 
         return $deleted;
+    }
+
+    public function reconcileMissingRecordedFiles(?int $cameraId = null): int
+    {
+        $reconciled = 0;
+
+        CameraRecording::query()
+            ->when($cameraId !== null, function (Builder $query) use ($cameraId): void {
+                $query->where('camera_id', $cameraId);
+            })
+            ->where('status', CameraRecording::STATUS_RECORDED)
+            ->orderBy('id')
+            ->chunkById(100, function ($recordings) use (&$reconciled): void {
+                foreach ($recordings as $recording) {
+                    if ($this->reconcileMissingRecordedFile($recording)) {
+                        $reconciled++;
+                    }
+                }
+            }, 'id');
+
+        return $reconciled;
     }
 
     /**
@@ -402,7 +454,7 @@ class CameraRecordingService
                     CameraRecording::query()
                         ->where('camera_id', $camera->getKey())
                         ->whereNotNull('ended_at')
-                        ->whereNotNull('relative_path')
+                        ->whereNotIn('status', CameraRecording::pendingStatuses())
                         ->where('created_at', '<', $cutoff)
                         ->orderBy('id')
                         ->chunkById(100, function ($recordings) use ($callback, $camera, $cutoff): void {
@@ -453,6 +505,54 @@ class CameraRecordingService
         }
     }
 
+    private function reconcileMissingRecordedFile(CameraRecording $recording): bool
+    {
+        if ($this->storage->recordingExists($recording->relative_path)) {
+            return false;
+        }
+
+        try {
+            return DB::transaction(function () use ($recording): bool {
+                $lockedRecording = CameraRecording::query()
+                    ->whereKey($recording->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lockedRecording instanceof CameraRecording || $lockedRecording->status !== CameraRecording::STATUS_RECORDED) {
+                    return false;
+                }
+
+                if ($this->storage->recordingExists($lockedRecording->relative_path)) {
+                    return false;
+                }
+
+                $this->reviewAssets->pruneForRecording($lockedRecording);
+
+                $this->markRecording(
+                    $lockedRecording,
+                    CameraRecording::STATUS_FAILED,
+                    'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+                    [
+                        'ended_at' => $lockedRecording->ended_at ?? now()->utc(),
+                        'file_size_bytes' => null,
+                    ],
+                );
+
+                return true;
+            }, 3);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to reconcile a recorded row whose segment file is missing.', [
+                'recording_id' => $recording->getKey(),
+                'relative_path' => $recording->relative_path,
+                'error' => $this->summarizeThrowable($exception, 'Unable to reconcile the missing recording file.'),
+            ]);
+
+            $this->safeReport($exception);
+
+            return false;
+        }
+    }
+
     public function playbackResponse(CameraRecording $recording): StreamedResponse
     {
         $absolutePath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
@@ -464,8 +564,12 @@ class CameraRecordingService
         $command = $this->buildPlaybackCommand($absolutePath);
         $fileName = Str::slug($recording->camera?->name ?: 'camera-recording').'-'.($recording->scheduled_for?->format('Ymd_His') ?? 'segment').'.mp4';
 
-        return response()->stream(function () use ($command, $recording): void {
-            $this->streamPlaybackOutput($command, $recording);
+        return response()->stream(function () use ($absolutePath, $command, $recording): void {
+            try {
+                $this->streamPlaybackOutput($command, $recording);
+            } finally {
+                $this->storage->deleteTemporaryFile($absolutePath);
+            }
         }, 200, [
             'Content-Type' => 'video/mp4',
             'Content-Disposition' => 'inline; filename="'.$fileName.'"',
@@ -485,7 +589,6 @@ class CameraRecordingService
         $startedAt = now()->utc()->startOfSecond();
         $scheduledFor = $this->captureScheduledFor($camera, $recording, $startedAt);
         $absolutePath = $this->buildRecordingAbsolutePath($camera, $scheduledFor, $recording->capture_mode);
-        $relativePath = $this->storage->recordingRelativePathFromAbsolute($absolutePath);
         $durationSeconds = $this->segmentDurationSeconds();
         $endedAt = $startedAt->copy()->addSeconds($durationSeconds);
 
@@ -512,7 +615,20 @@ class CameraRecordingService
         }
 
         clearstatcache(true, $absolutePath);
+        $relativePath = $this->storage->recordingRelativePathFromAbsolute($absolutePath);
         $fileSize = is_file($absolutePath) ? filesize($absolutePath) : null;
+
+        try {
+            $this->storage->finalizeStagedWrite($relativePath, $absolutePath);
+        } catch (Throwable $exception) {
+            $this->markRecordingFailed(
+                $recording,
+                $this->summarizeThrowable($exception, 'Unable to move the recording segment into network storage.'),
+                $motionScore,
+            );
+
+            return;
+        }
 
         $this->markRecording($recording, CameraRecording::STATUS_RECORDED, 'Recorded '.$durationSeconds.' seconds to '.$relativePath.'.', [
             'scheduled_for' => $scheduledFor,
@@ -549,9 +665,8 @@ class CameraRecordingService
 
         try {
             if (!$this->acquireMotionRecordingState($camera, (int) $recording->getKey())) {
-                $this->markRecording($recording, CameraRecording::STATUS_SKIPPED, 'Ignored a new motion trigger because another motion recording event is already executing for this camera.', [
+                $this->discardTransientMotionRecording($recording, 'Ignored a new motion trigger because another motion recording event is already executing for this camera.', [
                     'motion_score' => $motionScore,
-                    'ended_at' => $recording->ended_at ?? now()->utc(),
                 ]);
 
                 return;
@@ -592,12 +707,8 @@ class CameraRecordingService
             );
             $motionScore = $motion['activity_ratio'];
 
-            $camera->forceFill([
-                'recording_last_motion_at' => $clipStartedAt->copy()->addSeconds($clipDurationSeconds),
-            ])->save();
-
             if (!$motion['detected']) {
-                $this->markRecording($recording, CameraRecording::STATUS_SKIPPED, 'No motion crossed the configured threshold during the monitored span after pre-roll context.', [
+                $this->discardTransientMotionRecording($recording, 'No motion crossed the configured threshold during the monitored span after pre-roll context.', [
                     'motion_score' => $motionScore,
                     'ended_at' => $clipStartedAt->copy()->addSeconds($clipDurationSeconds),
                 ]);
@@ -623,6 +734,18 @@ class CameraRecordingService
             $fileSize = is_file($absolutePath) ? filesize($absolutePath) : null;
             $endedAt = $clipStartedAt->copy()->addSeconds($clipDurationSeconds);
 
+            try {
+                $this->storage->finalizeStagedWrite($relativePath, $absolutePath);
+            } catch (Throwable $exception) {
+                $this->markRecordingFailed(
+                    $recording,
+                    $this->summarizeThrowable($exception, 'Unable to move the buffered motion clip into network storage.'),
+                    $motionScore,
+                );
+
+                return;
+            }
+
             $this->markRecording($recording, CameraRecording::STATUS_RECORDED, 'Recorded the full buffered motion clip to '.$relativePath.' after motion crossed the threshold during the monitored span. The clip includes '.$preRollSeconds.' seconds of pre-roll context and '.$postTriggerSeconds.' seconds after the monitored start.', [
                 'scheduled_for' => $scheduledFor,
                 'relative_path' => $relativePath,
@@ -632,6 +755,7 @@ class CameraRecordingService
             ]);
 
             $camera->forceFill([
+                'recording_last_motion_at' => $endedAt,
                 'recording_last_recorded_at' => $endedAt,
             ])->save();
 
@@ -870,12 +994,50 @@ class CameraRecordingService
         return 'camera-recordings:motion-event:camera:'.$cameraId;
     }
 
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function discardTransientMotionRecording(CameraRecording $recording, string $reason, array $context = []): void
+    {
+        $recordingId = $recording->getKey();
+        $cameraId = $recording->camera_id;
+        $scheduledFor = $recording->scheduled_for?->toIso8601String();
+
+        $recording->delete();
+
+        $this->safeLog('info', 'Discarded a transient motion recording row.', array_merge([
+            'recording_id' => $recordingId,
+            'camera_id' => $cameraId,
+            'scheduled_for' => $scheduledFor,
+            'reason' => Str::limit($reason, 240),
+        ], $context));
+    }
+
+    private function shouldDiscardTransientMotionRecording(CameraRecording $recording): bool
+    {
+        return $recording->capture_mode === Camera::RECORDING_MODE_MOTION
+            && $recording->relative_path === null
+            && $recording->status !== CameraRecording::STATUS_RECORDED;
+    }
+
     private function acquireMotionRecordingState(Camera|int $camera, int $recordingId): bool
     {
-        return Cache::add($this->motionRecordingCacheKey($camera), [
+        $cacheKey = $this->motionRecordingCacheKey($camera);
+        $seconds = $this->motionPipelineTimeoutSeconds() + 30;
+        $payload = [
             'recording_id' => $recordingId,
             'expires_at' => now()->utc()->addSeconds($this->motionPipelineTimeoutSeconds())->toIso8601String(),
-        ], $this->motionPipelineTimeoutSeconds() + 30);
+        ];
+
+        $existing = Cache::get($cacheKey);
+
+        if (is_array($existing) && (int) ($existing['recording_id'] ?? 0) === $recordingId) {
+            Cache::put($cacheKey, $payload, $seconds);
+
+            return true;
+        }
+
+        return Cache::add($cacheKey, $payload, $seconds);
     }
 
     private function releaseMotionRecordingState(Camera|int $camera, int $recordingId): void

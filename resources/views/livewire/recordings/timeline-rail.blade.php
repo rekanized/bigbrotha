@@ -119,7 +119,19 @@
     data-initial-window-start-ms="{{ $initialWindowStartMs }}"
     data-initial-window-end-ms="{{ $initialWindowEndMs }}"
 >
-    <div class="recording-review-focus__rail-shell">
+    <div class="recording-review-focus__rail-shell" data-role="rail-shell">
+        <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
+            <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
+                <span class="recording-review-focus__scrub-preview-layer is-active" data-role="scrub-preview-layer" aria-hidden="true"></span>
+                <span class="recording-review-focus__scrub-preview-layer" data-role="scrub-preview-layer" aria-hidden="true"></span>
+            </div>
+            <div class="recording-review-focus__scrub-preview-copy">
+                <span class="recording-review-tile__eyebrow">Scrub preview</span>
+                <strong data-role="scrub-preview-camera">{{ $tile['cameraName'] ?? 'Camera' }}</strong>
+                <p data-role="scrub-preview-time">{{ $focusLabel }}</p>
+            </div>
+        </div>
+
         <div class="recording-review-focus__rail-viewport" data-role="rail-viewport">
             <div class="recording-review-focus__rail-track" data-role="rail-track" style="height: {{ $trackHeightPx }}px;">
                 <div class="recording-review-focus__rail-columns" aria-hidden="true">

@@ -112,9 +112,10 @@
             <div class="camera-list">
                 @foreach ($cameras as $camera)
                     @php($latestPreview = $camera->latestRtspPreview())
+                    @php($cameraPreviewFingerprint = $latestPreview ? (($latestPreview['index'] ?? 'profile').'-'.($latestPreview['profile']['preview_generated_at'] ?? 'fresh').'-'.md5((string) ($latestPreview['profile']['preview_path'] ?? ''))) : 'empty')
                     @php($serialNumber = is_string($camera->serial_number) && trim(strtolower($camera->serial_number)) !== 'null' ? trim($camera->serial_number) : null)
                     @php($recordingModeLabel = $camera->recording_mode === 'continuous' ? 'Constantly recording' : ($camera->recording_mode === 'motion' ? 'Record on movement' : 'Recording off'))
-                    <article class="camera-row{{ $editingCameraId === $camera->id ? ' camera-row--selected' : '' }}">
+                    <article class="camera-row{{ $editingCameraId === $camera->id ? ' camera-row--selected' : '' }}" wire:key="camera-row-{{ $camera->id }}">
                         <div class="camera-row__header">
                             <div class="camera-row__identity">
                                 <strong>{{ $camera->name }}</strong>
@@ -128,10 +129,10 @@
                         </div>
 
                         <div class="camera-row__layout">
-                            <div class="camera-row__media">
+                            <div class="camera-row__media" wire:key="camera-row-preview-{{ $camera->id }}-{{ $cameraPreviewFingerprint }}">
                                 @if ($latestPreview)
                                     <div class="camera-row__preview-frame">
-                                        <img class="camera-row__preview-image" src="{{ route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => $latestPreview['index'], 'v' => $latestPreview['profile']['preview_generated_at'] ?? '']) }}" alt="Latest preview for {{ $camera->name }}">
+                                        <img class="camera-row__preview-image" src="{{ route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => $latestPreview['index'], 'v' => $latestPreview['profile']['preview_generated_at'] ?? '']) }}" alt="Latest preview for {{ $camera->name }}" loading="lazy" decoding="async">
                                     </div>
 
                                     <div class="camera-row__preview-meta">
@@ -149,6 +150,11 @@
 
                             <div class="camera-row__content">
                                 <div class="camera-row__fact-grid">
+                                    <div class="camera-row__fact">
+                                        <span>Camera ID</span>
+                                        <strong>#{{ $camera->id }}</strong>
+                                    </div>
+
                                     <div class="camera-row__fact">
                                         <span>Network</span>
                                         <strong>{{ $camera->local_ip }}{{ $camera->hostname ? ' · '.$camera->hostname : '' }}</strong>
@@ -247,6 +253,11 @@
 
                 @if ($selectedCamera)
                     <div class="detail-grid">
+                        <article class="detail-card">
+                            <span class="detail-card__label">Camera ID</span>
+                            <strong>#{{ $selectedCamera->id }}</strong>
+                        </article>
+
                         <article class="detail-card">
                             <span class="detail-card__label">Saved ONVIF endpoint</span>
                             <strong>{{ $selectedCamera->onvifEndpoint() ?? 'Unavailable' }}</strong>
@@ -650,7 +661,8 @@
                     @else
                         <div class="stream-list">
                             @foreach ($rtspProfiles as $profile)
-                                <article class="stream-card">
+                                @php($streamPreviewFingerprint = !empty($profile['preview_path']) ? (($selectedCameraId ?? 'camera').'-'.$loop->index.'-'.($profile['preview_generated_at'] ?? 'fresh').'-'.md5((string) ($profile['preview_path'] ?? ''))) : (($selectedCameraId ?? 'camera').'-'.$loop->index.'-empty'))
+                                <article class="stream-card" wire:key="stream-card-{{ $selectedCameraId ?? 'new' }}-{{ $profile['token'] ?? $loop->index }}">
                                     <div class="stream-card__header">
                                         <div>
                                             <strong>{{ $profile['name'] ?? 'Profile' }}</strong>
@@ -670,9 +682,9 @@
                                         </div>
                                     </div>
 
-                                    <div class="stream-preview-shell">
+                                    <div class="stream-preview-shell" wire:key="stream-preview-{{ $streamPreviewFingerprint }}">
                                         @if (!empty($profile['preview_path']) && $selectedCameraId)
-                                            <img class="stream-preview-image" src="{{ route('camera-fleet.preview', ['camera' => $selectedCameraId, 'profileIndex' => $loop->index, 'v' => $profile['preview_generated_at'] ?? '']) }}" alt="Preview snapshot for {{ $profile['name'] ?? 'RTSP profile' }}">
+                                            <img class="stream-preview-image" src="{{ route('camera-fleet.preview', ['camera' => $selectedCameraId, 'profileIndex' => $loop->index, 'v' => $profile['preview_generated_at'] ?? '']) }}" alt="Preview snapshot for {{ $profile['name'] ?? 'RTSP profile' }}" loading="lazy" decoding="async">
                                         @else
                                             <div class="stream-preview-empty">
                                                 <strong>No preview image yet.</strong>

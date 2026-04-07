@@ -4,6 +4,7 @@ namespace App\Livewire\Recordings;
 
 use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
+use App\Services\CameraStorageService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -91,7 +92,7 @@ class TimelineReview extends Component
         $this->dateTo = is_string($dateRange['to'] ?? null) ? $dateRange['to'] : '';
         $this->timelineHours = max(24, $timelineHours);
         $this->timelineZoomMinScale = 1.0;
-        $this->timelineZoomMaxScale = (float) max(8, min(48, (int) ceil($this->timelineHours / 6)));
+        $this->timelineZoomMaxScale = (float) max(16, min(96, (int) ceil($this->timelineHours / 2)));
         $this->timelineZoomStepFactor = 1.18;
         $this->timelineBaseHourHeightPx = 88;
         $this->timelineMinTrackHeightPx = 1800;
@@ -198,24 +199,21 @@ class TimelineReview extends Component
         }
 
         $cameraId = (int) ($tile['cameraId'] ?? 0);
-        $segmentSeconds = max(1, (int) config('recording.segment_seconds', 60));
         $focusAt = Carbon::createFromTimestampUTC((int) floor($this->focusAtMs / 1000));
-        $windowStart = $focusAt->copy()->subSeconds($segmentSeconds);
-        $windowEnd = $focusAt->copy()->addSecond();
+        $windowStart = Carbon::createFromTimestampUTC((int) floor($this->dayStartMs / 1000));
+        $windowEnd = Carbon::createFromTimestampUTC((int) floor($this->dayEndMs / 1000));
         $timeline = app(RecordingTimelineReviewService::class);
 
-        $recording = $this->recordingsForCameraWindow($cameraId, $windowStart, $windowEnd)
-            ->first(function (CameraRecording $candidate) use ($focusAt, $timeline): bool {
-                [$recordingStart, $recordingEnd] = $timeline->recordingBounds($candidate);
-
-                return $timeline->timeRangeContainsFocus($recordingStart, $recordingEnd, $focusAt);
-            });
+        $recording = $timeline->selectRecordingForStage(
+            $this->recordingsForCameraWindow($cameraId, $windowStart, $windowEnd),
+            $focusAt,
+        );
 
         return $recording instanceof CameraRecording
             ? $timeline->recordingReviewPayload(
                 $recording,
-                Carbon::createFromTimestampUTC((int) floor($this->dayStartMs / 1000)),
-                Carbon::createFromTimestampUTC((int) floor($this->dayEndMs / 1000)),
+                $windowStart,
+                $windowEnd,
             )
             : null;
     }
@@ -380,7 +378,9 @@ class TimelineReview extends Component
             })
             ->orderByRaw('COALESCE(started_at, scheduled_for) asc')
             ->orderBy('id')
-            ->get();
+                ->get()
+                ->filter(fn (CameraRecording $recording): bool => app(CameraStorageService::class)->recordingExists($recording->relative_path))
+                ->values();
     }
 
     private function formatFocusLabel(int $focusMs): string

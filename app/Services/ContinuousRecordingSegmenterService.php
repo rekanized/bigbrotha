@@ -505,6 +505,19 @@ class ContinuousRecordingSegmenterService
                 ? $nextStart->copy()->utc()->startOfSecond()
                 : $scheduledFor->copy()->addSeconds($this->segmentDurationSecondsForTail($file['path']));
             $relativePath = $this->storage->recordingRelativePathFromAbsolute($file['path']);
+
+            try {
+                $this->storage->finalizeStagedWrite($relativePath, $file['path']);
+            } catch (Throwable $exception) {
+                Log::warning('Failed to move a continuous recording segment into the active camera storage disk.', [
+                    'camera_id' => $camera->getKey(),
+                    'relative_path' => $relativePath,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                continue;
+            }
+
             $recording = CameraRecording::query()->firstOrNew([
                 'camera_id' => $camera->getKey(),
                 'scheduled_for' => $scheduledFor,

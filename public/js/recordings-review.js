@@ -123,6 +123,7 @@
     const root = () => document.querySelector('[data-recording-review-root]');
     const rootFor = (element) => element instanceof Element ? element.closest('[data-recording-review-root]') : null;
     const timelineRail = (scope) => scope?.querySelector('[data-role="timeline-rail"]') || null;
+    const railShell = (scope) => scope?.querySelector('[data-role="rail-shell"]') || null;
     const railViewport = (scope) => scope?.querySelector('[data-role="rail-viewport"]') || null;
     const railTrack = (scope) => scope?.querySelector('[data-role="rail-track"]') || null;
     const railTicksLayer = (scope) => scope?.querySelector('[data-role="rail-ticks"]') || null;
@@ -1841,7 +1842,24 @@
             return segment.startMs <= resolvedFocusMs && resolvedFocusMs < segment.endMs;
         });
 
-        return exact || null;
+        if (exact && typeof exact === 'object') {
+            return exact;
+        }
+
+        const orderedSegments = state.rail.segments
+            .filter((segment) => segment && typeof segment === 'object')
+            .slice()
+            .sort((left, right) => left.startMs - right.startMs);
+
+        const latestPriorSegment = orderedSegments
+            .filter((segment) => Number(segment.startMs || 0) <= resolvedFocusMs)
+            .pop();
+
+        if (latestPriorSegment && typeof latestPriorSegment === 'object') {
+            return latestPriorSegment;
+        }
+
+        return orderedSegments.find((segment) => Number(segment.startMs || 0) > resolvedFocusMs) || null;
     };
 
     const updateStageText = (scope, role, value) => {
@@ -2614,6 +2632,7 @@
             bindResizeObserver(scope);
             readRailBootstrapData(scope);
             applyTimelineScale(scope);
+            applyStageSegment(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)), currentFocusMs(scope));
             bindStageVideo(scope);
             bindStageAudio(scope);
             syncStagePlaybackState(scope);
@@ -2655,7 +2674,8 @@
         const frame = scope.querySelector('[data-role="scrub-preview-frame"]');
         const layers = scrubPreviewLayers(frame);
         const camera = scope.querySelector('[data-role="scrub-preview-camera"]');
-        const viewer = scope.querySelector('.recording-review-focus__viewer');
+        const shell = railShell(scope);
+        const viewport = railViewport(scope);
         const spriteUrl = segment.dataset.scrubSpriteUrl || '';
         const frameCount = readNumber(segment, 'scrubFrameCount', 0);
         const frameWidth = readNumber(segment, 'scrubFrameWidth', 0);
@@ -2694,6 +2714,9 @@
         frame.style.height = `${frameHeight}px`;
         frame.style.aspectRatio = `${frameWidth} / ${frameHeight}`;
         preview.dataset.requestId = requestId;
+
+        setText(camera, segment.dataset.cameraName || 'Camera');
+        updateFocusLabels(scope, focusMs);
 
         const renderLoadedSprite = () => {
             const latestPreview = scope.querySelector('[data-role="scrub-preview"]');
@@ -2747,18 +2770,17 @@
             });
         }
 
-        if (viewer instanceof HTMLElement) {
-            const focusRatio = clamp((focusMs - timelineStartMs(scope)) / timelineDurationMs(scope), 0, 1);
+        if (shell instanceof HTMLElement && viewport instanceof HTMLElement) {
+            const focusOffsetPx = railTrackOffsetPxForMs(scope, focusMs) - viewport.scrollTop;
             const previewHeight = Math.max(preview.offsetHeight || 0, frameHeight + 64);
-            const nextTop = clamp((viewer.clientHeight * focusRatio) - (previewHeight / 2), 18, Math.max(18, viewer.clientHeight - previewHeight - 18));
+            const shellHeight = Math.max(shell.clientHeight, viewport.clientHeight, previewHeight + 24);
+            const nextTop = clamp(focusOffsetPx - (previewHeight / 2), 12, Math.max(12, shellHeight - previewHeight - 12));
 
             preview.style.top = `${nextTop}px`;
         }
 
-        preview.style.left = 'auto';
-        preview.style.right = '18px';
-        setText(camera, segment.dataset.cameraName || 'Camera');
-        updateFocusLabels(scope, focusMs);
+        preview.style.left = '';
+        preview.style.right = '';
     };
 
     const shouldIgnoreMouseEvent = (event) => event instanceof MouseEvent

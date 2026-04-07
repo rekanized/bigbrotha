@@ -61,6 +61,8 @@
             </form>
         </section>
 
+        <livewire:admin.network-storage-settings-panel />
+
         <div class="dashboard-secondary">
             <article class="dashboard-panel dashboard-panel--wide">
                 <div class="panel-heading">

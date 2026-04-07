@@ -2275,13 +2275,14 @@ body.live-wall-focus-mode {
 
 .recording-review-focus__scrub-preview {
     position: absolute;
-    inset: 18px 18px auto auto;
-    z-index: 3;
+    top: 18px;
+    right: calc(100% + 14px);
+    z-index: 5;
     display: grid;
     justify-items: start;
     gap: 10px;
     width: fit-content;
-    max-width: min(320px, calc(100% - 36px));
+    max-width: min(320px, calc(100vw - 48px));
     padding: 12px;
     border: 1px solid hsla(0 0% 100% / 0.14);
     border-radius: 18px;
@@ -2651,7 +2652,9 @@ body.live-wall-focus-mode {
 }
 
 .recording-review-focus__rail-shell {
+    position: relative;
     min-height: 0;
+    overflow: visible;
 }
 
 .recording-review-focus__rail-viewport {
@@ -3622,6 +3625,11 @@ body.live-wall-focus-mode {
     .recording-review__summary-grid,
     .recording-review-focus__details-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .recording-review-focus__scrub-preview {
+        right: 14px;
+        max-width: min(280px, calc(100% - 28px));
     }
 }
 

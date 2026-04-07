@@ -78,6 +78,43 @@ class RecordingTimelineReviewService
     }
 
     /**
+     * @param  Collection<int, CameraRecording>  $cameraRecordings
+     */
+    public function selectRecordingForStage(Collection $cameraRecordings, Carbon $focusAt): ?CameraRecording
+    {
+        $matchingRecording = $this->selectRecordingForFocus($cameraRecordings, $focusAt);
+
+        if ($matchingRecording instanceof CameraRecording) {
+            return $matchingRecording;
+        }
+
+        $orderedRecordings = $cameraRecordings
+            ->filter(fn (mixed $recording): bool => $recording instanceof CameraRecording)
+            ->sortBy(fn (CameraRecording $recording): int => (int) ($this->recordingBounds($recording)[0]->getTimestamp() ?? 0))
+            ->values();
+
+        $latestPriorRecording = $orderedRecordings
+            ->filter(function (CameraRecording $recording) use ($focusAt): bool {
+                [$recordingStart] = $this->recordingBounds($recording);
+
+                return $recordingStart->lessThanOrEqualTo($focusAt);
+            })
+            ->last();
+
+        if ($latestPriorRecording instanceof CameraRecording) {
+            return $latestPriorRecording;
+        }
+
+        $nextRecording = $orderedRecordings->first(function (CameraRecording $recording) use ($focusAt): bool {
+            [$recordingStart] = $this->recordingBounds($recording);
+
+            return $recordingStart->greaterThan($focusAt);
+        });
+
+        return $nextRecording instanceof CameraRecording ? $nextRecording : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function recordingReviewPayload(CameraRecording $recording, Carbon $reviewWindowStart, Carbon $reviewWindowEnd): array

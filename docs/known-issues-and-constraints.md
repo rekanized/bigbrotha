@@ -81,6 +81,19 @@ The current preview layout is:
 
 Older `storage/app/private/stream-previews` directories may still remain from previous implementations. Those folders are historical and should not be used for new writes.
 
+## SMB Camera Storage Requirements
+
+The admin settings page at `/admin/settings` can now route the logical camera storage tree onto an SMB share.
+
+Current constraints:
+
+- only the `storage/app/private/cameras` tree is rerouted; other private-storage paths remain local.
+- the configured path must include at least a host and share, for example `//fileserver/share/cameras` or `smb://fileserver/share/cameras`.
+- the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
+- the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
+- when SMB mode is enabled, ffmpeg still writes to local staging paths during capture and review-asset generation; Laravel uploads the finished files to the active SMB disk after each local write completes.
+- previews, review assets, playback downloads, and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage.
+
 ## Preview Rendering Behavior
 
 The preview controller validates that a saved preview file is a real image before serving it.
@@ -132,8 +145,12 @@ Implications:
 - the configured area is stored as painted mask coordinates on a normalized motion grid instead of as one rectangle.
 - the threshold is the percentage of selected mask pixels that must change between sampled frames before recording starts.
 - motion mode now builds a per-camera pre-roll context window and then monitors the following span for motion; when the threshold is crossed during that monitored span, the entire buffered clip is saved.
+- quiet motion evaluations are treated as transient work and are deleted instead of remaining in `camera_recordings` as long-term `skipped` rows.
+- stale pending motion evaluations are also treated as transient work and are deleted instead of being re-queued minutes later against a no-longer-relevant live window.
+- the hourly `camera-recordings:prune` maintenance pass now also reconciles `recorded` rows whose backing segment file is already missing by marking them failed and clearing stale review assets.
 - when a recording relay path is already available through MediaMTX, motion recording now prefers that local relay instead of opening a second direct RTSP session to the camera, which reduces camera-side connection-limit failures.
 - because the pre-roll buffer is isolated to the motion workflow, motion cameras spend extra capture time around event evaluation and briefly suppress overlapping triggers while the current event clip is still being compiled.
+- the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
 - ffmpeg runtime settings are now split by workload: recording, motion, and relay ingest prefer RTSP over TCP, larger demux queues and realtime buffers, wallclock-backed timestamp generation, and passthrough frame timing so unstable camera timecodes do not propagate into saved clips or relayed playback.
 - finalized MP4 review assets should keep `+faststart`, while live relay and streamed review responses continue using fragmented MP4 flags instead of `+faststart` because they are emitted as streaming outputs rather than completed files.
 

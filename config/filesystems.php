@@ -38,6 +38,13 @@ return [
             'report' => false,
         ],
 
+        'camera_private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/cameras'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

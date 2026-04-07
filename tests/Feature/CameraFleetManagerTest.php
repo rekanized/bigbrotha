@@ -253,6 +253,33 @@ BASH);
         $this->assertSame('Healthy', $camera->rtspProfiles()[0]['probe_status']);
     }
 
+    public function test_it_displays_the_camera_id_in_the_fleet_and_editor(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Entrance',
+            'local_ip' => '192.168.1.90',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'rtsp_transport' => 'tcp',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_OFF,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 35,
+            'recording_motion_pre_roll_seconds' => 8,
+            'recording_motion_post_trigger_seconds' => 20,
+        ]);
+
+        Livewire::test(Manager::class)
+            ->assertSee('Camera ID')
+            ->assertSee('#'.$camera->id)
+            ->call('editCamera', $camera->id)
+            ->assertSee('#'.$camera->id);
+    }
+
     public function test_it_can_save_recording_policy_settings_from_the_gui(): void
     {
         $mask = [

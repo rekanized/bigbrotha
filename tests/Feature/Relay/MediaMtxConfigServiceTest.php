@@ -12,7 +12,7 @@ class MediaMtxConfigServiceTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_build_config_keeps_audio_when_generating_run_on_demand_commands(): void
+    public function test_build_config_keeps_browser_safe_audio_transcoding_for_live_run_on_demand_commands(): void
     {
         $binaryDirectory = storage_path('framework/testing');
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-audio-test';
@@ -46,28 +46,84 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
+        $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
         $this->assertStringContainsString('camera-'.$camera->id.'-live:', $config);
         $this->assertStringContainsString("webrtcLocalTCPAddress: ''", $config);
-        $this->assertStringContainsString('-map 0:v:0', $config);
-        $this->assertStringContainsString('-map 0:a:0?', $config);
-        $this->assertStringContainsString('-c:v copy', $config);
-        $this->assertStringContainsString("-timeout '10000000'", $config);
-        $this->assertStringContainsString("-rtbufsize '64M'", $config);
-        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $config);
-        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $config);
-        $this->assertStringContainsString("-analyzeduration '1000000'", $config);
-        $this->assertStringContainsString("-probesize '131072'", $config);
-        $this->assertStringContainsString("-fps_mode 'passthrough'", $config);
-        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $config);
-        $this->assertStringContainsString('-c:a', $config);
-        $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $config);
-        $this->assertStringContainsString("'libopus'", $config);
-        $this->assertStringContainsString("-max_muxing_queue_size '1024'", $config);
+        $this->assertStringContainsString('-map 0:v:0', $liveBlock);
+        $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
+        $this->assertStringContainsString('-c:v copy', $liveBlock);
+        $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
+        $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
+        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $liveBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $liveBlock);
+        $this->assertStringContainsString("-analyzeduration '1000000'", $liveBlock);
+        $this->assertStringContainsString("-probesize '131072'", $liveBlock);
+        $this->assertStringContainsString("-fps_mode 'passthrough'", $liveBlock);
+        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $liveBlock);
+        $this->assertStringContainsString('-c:a', $liveBlock);
+        $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $liveBlock);
+        $this->assertStringContainsString("'libopus'", $liveBlock);
+        $this->assertStringContainsString("-max_muxing_queue_size '1024'", $liveBlock);
         $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $config);
-        $this->assertStringNotContainsString('libx264', $config);
-        $this->assertStringNotContainsString('-rw_timeout', $config);
-        $this->assertStringNotContainsString(' -an ', $config);
+        $this->assertStringNotContainsString('libx264', $liveBlock);
+        $this->assertStringNotContainsString('-rw_timeout', $liveBlock);
+        $this->assertStringNotContainsString(' -an ', $liveBlock);
+    }
+
+    public function test_build_config_uses_copy_pipeline_for_recording_run_on_demand_commands(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-recording-copy-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Recording Relay Camera',
+            'local_ip' => '192.168.1.93',
+            'http_port' => 80,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'encoding' => 'H264',
+                        'video_codec' => 'h264',
+                        'audio_codec' => 'pcm_alaw',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.93:554/main',
+                    ],
+                ],
+            ],
+        ]);
+
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+        $recordingBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-recording');
+
+        $this->assertStringContainsString("-thread_queue_size '1024'", $recordingBlock);
+        $this->assertStringContainsString("-timeout '20000000'", $recordingBlock);
+        $this->assertStringContainsString("-rtbufsize '128M'", $recordingBlock);
+        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $recordingBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $recordingBlock);
+        $this->assertStringContainsString("-analyzeduration '1000000'", $recordingBlock);
+        $this->assertStringContainsString("-probesize '262144'", $recordingBlock);
+        $this->assertStringContainsString("-fps_mode 'passthrough'", $recordingBlock);
+        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $recordingBlock);
+        $this->assertStringContainsString('-sn', $recordingBlock);
+        $this->assertStringContainsString('-dn', $recordingBlock);
+        $this->assertStringContainsString('-c copy', $recordingBlock);
+        $this->assertStringNotContainsString('-c:a', $recordingBlock);
+        $this->assertStringNotContainsString('-af', $recordingBlock);
+        $this->assertStringNotContainsString('libopus', $recordingBlock);
+        $this->assertStringNotContainsString('libx264', $recordingBlock);
     }
 
     public function test_build_config_transcodes_non_h264_video_sources(): void
@@ -109,5 +165,16 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-c:v libx264', $config);
         $this->assertStringContainsString('-profile:v baseline', $config);
         $this->assertStringContainsString('-b:v', $config);
+    }
+
+    private function pathBlock(string $config, string $path): string
+    {
+        $pattern = '/^  '.preg_quote($path, '/').":\n(?:    .*\n)*/m";
+
+        preg_match($pattern, $config, $matches);
+
+        $this->assertNotEmpty($matches, 'Expected to find the '.$path.' block in the generated MediaMTX config.');
+
+        return $matches[0];
     }
 }

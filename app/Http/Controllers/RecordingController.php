@@ -114,7 +114,6 @@ class RecordingController extends Controller
     public function show(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): View
     {
         $recording->loadMissing('camera');
-        $absolutePath = $storage->resolveRecordingAbsolutePath($recording->relative_path);
         $durationSeconds = $this->durationSeconds($recording);
 
         return view('recordings.show', [
@@ -122,7 +121,7 @@ class RecordingController extends Controller
             'camera' => $recording->camera,
             'durationSeconds' => $durationSeconds,
             'displayTimezone' => $this->settings->appTimezone(),
-            'playbackAvailable' => $recording->status === CameraRecording::STATUS_RECORDED && $absolutePath !== null,
+            'playbackAvailable' => $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path),
             'ffmpegAvailable' => $recordings->ffmpegBinary() !== null,
         ]);
     }
@@ -130,7 +129,7 @@ class RecordingController extends Controller
     public function stream(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): StreamedResponse
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
-        abort_unless($storage->resolveRecordingAbsolutePath($recording->relative_path) !== null, Response::HTTP_NOT_FOUND);
+        abort_unless($storage->recordingExists($recording->relative_path), Response::HTTP_NOT_FOUND);
 
         return $recordings->playbackResponse($recording->loadMissing('camera'));
     }
@@ -138,7 +137,7 @@ class RecordingController extends Controller
     public function reviewStream(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): Response
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
-        abort_unless($storage->resolveRecordingAbsolutePath($recording->relative_path) !== null, Response::HTTP_NOT_FOUND);
+        abort_unless($storage->recordingExists($recording->relative_path), Response::HTTP_NOT_FOUND);
 
         return $recordings->bufferedPlaybackResponse($recording->loadMissing('camera'));
     }
@@ -163,10 +162,14 @@ class RecordingController extends Controller
             return $recordings->playbackResponse($recording->loadMissing('camera'));
         }
 
-        return response()->file($absolutePath, [
+        $response = response()->file($absolutePath, [
             'Content-Type' => 'video/mp4',
             'Cache-Control' => 'private, max-age=300',
         ]);
+
+        $response->deleteFileAfterSend(app(CameraStorageService::class)->isTemporaryManagedPath($absolutePath));
+
+        return $response;
     }
 
     public function previewThumbnail(CameraRecording $recording, RecordingReviewAssetService $reviewAssets): Response|BinaryFileResponse
@@ -186,10 +189,14 @@ class RecordingController extends Controller
         }
 
         if ($absolutePath !== null && is_file($absolutePath)) {
-            return response()->file($absolutePath, [
+            $response = response()->file($absolutePath, [
                 'Content-Type' => 'image/jpeg',
                 'Cache-Control' => 'private, max-age=300',
             ]);
+
+            $response->deleteFileAfterSend(app(CameraStorageService::class)->isTemporaryManagedPath($absolutePath));
+
+            return $response;
         }
 
         return response($this->previewThumbnailPlaceholder($recording), Response::HTTP_OK, [
@@ -216,10 +223,14 @@ class RecordingController extends Controller
         }
 
         if ($absolutePath !== null && is_file($absolutePath)) {
-            return response()->file($absolutePath, [
+            $response = response()->file($absolutePath, [
                 'Content-Type' => 'image/jpeg',
                 'Cache-Control' => 'private, max-age=300',
             ]);
+
+            $response->deleteFileAfterSend(app(CameraStorageService::class)->isTemporaryManagedPath($absolutePath));
+
+            return $response;
         }
 
         return response($this->previewThumbnailPlaceholder($recording), Response::HTTP_OK, [
@@ -235,13 +246,17 @@ class RecordingController extends Controller
 
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED && $absolutePath !== null, Response::HTTP_NOT_FOUND);
 
-        $extension = pathinfo($absolutePath, PATHINFO_EXTENSION) ?: 'mkv';
+        $extension = pathinfo((string) $recording->relative_path, PATHINFO_EXTENSION) ?: (pathinfo($absolutePath, PATHINFO_EXTENSION) ?: 'mkv');
         $fileName = Str::slug($recording->camera?->name ?: 'camera-recording').'-'.($recording->scheduled_for?->format('Ymd_His') ?? 'segment').'.'.$extension;
 
-        return response()->download($absolutePath, $fileName, [
+        $response = response()->download($absolutePath, $fileName, [
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'Pragma' => 'no-cache',
         ]);
+
+        $response->deleteFileAfterSend($storage->isTemporaryManagedPath($absolutePath));
+
+        return $response;
     }
 
     /**
@@ -484,7 +499,9 @@ class RecordingController extends Controller
         return $query
             ->orderByRaw('COALESCE(started_at, scheduled_for) asc')
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->filter(fn (CameraRecording $recording): bool => app(CameraStorageService::class)->recordingExists($recording->relative_path))
+            ->values();
     }
 
     private function applyReviewWindow(Builder $query, Carbon $reviewWindowStart, Carbon $reviewWindowEnd): void
@@ -583,7 +600,7 @@ class RecordingController extends Controller
             'renderHeightHours' => round($spanHours, 6),
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $assetState['status'],
-            'preferredStreamUrl' => $assetState['preview_available'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
+            'preferredStreamUrl' => $assetState['ready'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
             'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),

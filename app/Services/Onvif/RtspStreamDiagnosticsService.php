@@ -34,7 +34,8 @@ class RtspStreamDiagnosticsService
         $authenticatedUri = $this->injectCredentials($uri, $camera->username, $camera->password);
         $probeCheckedAt = now()->utc()->format('Y-m-d H:i:s').' UTC';
         $previewPath = $this->buildPreviewRelativePath($camera, $profile, $profileIndex);
-        $absolutePreviewPath = storage_path('app/private/'.$previewPath);
+        $storage = app(CameraStorageService::class);
+        $absolutePreviewPath = $storage->writableAbsolutePath($previewPath);
         $temporaryPreviewPath = $this->temporaryPreviewPath($absolutePreviewPath);
 
         $probeProcess = new Process([
@@ -64,7 +65,7 @@ class RtspStreamDiagnosticsService
 
         $streamInfo = $this->parseProbeOutput($probeProcess->getOutput());
 
-        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+        $storage->ensureCameraDirectories($camera);
 
         $previewProcess = new Process([
             $ffmpegBinary,
@@ -91,6 +92,7 @@ class RtspStreamDiagnosticsService
         if ($previewProcess->isSuccessful() && is_file($temporaryPreviewPath)) {
             try {
                 $this->promotePreviewCapture($temporaryPreviewPath, $absolutePreviewPath);
+                $storage->finalizeStagedWrite($previewPath, $absolutePreviewPath);
             } catch (RuntimeException $exception) {
                 $previewMessage = $exception->getMessage();
             }
@@ -105,8 +107,8 @@ class RtspStreamDiagnosticsService
             'probe_message' => 'RTSP connection confirmed from this host.',
             'video_codec' => $streamInfo['codec_name'],
             'video_resolution' => $streamInfo['resolution'],
-            'preview_path' => is_file($absolutePreviewPath) ? $previewPath : ($profile['preview_path'] ?? null),
-            'preview_generated_at' => is_file($absolutePreviewPath) ? $probeCheckedAt : ($profile['preview_generated_at'] ?? null),
+            'preview_path' => $storage->privateFileExists($previewPath) ? $previewPath : ($profile['preview_path'] ?? null),
+            'preview_generated_at' => $storage->privateFileExists($previewPath) ? $probeCheckedAt : ($profile['preview_generated_at'] ?? null),
             'preview_message' => $previewMessage,
             'transport' => strtoupper($transport),
         ]);

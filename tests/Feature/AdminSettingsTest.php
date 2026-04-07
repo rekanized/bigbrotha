@@ -2,12 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Livewire\Admin\NetworkStorageSettingsPanel;
+use App\Livewire\Recordings\TimelineReview;
 use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
+use App\Services\CameraStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\File;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class AdminSettingsTest extends TestCase
@@ -266,5 +272,230 @@ class AdminSettingsTest extends TestCase
             ->get(route('recordings.show', ['recording' => $recording]))
             ->assertOk()
             ->assertSee('2026-04-04 14:00:00');
+    }
+
+    public function test_admin_network_storage_panel_can_enable_smb_storage(): void
+    {
+        Livewire::test(NetworkStorageSettingsPanel::class)
+            ->set('networkStorageEnabled', '1')
+            ->set('networkStoragePath', '//192.168.1.199/fileshare/Applications/bigbrotha')
+            ->set('networkStorageUsername', 'administrator')
+            ->set('networkStoragePassword', 'secret-pass')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('networkStorageEnabled', '1');
+
+        $this->assertDatabaseHas('app_settings', [
+            'key' => ApplicationSettingsService::SETTING_NETWORK_STORAGE,
+            'network_storage_enabled' => 1,
+            'network_storage_path' => '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'network_storage_username' => 'administrator',
+        ]);
+    }
+
+    public function test_timeline_review_allows_zooming_beyond_eight_times(): void
+    {
+        Livewire::test(TimelineReview::class, [
+            'timelineHours' => 24,
+            'timelinePayload' => [
+                'dayStartMs' => Carbon::create(2026, 4, 7, 0, 0, 0, 'UTC')->valueOf(),
+                'dayEndMs' => Carbon::create(2026, 4, 8, 0, 0, 0, 'UTC')->valueOf(),
+                'focusAtMs' => Carbon::create(2026, 4, 7, 12, 0, 0, 'UTC')->valueOf(),
+                'zoomScale' => 12.0,
+            ],
+        ])
+            ->assertSet('timelineZoomScale', 12.0)
+            ->assertSet('timelineZoomMaxScale', 16.0);
+    }
+
+    public function test_camera_storage_normalizes_staging_prefixed_recording_paths(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Storage Lane',
+            'local_ip' => '192.168.1.210',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $absolutePath = $storage->writableAbsolutePath('cameras/'.$camera->id.'/recordings/2026/04/07/fixed-path.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'segment');
+
+        $this->assertSame(
+            'cameras/'.$camera->id.'/recordings/2026/04/07/fixed-path.mkv',
+            $storage->recordingRelativePathFromAbsolute($absolutePath),
+        );
+
+        $this->assertTrue($storage->recordingExists('camera-network-staging/cameras/'.$camera->id.'/recordings/2026/04/07/fixed-path.mkv'));
+    }
+
+    public function test_camera_storage_normalizes_absolute_read_cache_review_manifest_paths(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Storage Lane',
+            'local_ip' => '192.168.1.212',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream3',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $cachedManifestPath = storage_path('app/private/ffmpeg-temp/camera-network-cache/cameras/'.$camera->id.'/recordings/2026/04/07/_review/20260407_203818-motion/manifest.json.cache_deadbeef');
+
+        $this->assertSame(
+            'cameras/'.$camera->id.'/recordings/2026/04/07/_review/20260407_203818-motion/manifest.json',
+            $storage->normalizePrivateStorageRelativePath($cachedManifestPath),
+        );
+
+        $newCachedManifestPath = storage_path('app/private/ffmpeg-temp/camera-network-cache/cameras/'.$camera->id.'/recordings/2026/04/07/_review/20260407_203818-motion/manifest.cache_deadbeef.json');
+
+        $this->assertSame(
+            'cameras/'.$camera->id.'/recordings/2026/04/07/_review/20260407_203818-motion/manifest.json',
+            $storage->normalizePrivateStorageRelativePath($newCachedManifestPath),
+        );
+    }
+
+    public function test_camera_storage_network_read_cache_preserves_the_original_extension(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Storage Lane',
+            'local_ip' => '192.168.1.214',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream5',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/07/network-read.mkv';
+        $stagedPath = $storage->writableAbsolutePath($relativePath);
+
+        File::ensureDirectoryExists(dirname($stagedPath));
+        File::put($stagedPath, 'segment');
+        $storage->finalizeStagedWrite($relativePath, $stagedPath);
+
+        $resolvedPath = $storage->resolveRecordingAbsolutePath($relativePath);
+
+        $this->assertNotNull($resolvedPath);
+        $this->assertStringEndsWith('.mkv', (string) $resolvedPath);
+        $this->assertTrue($storage->isTemporaryManagedPath($resolvedPath));
+
+        $storage->deleteTemporaryFile($resolvedPath);
+    }
+
+    public function test_camera_storage_rejects_traversal_paths_for_private_reads(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Storage Lane',
+            'local_ip' => '192.168.1.213',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream4',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $outsidePath = storage_path('app/private/../escaped-recording.mkv');
+        File::ensureDirectoryExists(dirname($outsidePath));
+        File::put($outsidePath, 'escaped');
+
+        $storage = app(CameraStorageService::class);
+        $traversalPath = 'cameras/'.$camera->id.'/recordings/2026/04/07/../../../../../escaped-recording.mkv';
+
+        $this->assertNull($storage->normalizePrivateStorageRelativePath($traversalPath));
+        $this->assertFalse($storage->recordingExists($traversalPath));
+        $this->assertNull($storage->resolveRecordingAbsolutePath($traversalPath));
+    }
+
+    public function test_camera_storage_does_not_delete_files_outside_managed_temp_roots(): void
+    {
+        $storage = app(CameraStorageService::class);
+        $outsidePath = storage_path('app/private/ffmpeg-temp/outside.txt');
+        $craftedPath = storage_path('app/private/ffmpeg-temp/camera-network-cache/../outside.txt');
+
+        File::ensureDirectoryExists(dirname($outsidePath));
+        File::put($outsidePath, 'keep-me');
+
+        $this->assertFalse($storage->isTemporaryManagedPath($craftedPath));
+
+        $storage->deleteTemporaryFile($craftedPath);
+
+        $this->assertFileExists($outsidePath);
+    }
+
+    public function test_camera_storage_stages_network_writes_under_ffmpeg_temp_and_finalizes_nested_paths(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Finalize Lane',
+            'local_ip' => '192.168.1.211',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/07/finalize-check.mkv';
+        $absolutePath = $storage->writableAbsolutePath($relativePath);
+
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'segment');
+
+        $this->assertStringStartsWith(
+            storage_path('app/private/ffmpeg-temp/camera-network-staging/'),
+            $absolutePath,
+        );
+
+        $storage->finalizeStagedWrite($relativePath, $absolutePath);
+
+        $this->assertTrue($storage->recordingExists($relativePath));
+        $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/2026/04/07/finalize-check.mkv'));
+        $this->assertFileDoesNotExist($absolutePath);
     }
 }

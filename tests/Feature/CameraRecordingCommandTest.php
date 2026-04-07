@@ -189,11 +189,11 @@ class CameraRecordingCommandTest extends TestCase
 
         Artisan::call('camera-recordings:tick');
 
-        $recording = CameraRecording::query()->firstOrFail();
+        $this->assertDatabaseCount('camera_recordings', 0);
 
-        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
-        $this->assertNull($recording->relative_path);
-        $this->assertStringContainsString('No motion crossed', (string) $recording->message);
+        $camera = Camera::query()->firstOrFail();
+
+        $this->assertNull($camera->fresh()->recording_last_motion_at);
     }
 
     public function test_it_ignores_motion_outside_the_selected_mask(): void
@@ -229,10 +229,7 @@ class CameraRecordingCommandTest extends TestCase
 
         Artisan::call('camera-recordings:tick');
 
-        $recording = CameraRecording::query()->firstOrFail();
-
-        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
-        $this->assertNull($recording->relative_path);
+        $this->assertDatabaseCount('camera_recordings', 0);
     }
 
     public function test_it_compiles_motion_recordings_with_pre_roll_and_post_trigger_footage(): void
@@ -469,11 +466,7 @@ class CameraRecordingCommandTest extends TestCase
 
         Artisan::call('camera-recordings:tick');
 
-        $recording = CameraRecording::query()->firstOrFail();
-
-        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
-        $this->assertNull($recording->relative_path);
-        $this->assertStringContainsString('during the monitored span after pre-roll context', (string) $recording->message);
+        $this->assertDatabaseCount('camera_recordings', 0);
     }
 
     public function test_it_does_not_queue_a_new_motion_recording_while_a_motion_event_is_active(): void
@@ -500,6 +493,89 @@ class CameraRecordingCommandTest extends TestCase
         Artisan::call('camera-recordings:tick');
 
         $this->assertSame(0, CameraRecording::query()->count());
+    }
+
+    public function test_it_does_not_queue_a_new_motion_recording_while_a_pending_row_exists(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.87',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream16',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'scheduled_for' => now()->utc()->startOfMinute(),
+            'message' => 'Waiting for a worker attempt.',
+        ]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertSame(1, CameraRecording::query()->count());
+        $this->assertTrue($recording->fresh()->isPending());
+    }
+
+    public function test_it_allows_the_same_motion_recording_to_resume_when_it_already_owns_the_active_state(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+
+        $camera = Camera::query()->create([
+            'name' => 'Retry Bay',
+            'local_ip' => '192.168.1.86',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream15',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'scheduled_for' => now()->utc()->startOfMinute(),
+            'message' => 'Retrying the same motion event.',
+        ]);
+
+        Cache::put('camera-recordings:motion-event:camera:'.$camera->id, [
+            'recording_id' => $recording->id,
+            'expires_at' => now()->utc()->addSeconds(60)->toIso8601String(),
+        ], 60);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+
+        app(CameraRecordingService::class)->processRecording($recording);
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertNotNull($recording->relative_path);
+        $this->assertFileExists(storage_path('app/private/'.$recording->relative_path));
     }
 
     public function test_it_marks_the_segment_failed_when_capture_errors_out(): void
@@ -542,7 +618,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertStringContainsString('simulated capture failure', (string) $recording->message);
     }
 
-    public function test_it_recovers_a_stale_pending_segment_on_the_next_scheduler_tick(): void
+    public function test_it_discards_a_stale_pending_motion_segment_instead_of_recovering_it(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
@@ -585,15 +661,12 @@ class CameraRecordingCommandTest extends TestCase
         ])->save();
         $recording->timestamps = true;
 
-        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+        $recovered = app(CameraRecordingService::class)->recoverStalePendingRecordings();
 
-        Artisan::call('camera-recordings:tick');
-
-        $recording->refresh();
-
-        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
-        $this->assertNotNull($recording->relative_path);
-        $this->assertFileExists(storage_path('app/private/'.$recording->relative_path));
+        $this->assertSame(0, $recovered);
+        $this->assertDatabaseMissing('camera_recordings', [
+            'id' => $recording->id,
+        ]);
     }
 
     public function test_it_records_motion_segments_and_prunes_expired_segments(): void
@@ -668,6 +741,80 @@ class CameraRecordingCommandTest extends TestCase
             'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/01/expired-continuous.mkv',
         ]);
         $this->assertDirectoryDoesNotExist($expiredReviewAssetDirectory);
+    }
+
+    public function test_it_prunes_expired_terminal_motion_rows_without_saved_files(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Quiet Lane',
+            'local_ip' => '192.168.1.77',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream7',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+        ]);
+
+        $scheduledFor = now()->utc()->subDays(2)->startOfMinute();
+
+        CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_SKIPPED,
+            'scheduled_for' => $scheduledFor,
+            'started_at' => $scheduledFor,
+            'ended_at' => $scheduledFor->copy()->addSeconds(33),
+            'motion_score' => 0.0420,
+            'message' => 'Legacy quiet motion evaluation.',
+            'created_at' => $scheduledFor,
+            'updated_at' => $scheduledFor,
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+    }
+
+    public function test_it_marks_recorded_rows_failed_when_the_segment_file_is_missing(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Archive Gate',
+            'local_ip' => '192.168.1.78',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream8',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'started_at' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'ended_at' => now()->utc()->subMinutes(14)->startOfMinute(),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/missing-archive-gate.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Previously recorded clip.',
+        ]);
+
+        $reviewDirectory = dirname(app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, '.', true));
+        File::put($reviewDirectory.'/preview.mp4', 'preview');
+        File::put($reviewDirectory.'/poster.jpg', 'poster');
+
+        Artisan::call('camera-recordings:prune');
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_FAILED, $recording->status);
+        $this->assertNull($recording->file_size_bytes);
+        $this->assertStringContainsString('missing from active storage', (string) $recording->message);
+        $this->assertDirectoryDoesNotExist($reviewDirectory);
     }
 
     public function test_it_prunes_expired_segments_with_legacy_private_storage_path_formats(): void
