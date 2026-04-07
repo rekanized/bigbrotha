@@ -15,17 +15,25 @@ class RecordingWorkerService
      */
     public function installSystemdUserService(bool $start = true): array
     {
-        $path = $this->systemdServicePath();
-        $contents = $this->systemdServiceContents();
+        $paths = [];
+        $wrote = false;
 
         try {
-            File::ensureDirectoryExists(dirname($path));
+            foreach ($this->systemdServiceNames() as $serviceName) {
+                $path = $this->systemdServicePath($serviceName);
+                $contents = $this->systemdServiceContents();
 
-            $existingContents = is_file($path) ? file_get_contents($path) : false;
-            $wrote = !is_string($existingContents) || $existingContents !== $contents;
+                File::ensureDirectoryExists(dirname($path));
 
-            if ($wrote) {
-                File::put($path, $contents);
+                $existingContents = is_file($path) ? file_get_contents($path) : false;
+                $serviceWrote = !is_string($existingContents) || $existingContents !== $contents;
+
+                if ($serviceWrote) {
+                    File::put($path, $contents);
+                }
+
+                $wrote = $wrote || $serviceWrote;
+                $paths[] = $path;
             }
 
             $reload = new Process([
@@ -42,15 +50,21 @@ class RecordingWorkerService
                     'wrote' => $wrote,
                     'enabled' => false,
                     'started' => false,
-                    'message' => 'Wrote the recordings worker service file, but systemd daemon-reload failed: '.trim($reload->getErrorOutput() ?: $reload->getOutput()),
-                    'path' => $path,
+                    'message' => 'Wrote the recordings worker service file'.($this->desiredWorkerCount() === 1 ? '' : 's').', but systemd daemon-reload failed: '.trim($reload->getErrorOutput() ?: $reload->getOutput()),
+                    'path' => implode(', ', $paths),
                 ];
             }
 
+            $enableCommand = [$this->systemctlBinary(), '--user', 'enable'];
+
+            if ($start) {
+                $enableCommand[] = '--now';
+            }
+
+            $enableCommand = array_merge($enableCommand, $this->systemdServiceNames());
+
             $enable = new Process(
-                $start
-                    ? [$this->systemctlBinary(), '--user', 'enable', '--now', $this->systemdServiceName()]
-                    : [$this->systemctlBinary(), '--user', 'enable', $this->systemdServiceName()],
+                $enableCommand,
                 base_path(),
                 $this->systemdEnvironment(),
             );
@@ -63,10 +77,12 @@ class RecordingWorkerService
                     'wrote' => $wrote,
                     'enabled' => false,
                     'started' => false,
-                    'message' => 'The recordings worker service file exists, but systemd could not enable it: '.trim($enable->getErrorOutput() ?: $enable->getOutput()),
-                    'path' => $path,
+                    'message' => 'The recordings worker service file'.($this->desiredWorkerCount() === 1 ? ' exists' : 's exist').', but systemd could not enable '.($this->desiredWorkerCount() === 1 ? 'it' : 'them').': '.trim($enable->getErrorOutput() ?: $enable->getOutput()),
+                    'path' => implode(', ', $paths),
                 ];
             }
+
+            $this->disableLegacySingleWorkerService();
 
             return [
                 'ok' => true,
@@ -74,13 +90,17 @@ class RecordingWorkerService
                 'enabled' => true,
                 'started' => $start,
                 'message' => $start
-                    ? 'Installed and started the recordings worker systemd unit.'
-                    : 'Installed and enabled the recordings worker systemd unit.',
-                'path' => $path,
+                    ? ($this->desiredWorkerCount() === 1
+                        ? 'Installed and started the recordings worker systemd unit.'
+                        : 'Installed and started '.$this->desiredWorkerCount().' recordings worker systemd units.')
+                    : ($this->desiredWorkerCount() === 1
+                        ? 'Installed and enabled the recordings worker systemd unit.'
+                        : 'Installed and enabled '.$this->desiredWorkerCount().' recordings worker systemd units.'),
+                'path' => implode(', ', $paths),
             ];
         } catch (Throwable $exception) {
             $this->safeLogWarning('Unable to install the recordings queue worker systemd unit.', [
-                'path' => $path,
+                'path' => implode(', ', $paths),
                 'error' => $exception->getMessage(),
             ]);
 
@@ -90,7 +110,7 @@ class RecordingWorkerService
                 'enabled' => false,
                 'started' => false,
                 'message' => 'Unable to install the recordings worker systemd unit: '.$exception->getMessage(),
-                'path' => $path,
+                'path' => implode(', ', $paths),
             ];
         }
     }
@@ -114,27 +134,30 @@ class RecordingWorkerService
         }
 
         try {
-            $pid = $this->runningPid();
+            $pids = $this->runningPids();
+            $requiredWorkers = $this->desiredWorkerCount();
 
-            if ($pid !== null) {
+            if (count($pids) >= $requiredWorkers) {
                 return [
                     'ok' => true,
                     'running' => true,
                     'started' => false,
                     'method' => 'process',
-                    'message' => 'The recordings queue worker is already running.',
-                    'pid' => $pid,
+                    'message' => $requiredWorkers === 1
+                        ? 'The recordings queue worker is already running.'
+                        : 'All '.$requiredWorkers.' recordings queue workers are already running.',
+                    'pid' => $pids[0] ?? null,
                 ];
             }
 
             if (!(bool) config('recording.worker.ensure_running', false)) {
                 return [
                     'ok' => true,
-                    'running' => false,
+                    'running' => $pids !== [],
                     'started' => false,
                     'method' => 'disabled',
                     'message' => 'Recordings worker supervision is disabled.',
-                    'pid' => null,
+                    'pid' => $pids[0] ?? null,
                 ];
             }
 
@@ -145,16 +168,18 @@ class RecordingWorkerService
             }
 
             if ((bool) config('recording.worker.fallback_start', false)) {
-                return $this->startDetachedWorker();
+                return $this->startDetachedWorkers();
             }
 
             return [
                 'ok' => false,
-                'running' => false,
+                'running' => $this->runningPids() !== [],
                 'started' => false,
                 'method' => 'unavailable',
-                'message' => 'No recordings worker is running, systemd start was unavailable, and detached fallback start is disabled.',
-                'pid' => null,
+                'message' => $requiredWorkers === 1
+                    ? 'No recordings worker is running, systemd start was unavailable, and detached fallback start is disabled.'
+                    : 'Only '.$this->runningWorkerCount().' of '.$requiredWorkers.' recordings workers are running, systemd start was unavailable, and detached fallback start is disabled.',
+                'pid' => ($this->runningPids())[0] ?? null,
             ];
         } finally {
             $lock->release();
@@ -168,12 +193,22 @@ class RecordingWorkerService
 
     public function runningPid(): ?int
     {
+        return $this->runningPids()[0] ?? null;
+    }
+
+    /**
+     * @return array<int>
+     */
+    public function runningPids(): array
+    {
+        $pids = [];
+
         $process = new Process([$this->psBinary(), '-eo', 'pid=,args=']);
         $process->setTimeout(2);
         $process->run();
 
         if (!$process->isSuccessful()) {
-            return null;
+            return [];
         }
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $line) {
@@ -197,11 +232,13 @@ class RecordingWorkerService
             }
 
             if ($this->processIsRunning($resolvedPid)) {
-                return $resolvedPid;
+                $pids[] = $resolvedPid;
             }
         }
 
-        return null;
+        sort($pids);
+
+        return array_values(array_unique($pids));
     }
 
     /**
@@ -209,66 +246,72 @@ class RecordingWorkerService
      */
     private function startViaSystemd(): ?array
     {
-        $service = trim((string) config('recording.worker.systemd_service', ''));
+        $services = $this->systemdServiceNames();
 
-        if ($service === '') {
+        if ($services === []) {
             return null;
         }
 
         try {
-            $status = new Process([
-                $this->systemctlBinary(),
-                '--user',
-                'is-active',
-                '--quiet',
-                $service,
-            ], base_path(), $this->systemdEnvironment());
-            $status->setTimeout(8);
-            $status->run();
+            $startedServices = [];
 
-            if ($status->isSuccessful()) {
-                return [
-                    'ok' => true,
-                    'running' => true,
-                    'started' => false,
-                    'method' => 'systemd',
-                    'message' => 'The recordings queue worker systemd unit is already active.',
-                    'pid' => $this->runningPid(),
-                ];
-            }
+            foreach ($services as $service) {
+                $status = new Process([
+                    $this->systemctlBinary(),
+                    '--user',
+                    'is-active',
+                    '--quiet',
+                    $service,
+                ], base_path(), $this->systemdEnvironment());
+                $status->setTimeout(8);
+                $status->run();
 
-            $start = new Process([
-                $this->systemctlBinary(),
-                '--user',
-                'start',
-                $service,
-            ], base_path(), $this->systemdEnvironment());
-            $start->setTimeout(15);
-            $start->run();
+                if ($status->isSuccessful()) {
+                    continue;
+                }
 
-            if (!$start->isSuccessful()) {
-                $this->safeLogWarning('Unable to start the recordings queue worker via systemd.', [
-                    'service' => $service,
-                    'error' => trim($start->getErrorOutput() ?: $start->getOutput()),
-                ]);
+                $start = new Process([
+                    $this->systemctlBinary(),
+                    '--user',
+                    'start',
+                    $service,
+                ], base_path(), $this->systemdEnvironment());
+                $start->setTimeout(15);
+                $start->run();
 
-                return null;
+                if (!$start->isSuccessful()) {
+                    $this->safeLogWarning('Unable to start the recordings queue worker via systemd.', [
+                        'service' => $service,
+                        'error' => trim($start->getErrorOutput() ?: $start->getOutput()),
+                    ]);
+
+                    return null;
+                }
+
+                $startedServices[] = $service;
             }
 
             usleep(300000);
-            $pid = $this->runningPid();
+            $pids = $this->runningPids();
+            $requiredWorkers = $this->desiredWorkerCount();
 
             return [
                 'ok' => true,
                 'running' => true,
-                'started' => true,
+                'started' => $startedServices !== [],
                 'method' => 'systemd',
-                'message' => 'Started the recordings queue worker via the configured systemd unit.',
-                'pid' => $pid,
+                'message' => $startedServices === []
+                    ? ($requiredWorkers === 1
+                        ? 'The recordings queue worker systemd unit is already active.'
+                        : 'All '.$requiredWorkers.' recordings queue worker systemd units are already active.')
+                    : ($requiredWorkers === 1
+                        ? 'Started the recordings queue worker via the configured systemd unit.'
+                        : 'Started '.count($startedServices).' recordings queue worker'.(count($startedServices) === 1 ? '' : 's').' via the configured systemd units.'),
+                'pid' => $pids[0] ?? null,
             ];
         } catch (Throwable $exception) {
             $this->safeLogWarning('Unable to manage the recordings queue worker via systemd.', [
-                'service' => $service,
+                'service' => implode(', ', $services),
                 'error' => $exception->getMessage(),
             ]);
 
@@ -279,61 +322,82 @@ class RecordingWorkerService
     /**
      * @return array{ok: bool, running: bool, started: bool, method: string, message: string, pid: int|null}
      */
-    private function startDetachedWorker(): array
+    private function startDetachedWorkers(): array
     {
         $logPath = (string) config('recording.worker.log_path', storage_path('logs/recordings-queue-worker.log'));
         File::ensureDirectoryExists(dirname($logPath));
 
-        $command = sprintf(
-            'cd %s && nohup %s artisan queue:work --queue=%s --max-jobs=%d --max-time=%d --memory=%d >> %s 2>&1 & echo $!',
-            escapeshellarg(base_path()),
-            escapeshellarg($this->phpBinary()),
-            escapeshellarg($this->workerQueues()),
-            $this->maxJobs(),
-            $this->maxTime(),
-            $this->memoryLimit(),
-            escapeshellarg($logPath),
-        );
+        $missingWorkers = max(0, $this->desiredWorkerCount() - $this->runningWorkerCount());
+        $startedPids = [];
 
-        $process = new Process([$this->shellBinary(), '-lc', $command]);
-        $process->setTimeout(15);
-        $process->run();
+        for ($workerIndex = 0; $workerIndex < $missingWorkers; $workerIndex++) {
+            $command = sprintf(
+                'cd %s && nohup %s artisan queue:work --queue=%s --max-jobs=%d --max-time=%d --memory=%d >> %s 2>&1 & echo $!',
+                escapeshellarg(base_path()),
+                escapeshellarg($this->phpBinary()),
+                escapeshellarg($this->workerQueues()),
+                $this->maxJobs(),
+                $this->maxTime(),
+                $this->memoryLimit(),
+                escapeshellarg($logPath),
+            );
 
-        if (!$process->isSuccessful()) {
-            return [
-                'ok' => false,
-                'running' => false,
-                'started' => false,
-                'method' => 'detached',
-                'message' => 'Unable to start the recordings queue worker from the scheduler fallback: '.trim($process->getErrorOutput() ?: $process->getOutput()),
-                'pid' => null,
-            ];
-        }
+            $process = new Process([$this->shellBinary(), '-lc', $command]);
+            $process->setTimeout(15);
+            $process->run();
 
-        $pid = (int) trim($process->getOutput());
-
-        for ($attempt = 0; $attempt < 5; $attempt++) {
-            if ($pid > 0 && $this->processIsRunning($pid)) {
+            if (!$process->isSuccessful()) {
                 return [
-                    'ok' => true,
-                    'running' => true,
-                    'started' => true,
+                    'ok' => false,
+                    'running' => $this->runningPids() !== [],
+                    'started' => false,
                     'method' => 'detached',
-                    'message' => 'Started the recordings queue worker from the scheduler fallback.',
-                    'pid' => $pid,
+                    'message' => 'Unable to start the recordings queue worker from the scheduler fallback: '.trim($process->getErrorOutput() ?: $process->getOutput()),
+                    'pid' => $this->runningPid(),
                 ];
             }
 
-            usleep(200000);
+            $pid = (int) trim($process->getOutput());
+
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                if ($pid > 0 && $this->processIsRunning($pid)) {
+                    $startedPids[] = $pid;
+                    continue 2;
+                }
+
+                usleep(200000);
+            }
+
+            return [
+                'ok' => false,
+                'running' => $this->runningPids() !== [],
+                'started' => $startedPids !== [],
+                'method' => 'detached',
+                'message' => 'The scheduler fallback launched a worker command, but the process did not remain running.',
+                'pid' => $pid > 0 ? $pid : ($startedPids[0] ?? null),
+            ];
+        }
+
+        if ($this->runningWorkerCount() < $this->desiredWorkerCount()) {
+            return [
+                'ok' => false,
+                'running' => $this->runningPids() !== [],
+                'started' => $startedPids !== [],
+                'method' => 'detached',
+                'message' => 'The scheduler fallback started additional workers, but the expected worker count was not reached.',
+                'pid' => $startedPids[0] ?? $this->runningPid(),
+            ];
         }
 
         return [
-            'ok' => false,
-            'running' => false,
-            'started' => false,
+            'ok' => true,
+            'running' => true,
+            'started' => $startedPids !== [],
             'method' => 'detached',
-            'message' => 'The scheduler fallback launched a worker command, but the process did not remain running.',
-            'pid' => $pid > 0 ? $pid : null,
+            'message' => $this->desiredWorkerCount() === 1
+                ? 'Started the recordings queue worker from the scheduler fallback.'
+                : 'Started '.count($startedPids).' recordings queue worker'.(count($startedPids) === 1 ? '' : 's').' from the scheduler fallback.',
+            'pid' => $startedPids[0] ?? $this->runningPid(),
         ];
     }
 
@@ -415,9 +479,9 @@ class RecordingWorkerService
         return $environment;
     }
 
-    private function systemdServicePath(): string
+    private function systemdServicePath(string $serviceName): string
     {
-        return rtrim((string) config('recording.worker.systemd_user_dir', $this->defaultSystemdUserDirectory()), '/').'/'.$this->systemdServiceName();
+        return rtrim((string) config('recording.worker.systemd_user_dir', $this->defaultSystemdUserDirectory()), '/').'/'.$serviceName;
     }
 
     private function defaultSystemdUserDirectory(): string
@@ -434,6 +498,38 @@ class RecordingWorkerService
     private function systemdServiceName(): string
     {
         return (string) config('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
+    }
+
+    /**
+     * @return array<string>
+     */
+    private function systemdServiceNames(): array
+    {
+        $service = trim($this->systemdServiceName());
+
+        if ($service === '') {
+            return [];
+        }
+
+        $workerCount = $this->desiredWorkerCount();
+
+        if ($workerCount === 1) {
+            return [$service];
+        }
+
+        if (preg_match('/^(.*?)(\.service)$/', $service, $matches) !== 1) {
+            return [$service];
+        }
+
+        $prefix = $matches[1];
+        $suffix = $matches[2];
+        $services = [];
+
+        for ($index = 1; $index <= $workerCount; $index++) {
+            $services[] = $prefix.'-'.$index.$suffix;
+        }
+
+        return $services;
     }
 
     private function systemdServiceContents(): string
@@ -457,6 +553,64 @@ class RecordingWorkerService
             'WantedBy=default.target',
             '',
         ]);
+    }
+
+    private function disableLegacySingleWorkerService(): void
+    {
+        $legacyService = $this->legacySingleWorkerServiceName();
+
+        if ($legacyService === null) {
+            return;
+        }
+
+        try {
+            $disable = new Process([
+                $this->systemctlBinary(),
+                '--user',
+                'disable',
+                '--now',
+                $legacyService,
+            ], base_path(), $this->systemdEnvironment());
+            $disable->setTimeout(20);
+            $disable->run();
+
+            if (!$disable->isSuccessful()) {
+                $this->safeLogWarning('Unable to retire the legacy recordings queue worker systemd unit.', [
+                    'service' => $legacyService,
+                    'error' => trim($disable->getErrorOutput() ?: $disable->getOutput()),
+                ]);
+            }
+        } catch (Throwable $exception) {
+            $this->safeLogWarning('Unable to retire the legacy recordings queue worker systemd unit.', [
+                'service' => $legacyService,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function desiredWorkerCount(): int
+    {
+        return max(1, (int) config('recording.worker.processes', 1));
+    }
+
+    private function legacySingleWorkerServiceName(): ?string
+    {
+        if ($this->desiredWorkerCount() === 1) {
+            return null;
+        }
+
+        $service = trim($this->systemdServiceName());
+
+        if ($service === '' || in_array($service, $this->systemdServiceNames(), true)) {
+            return null;
+        }
+
+        return $service;
+    }
+
+    private function runningWorkerCount(): int
+    {
+        return count($this->runningPids());
     }
 
     private function workerQueues(): string

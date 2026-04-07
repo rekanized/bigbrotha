@@ -8,6 +8,7 @@ use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
 use App\Services\RecordingReviewAssetService;
+use App\Services\ContinuousRecordingSegmenterService;
 use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
@@ -98,6 +99,10 @@ Artisan::command('camera-recordings:tick', function (): int {
     $scheduledFor = now()->utc()->startOfMinute();
     $recordings = app(CameraRecordingService::class);
     $recovered = $recordings->recoverStalePendingRecordings();
+    $continuousRecorders = app(ContinuousRecordingSegmenterService::class);
+    $continuousStopped = $continuousRecorders->stopUnmanagedRecorders();
+    $continuousStarted = 0;
+    $continuousImported = 0;
     $queued = 0;
 
     Camera::query()
@@ -105,26 +110,50 @@ Artisan::command('camera-recordings:tick', function (): int {
         ->where('supports_rtsp', true)
         ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
         ->orderBy('id')
-        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, $recordings): void {
+        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, &$continuousStarted, &$continuousImported, $recordings, $continuousRecorders): void {
             foreach ($cameras as $camera) {
                 if (!$camera->hasRecordingEnabled()) {
                     continue;
                 }
 
                 if ($camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS) {
-                    $recording = $recordings->ensureContinuousRecordingQueued($camera, now()->utc());
+                    if (!$continuousRecorders->enabled()) {
+                        $recording = $recordings->ensureContinuousRecordingQueued($camera, now()->utc());
 
-                    if (!$recording instanceof CameraRecording) {
+                        if (!$recording instanceof CameraRecording) {
+                            continue;
+                        }
+
+                        if ($recordings->dispatchRecording(
+                            $recording,
+                            'Queued by scheduler for continuous capture at '.$recording->scheduled_for?->format('Y-m-d H:i:s').' UTC.',
+                        )) {
+                            $queued++;
+                        }
+
                         continue;
                     }
 
-                    if ($recordings->dispatchRecording(
-                        $recording,
-                        'Queued by scheduler for continuous capture at '.$recording->scheduled_for?->format('Y-m-d H:i:s').' UTC.',
-                    )) {
-                        $queued++;
+                    $source = $recordings->resolveRecordingSource($camera);
+
+                    if ($source === null) {
+                        $continuousRecorders->stop($camera);
+
+                        continue;
                     }
 
+                    $result = $continuousRecorders->syncCamera($camera, $source);
+
+                    if ($result['started']) {
+                        $continuousStarted++;
+                    }
+
+                    $continuousImported += $result['imported'];
+
+                    continue;
+                }
+
+                if ($recordings->isMotionRecordingActive($camera)) {
                     continue;
                 }
 
@@ -151,6 +180,18 @@ Artisan::command('camera-recordings:tick', function (): int {
 
     if ($recovered > 0) {
         $message .= ' Recovered '.$recovered.' stale pending segment'.($recovered === 1 ? '' : 's').'.';
+    }
+
+    if ($continuousStarted > 0) {
+        $message .= ' Started '.$continuousStarted.' continuous recorder process'.($continuousStarted === 1 ? '' : 'es').'.';
+    }
+
+    if ($continuousImported > 0) {
+        $message .= ' Imported '.$continuousImported.' continuous segment'.($continuousImported === 1 ? '' : 's').'.';
+    }
+
+    if ($continuousStopped > 0) {
+        $message .= ' Stopped '.$continuousStopped.' unmanaged continuous recorder process'.($continuousStopped === 1 ? '' : 'es').'.';
     }
 
     $this->components->info($message);

@@ -12,7 +12,6 @@
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
-    <a class="button button--soft" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
 @endsection
 
 @section('content')

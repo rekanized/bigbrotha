@@ -71,7 +71,7 @@ It supports:
 - toggling ONVIF and RTSP support.
 - selecting a recording mode per camera.
 - choosing recording retention in days.
-- setting motion sensitivity and the motion-analysis region as percentages of the feed.
+- setting the movement threshold and painting motion-detection zones directly over the live feed.
 - saving camera changes.
 - refreshing RTSP profiles from ONVIF.
 - saving a direct RTSP endpoint for cameras that do not support ONVIF.
@@ -135,10 +135,11 @@ Camera Fleet is now the place where operators enable feed recording.
 Current behavior:
 
 1. each camera can stay off, record continuously, or record only on movement.
-2. movement recording uses a basic ffmpeg scene-change check over a cropped feed region defined by left, top, width, and height percentages.
-3. higher motion sensitivity values react to smaller pixel changes.
-4. the selected recording source can stay on automatic primary-profile selection or target a saved RTSP profile explicitly.
-5. retention is currently enforced per camera in whole days, with the default workflow set to one day.
+2. movement recording now uses a painted motion mask stored as a low-resolution grid instead of a single rectangle.
+3. operators paint or erase that mask over a live stream preview, and the initial state starts with the full viewport selected.
+4. the movement threshold is the percentage of selected mask pixels that must change before a clip is recorded.
+5. the selected recording source can stay on automatic primary-profile selection or target a saved RTSP profile explicitly.
+6. retention is currently enforced per camera in whole days, with the default workflow set to one day.
 
 The first implementation prioritizes reliability and resource control: the recorder writes short direct-to-disk segments with ffmpeg stream copy instead of buffering or re-encoding in PHP.
 
@@ -162,18 +163,19 @@ Recording maintenance is also scheduler-driven.
 Current behavior:
 
 1. `camera-recordings:tick` runs every minute and queues one recording decision per eligible camera.
-2. continuous mode uses the scheduler tick as a bootstrap or recovery trigger, then immediately chains the next direct-to-disk segment from the end of the current one instead of waiting for the next minute boundary.
-3. motion mode first samples a short cropped analysis window and only writes a segment when the selected region crosses the configured threshold.
-4. recording work is queue-backed and guarded by a per-camera lock so duplicate overlapping segment jobs are avoided.
-5. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
+2. continuous mode uses the scheduler tick as a bootstrap or recovery trigger, keeps one ffmpeg segment-muxer process running per camera, and imports completed direct-to-disk files without waiting for minute boundaries.
+3. motion mode now captures one buffered motion-only clip that includes the per-camera pre-roll context and the monitored span that follows it, then saves the whole clip when motion crosses the threshold during that monitored span.
+4. motion events ignore new motion triggers while an existing motion clip is still being compiled so overlapping motion files are not generated for the same camera.
+5. motion capture and review-asset work stay queue-backed and guarded by a per-camera lock so duplicate overlapping jobs are avoided, while continuous mode is watchdog-managed by the persistent segmenter service.
+6. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
 
 Continuous timestamp behavior:
 
-1. a continuous segment now stamps `scheduled_for` and `started_at` at the actual capture start once ffmpeg begins the segment job.
-2. `ended_at` is derived from that capture start plus the configured segment duration instead of from PHP process cleanup time.
+1. a continuous segment now stamps `scheduled_for` and `started_at` from the imported segment filename timestamp written by the persistent ffmpeg segmenter.
+2. `ended_at` is derived from that imported segment start plus the configured segment duration instead of from PHP process cleanup time.
 3. exact timeline-boundary focus points resolve to the following adjacent clip, so operators do not lose the next clip behind an inclusive edge match.
 
-Production deployments should run a queue worker for the `recordings` queue in addition to the normal scheduler.
+Production deployments should run both the minute scheduler and a queue worker for the `recordings` queue so the continuous watchdog, motion clips, and review assets all keep flowing.
 
 ## Live Wall Playback
 
@@ -204,12 +206,13 @@ Current behavior:
 
 1. create one or more named walls for different operators, rooms, or viewing objectives.
 2. assign specific cameras to wall tiles instead of sending every enabled camera to the wall.
-3. drag tile rows to reorder how cameras are packed across the live wall.
-4. choose tile orientation per assignment with landscape, portrait, or square framing.
-5. choose tile span so priority cameras can occupy more grid space.
-6. mark one wall as the default wall used by `/live-wall` when no query string override is provided.
+3. use the top grid itself as the editor, with each tile exposing its own camera source, orientation, and span controls directly inside the tile.
+4. drag tiles inside that grid to reorder how cameras are packed across the live wall.
+5. choose tile orientation and span in place so priority cameras can occupy more grid space immediately.
+6. remove a tile entirely when you do not want that feed shown on the live wall.
+7. mark one wall as the default wall used by `/live-wall` when no query string override is provided.
 
-Disabled cameras can still remain assigned in the builder, but `/live-wall` only renders enabled camera records attached to enabled wall tiles.
+Disabled camera records can still remain assigned in the builder, but `/live-wall` only renders enabled camera records attached to the saved wall layout.
 
 ## Live Wall Playback
 

@@ -4,6 +4,8 @@
 
 @section('layout_mode', 'immersive')
 
+@section('show_immersive_rail', 'true')
+
 @section('body_class', 'page-live-wall')
 
 @section('content')
@@ -167,19 +169,6 @@
                             >
                             <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
                         </label>
-
-                        <details class="live-wall-wall-switcher__menu">
-                            <summary class="live-wall-wall-switcher__menu-toggle" aria-label="Open live wall navigation" data-role="live-wall-menu-toggle">
-                                <span>Menu</span>
-                            </summary>
-
-                            <div class="live-wall-wall-switcher__menu-panel">
-                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
-                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
-                                <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
-                            </div>
-                        </details>
                     </div>
 
                     <a
@@ -248,7 +237,6 @@
                                 <div class="live-wall-wall-switcher__mobile-links">
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
                                 </div>
                             </div>

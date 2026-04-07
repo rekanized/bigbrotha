@@ -398,6 +398,16 @@ class RecordingBrowserTest extends TestCase
             ->assertHeader('content-type', 'video/mp4');
 
         $this->assertSame('playback-stream', $streamResponse->streamedContent());
+
+        $reviewStreamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.review-stream', ['recording' => $recording]));
+
+        $reviewStreamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertSame('playback-stream', $reviewStreamResponse->streamedContent());
     }
 
     public function test_operator_can_open_a_camera_selected_recording_timeline_without_live_feed_bootstrap(): void
@@ -663,7 +673,7 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('src="'.route('recordings.preview-stream', ['recording' => $recording]).'"', false);
     }
 
-    public function test_timeline_exact_clip_boundary_selects_the_following_adjacent_segment(): void
+    public function test_timeline_exact_clip_boundary_keeps_the_following_adjacent_segment_available_in_the_rail_payload(): void
     {
         $operator = User::factory()->create();
 
@@ -703,12 +713,20 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Second clip saved.',
         ]);
 
-        $this->actingAs($operator)
+        $response = $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id], 'focus_at' => '2026-04-04 12:01:00']))
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-04',
+                'date_to' => '2026-04-04',
+                'focus_at' => '2026-04-04 14:01:00',
+            ]));
+
+        $response
             ->assertOk()
-            ->assertSee('src="'.route('recordings.stream', ['recording' => $secondRecording]).'"', false)
-            ->assertDontSee('src="'.route('recordings.stream', ['recording' => $firstRecording]).'"', false);
+            ->assertSee('data-recording-id="'.$secondRecording->id.'"', false)
+            ->assertSee('data-focus-ms="1775304060000"', false)
+            ->assertSee('North Gate 14:01:00 - 14:02:00 CEST Continuous clip');
     }
 
     public function test_timeline_initial_stage_ignores_stale_cached_preview_assets(): void
@@ -759,10 +777,15 @@ class RecordingBrowserTest extends TestCase
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.timeline', ['camera_ids' => [$camera->id], 'focus_at' => '2026-04-04 17:23:30']))
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-04',
+                'date_to' => '2026-04-04',
+                'focus_at' => '2026-04-04 19:23:30',
+            ]))
             ->assertOk()
-            ->assertSee('src="'.route('recordings.stream', ['recording' => $recording]).'"', false)
-            ->assertDontSee('src="'.route('recordings.preview-stream', ['recording' => $recording]).'"', false)
+            ->assertSee('data-recording-id="'.$recording->id.'"', false)
+            ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
             ->assertSee('Direct stream');
     }
 

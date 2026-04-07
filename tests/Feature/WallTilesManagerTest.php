@@ -71,6 +71,7 @@ class WallTilesManagerTest extends TestCase
             'orientation' => 'portrait',
             'column_span' => 2,
             'row_span' => 1,
+            'is_enabled' => true,
         ]);
         $this->assertDatabaseHas('live_wall_tiles', [
             'live_wall_id' => $wall->id,
@@ -79,6 +80,7 @@ class WallTilesManagerTest extends TestCase
             'orientation' => 'square',
             'column_span' => 1,
             'row_span' => 2,
+            'is_enabled' => true,
         ]);
         $this->assertSame(1, LiveWall::query()->where('is_default', true)->count());
     }

@@ -6,8 +6,8 @@ use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\AdminSettingsController;
 use App\Http\Controllers\AdminUsersController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
+use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetController;
-use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Discovery\OnvifSweepController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
@@ -28,7 +28,7 @@ Route::post('/logout', LogoutController::class)->middleware('auth')->name('logou
 Route::post('/relay/auth/mediamtx', MediaMtxAuthController::class)->name('relay.auth.mediamtx');
 
 Route::middleware('auth')->group(function (): void {
-    Route::get('/', DashboardController::class)->name('dashboard');
+    Route::redirect('/', '/camera-fleet');
     Route::prefix('admin')->name('admin.')->middleware('admin')->group(function (): void {
         Route::get('/users', [AdminUsersController::class, 'index'])->name('users.index');
         Route::post('/users/allowed-emails', [AdminUsersController::class, 'storeAllowedEmail'])->name('users.allowed-emails.store');
@@ -40,6 +40,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
+    Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)->name('camera-fleet.motion-editor-session');
     Route::get('/recordings', [RecordingController::class, 'index'])->name('recordings.index');
     Route::get('/recordings/timeline', [RecordingController::class, 'timeline'])->name('recordings.timeline');
     Route::get('/recordings/{recording}', [RecordingController::class, 'show'])->name('recordings.show');

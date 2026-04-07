@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\ApplicationSettingsService;
+use App\Services\RecorderStatusService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -10,13 +11,14 @@ use Illuminate\Validation\Rule;
 
 class AdminSettingsController extends Controller
 {
-    public function index(ApplicationSettingsService $settings): View
+    public function index(ApplicationSettingsService $settings, RecorderStatusService $recorderStatusService): View
     {
         return view('admin.settings', [
             'timezoneOptions' => $settings->timezoneOptions(),
             'currentTimezone' => $settings->appTimezone(),
             'currentTimeLabel' => $settings->formatDateTime(now(), 'Y-m-d H:i:s') ?? 'Unavailable',
             'serverTimeLabel' => now()->format('Y-m-d H:i:s T'),
+            'recorderStatus' => $recorderStatusService->snapshot(),
         ]);
     }
 

@@ -36,6 +36,9 @@
 
         <title>@yield('title', config('app.name', 'Bigbrotha'))</title>
 
+        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}" sizes="any">
+        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded">
@@ -77,6 +80,7 @@
             $bodyClass = trim($__env->yieldContent('body_class'));
             $layoutMode = trim($__env->yieldContent('layout_mode'));
             $isImmersiveLayout = $layoutMode === 'immersive';
+            $showImmersiveRail = $isImmersiveLayout && trim($__env->yieldContent('show_immersive_rail')) === 'true';
             $hideWorkspaceHero = trim($__env->yieldContent('hide_workspace_hero')) === 'true';
             $currentUser = auth()->user();
             $pageTitle = trim($__env->yieldContent('page_title'));
@@ -88,86 +92,11 @@
                     ->implode('')
                 : 'BB';
             $pageActions = trim($__env->yieldContent('page_actions'));
-            $canAccessAdminNavigation = $currentUser && ($currentUser->isAdmin() || !\App\Models\User::query()->where('is_admin', true)->exists());
-            $navigation = [
-                [
-                    'label' => 'Overview',
-                    'icon' => 'OV',
-                    'symbol' => 'dashboard',
-                    'caption' => 'Health, readiness, and recent changes',
-                    'href' => route('dashboard'),
-                    'active' => request()->routeIs('dashboard'),
-                ],
-                [
-                    'label' => 'ONVIF Sweep',
-                    'icon' => 'DS',
-                    'symbol' => 'radar',
-                    'caption' => 'Sweep the network or probe directly',
-                    'href' => route('discovery.onvif-sweep'),
-                    'active' => request()->routeIs('discovery.onvif-sweep'),
-                ],
-                [
-                    'label' => 'Camera Fleet',
-                    'icon' => 'CF',
-                    'symbol' => 'videocam',
-                    'caption' => 'Save cameras, credentials, and stream defaults',
-                    'href' => route('camera-fleet.index'),
-                    'active' => request()->routeIs('camera-fleet.*'),
-                ],
-                [
-                    'label' => 'Recordings',
-                    'icon' => 'RC',
-                    'symbol' => 'movie',
-                    'caption' => 'Search recorded segments and playback history',
-                    'href' => route('recordings.index'),
-                    'active' => request()->routeIs('recordings.index', 'recordings.show', 'recordings.stream', 'recordings.download', 'recordings.review-stream'),
-                ],
-                [
-                    'label' => 'Timeline Review',
-                    'icon' => 'TR',
-                    'symbol' => 'timeline',
-                    'caption' => 'Wall-based synchronized recorded playback',
-                    'href' => route('recordings.timeline'),
-                    'active' => request()->routeIs('recordings.timeline'),
-                ],
-                [
-                    'label' => 'Wall Tiles',
-                    'icon' => 'WT',
-                    'symbol' => 'grid_view',
-                    'caption' => 'Build named walls and tile layouts',
-                    'href' => route('wall-tiles.index'),
-                    'active' => request()->routeIs('wall-tiles.*'),
-                ],
-                [
-                    'label' => 'Live Wall',
-                    'icon' => 'LW',
-                    'symbol' => 'live_tv',
-                    'caption' => 'Shared authenticated WebRTC playback',
-                    'href' => route('live-wall.index'),
-                    'active' => request()->routeIs('live-wall.*'),
-                ],
-            ];
-
-            $adminNavigation = $canAccessAdminNavigation ? [
-                [
-                    'label' => 'Operator access',
-                    'caption' => 'Approved sign-in emails, operators, and admin access',
-                    'href' => route('admin.users.index'),
-                    'active' => request()->routeIs('admin.users.*'),
-                ],
-                [
-                    'label' => 'Application settings',
-                    'caption' => 'Display timezone and future operator settings',
-                    'href' => route('admin.settings.index'),
-                    'active' => request()->routeIs('admin.settings.*'),
-                ],
-            ] : [];
-            $adminNavigationActive = collect($adminNavigation)->contains(fn (array $item): bool => $item['active']);
         @endphp
 
-        <div class="app-shell{{ $isImmersiveLayout ? ' app-shell--immersive' : '' }}">
-            @unless ($isImmersiveLayout)
-                <aside class="app-rail page-card">
+        <div class="app-shell{{ $isImmersiveLayout ? ' app-shell--immersive' : '' }}{{ $showImmersiveRail ? ' app-shell--with-immersive-rail' : '' }}">
+            @if (!$isImmersiveLayout || $showImmersiveRail)
+                <aside class="app-rail page-card{{ $showImmersiveRail ? ' app-rail--immersive-desktop-only' : '' }}">
                     <div class="app-rail__inner">
                         <div class="sidebar-brand">
                             <div class="sidebar-brand__mark" aria-hidden="true">
@@ -180,60 +109,7 @@
                         </div>
 
                         <section class="rail-section">
-                            <p class="rail-kicker">Primary screens</p>
-                            <nav class="sidebar-nav" aria-label="Primary">
-                                <div class="sidebar-nav__links">
-                                    @foreach ($navigation as $item)
-                                        <a
-                                            class="sidebar-link{{ $item['active'] ? ' sidebar-link--active' : '' }}"
-                                            href="{{ $item['href'] }}"
-                                            wire:navigate
-                                            @if ($item['active']) aria-current="page" @endif
-                                        >
-                                            <span class="sidebar-link__icon" aria-hidden="true">
-                                                <span class="sidebar-link__abbr">{{ $item['icon'] }}</span>
-                                                <span class="sidebar-link__symbol material-symbols-rounded">{{ $item['symbol'] }}</span>
-                                            </span>
-                                            <span class="sidebar-link__content">
-                                                <span class="sidebar-link__label">{{ $item['label'] }}</span>
-                                                <small class="sidebar-link__caption">{{ $item['caption'] }}</small>
-                                            </span>
-                                        </a>
-                                    @endforeach
-
-                                    @if ($adminNavigation !== [])
-                                        <details class="sidebar-group{{ $adminNavigationActive ? ' sidebar-group--active' : '' }}" @if ($adminNavigationActive) open @endif>
-                                            <summary class="sidebar-group__summary">
-                                                <span class="sidebar-link sidebar-link--summary{{ $adminNavigationActive ? ' sidebar-link--active' : '' }}">
-                                                    <span class="sidebar-link__icon" aria-hidden="true">
-                                                        <span class="sidebar-link__abbr">AD</span>
-                                                        <span class="sidebar-link__symbol material-symbols-rounded">admin_panel_settings</span>
-                                                    </span>
-                                                    <span class="sidebar-link__content">
-                                                        <span class="sidebar-link__label">Admin</span>
-                                                        <small class="sidebar-link__caption">Users, application settings, and operator-wide controls</small>
-                                                    </span>
-                                                    <span class="sidebar-group__chevron material-symbols-rounded" aria-hidden="true">expand_more</span>
-                                                </span>
-                                            </summary>
-
-                                            <div class="sidebar-group__links">
-                                                @foreach ($adminNavigation as $item)
-                                                    <a
-                                                        class="sidebar-sublink{{ $item['active'] ? ' sidebar-sublink--active' : '' }}"
-                                                        href="{{ $item['href'] }}"
-                                                        wire:navigate
-                                                        @if ($item['active']) aria-current="page" @endif
-                                                    >
-                                                        <span class="sidebar-sublink__label">{{ $item['label'] }}</span>
-                                                        <small class="sidebar-sublink__caption">{{ $item['caption'] }}</small>
-                                                    </a>
-                                                @endforeach
-                                            </div>
-                                        </details>
-                                    @endif
-                                </div>
-                            </nav>
+                            @include('layouts.partials.sidebar-navigation')
                         </section>
 
                         <section class="rail-section rail-section--theme">
@@ -248,7 +124,7 @@
                         </section>
                     </div>
                 </aside>
-            @endunless
+            @endif
 
             <div class="app-content{{ $isImmersiveLayout ? ' app-content--immersive' : '' }}">
                 @unless ($isImmersiveLayout || $hideWorkspaceHero)

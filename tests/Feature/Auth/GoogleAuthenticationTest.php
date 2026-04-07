@@ -41,7 +41,7 @@ class GoogleAuthenticationTest extends TestCase
 
         $response = $this->get(route('auth.google.callback'));
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('camera-fleet.index'));
         $this->assertAuthenticated();
         $this->assertDatabaseHas('users', [
             'email' => 'operator@example.com',
@@ -70,7 +70,7 @@ class GoogleAuthenticationTest extends TestCase
         Socialite::shouldReceive('driver')->once()->with('google')->andReturn($provider);
 
         $this->get(route('auth.google.callback'))
-            ->assertRedirect(route('dashboard'));
+            ->assertRedirect(route('camera-fleet.index'));
 
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertSame('google-user-123', $user->fresh()->google_id);

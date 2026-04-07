@@ -50,6 +50,30 @@
     gap: 8px;
 }
 
+.sidebar-nav__section {
+    display: grid;
+    gap: 8px;
+}
+
+.sidebar-nav__section + .sidebar-nav__section {
+    margin-top: 6px;
+}
+
+.sidebar-nav__section-title {
+    margin: 0;
+    padding: 0 4px;
+    color: hsla(206 40% 91% / 0.6);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.sidebar-nav__section-links {
+    display: grid;
+    gap: 8px;
+}
+
 .sidebar-group {
     display: grid;
     gap: 8px;

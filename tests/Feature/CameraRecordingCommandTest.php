@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
@@ -57,7 +58,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertNotNull($camera->recording_last_recorded_at);
     }
 
-    public function test_it_reanchors_delayed_continuous_capture_to_the_actual_start_and_uses_exact_segment_bounds(): void
+    public function test_it_bootstraps_the_persistent_segmenter_when_a_legacy_continuous_row_runs(): void
     {
         config()->set('queue.default', 'sync');
 
@@ -92,12 +93,17 @@ class CameraRecordingCommandTest extends TestCase
         }
 
         $recording->refresh();
+        $importedRecording = CameraRecording::query()
+            ->whereKeyNot($recording->getKey())
+            ->firstOrFail();
 
-        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
-        $this->assertSame('2026-04-04 18:03:29', $recording->scheduled_for?->utc()->toDateTimeString());
-        $this->assertSame('2026-04-04 18:03:29', $recording->started_at?->utc()->toDateTimeString());
-        $this->assertSame('2026-04-04 18:04:29', $recording->ended_at?->utc()->toDateTimeString());
-        $this->assertSame(60, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
+        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
+        $this->assertStringContainsString('persistent segment muxer', (string) $recording->message);
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $importedRecording->status);
+        $this->assertSame('2026-04-04 18:03:29', $importedRecording->scheduled_for?->utc()->toDateTimeString());
+        $this->assertSame('2026-04-04 18:03:29', $importedRecording->started_at?->utc()->toDateTimeString());
+        $this->assertSame('2026-04-04 18:04:29', $importedRecording->ended_at?->utc()->toDateTimeString());
+        $this->assertSame(60, (int) $importedRecording->started_at?->diffInSeconds($importedRecording->ended_at));
     }
 
     public function test_it_uses_rtsp_timeout_arguments_that_are_compatible_with_the_host_ffmpeg_build(): void
@@ -126,9 +132,45 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertFileExists(app(RecordingReviewAssetService::class)->scrubSpriteAbsolutePath($recording));
     }
 
+    public function test_it_uses_the_segment_muxer_for_continuous_recording(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.170',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream170',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous-log-args')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $argumentLog = storage_path('app/private/test-binaries/ffmpeg-segment-args.log');
+
+        $this->assertFileExists($argumentLog);
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('-f', $arguments);
+        $this->assertStringContainsString('segment', $arguments);
+        $this->assertStringContainsString('-segment_time', $arguments);
+        $this->assertStringContainsString('-reset_timestamps', $arguments);
+        $this->assertStringContainsString('-strftime', $arguments);
+        $this->assertStringContainsString('-c', $arguments);
+        $this->assertStringContainsString('copy', $arguments);
+    }
+
     public function test_it_skips_motion_recording_when_the_detection_window_is_quiet(): void
     {
         config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
 
         Camera::query()->create([
             'name' => 'Garage',
@@ -154,9 +196,317 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertStringContainsString('No motion crossed', (string) $recording->message);
     }
 
+    public function test_it_ignores_motion_outside_the_selected_mask(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+
+        Camera::query()->create([
+            'name' => 'South Gate',
+            'local_ip' => '192.168.1.78',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream8',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [10, 11],
+                    [14, 15],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
+        $this->assertNull($recording->relative_path);
+    }
+
+    public function test_it_compiles_motion_recordings_with_pre_roll_and_post_trigger_footage(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+
+        $camera = Camera::query()->create([
+            'name' => 'Loading Bay',
+            'local_ip' => '192.168.1.81',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream10',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertNotNull($recording->relative_path);
+        $this->assertSame('capture-9', file_get_contents(storage_path('app/private/'.$recording->relative_path)));
+        $this->assertSame(9, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
+        $this->assertSame(0, (int) $recording->scheduled_for?->diffInSeconds($recording->started_at));
+    }
+
+    public function test_it_prefers_camera_specific_motion_timing_over_global_defaults(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+
+        Camera::query()->create([
+            'name' => 'Override Bay',
+            'local_ip' => '192.168.1.85',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream14',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_pre_roll_seconds' => 4,
+            'recording_motion_post_trigger_seconds' => 6,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertNotNull($recording->relative_path);
+        $this->assertSame('capture-13', file_get_contents(storage_path('app/private/'.$recording->relative_path)));
+        $this->assertSame(13, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
+    }
+
+    public function test_it_uses_the_default_recording_relay_path_when_motion_recording_profile_selection_is_automatic(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        $inputLogPath = storage_path('app/private/test-binaries/ffmpeg-last-input.log');
+        File::delete($inputLogPath);
+
+        $camera = Camera::query()->create([
+            'name' => 'Gaming Room',
+            'local_ip' => '192.168.1.69',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'rtsp_profiles' => [
+                [
+                    'name' => 'mainStream',
+                    'uri' => 'rtsp://192.168.1.69:554/stream1',
+                ],
+                [
+                    'name' => 'subStream',
+                    'uri' => 'rtsp://192.168.1.69:554/stream2',
+                ],
+            ],
+            'recording_profile_index' => null,
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner-log-input')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertFileExists($inputLogPath);
+        $this->assertSame(
+            'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-recording',
+            trim((string) File::get($inputLogPath)),
+        );
+    }
+
+    public function test_it_keeps_a_motion_clip_when_activity_happens_during_the_monitored_span_after_pre_roll(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+
+        Camera::query()->create([
+            'name' => 'Late Motion Bay',
+            'local_ip' => '192.168.1.83',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream12',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-late')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertNotNull($recording->relative_path);
+        $this->assertSame('capture-9', file_get_contents(storage_path('app/private/'.$recording->relative_path)));
+        $this->assertSame(9, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
+    }
+
+    public function test_it_ignores_motion_that_only_appears_inside_the_pre_roll_context(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+
+        Camera::query()->create([
+            'name' => 'Pre-roll Only Bay',
+            'local_ip' => '192.168.1.84',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream13',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-preroll-only')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_SKIPPED, $recording->status);
+        $this->assertNull($recording->relative_path);
+        $this->assertStringContainsString('during the monitored span after pre-roll context', (string) $recording->message);
+    }
+
+    public function test_it_does_not_queue_a_new_motion_recording_while_a_motion_event_is_active(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        $camera = Camera::query()->create([
+            'name' => 'West Gate',
+            'local_ip' => '192.168.1.82',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream11',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+        ]);
+
+        Cache::put('camera-recordings:motion-event:camera:'.$camera->id, [
+            'recording_id' => 999,
+            'expires_at' => now()->utc()->addSeconds(60)->toIso8601String(),
+        ], 60);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertSame(0, CameraRecording::query()->count());
+    }
+
     public function test_it_marks_the_segment_failed_when_capture_errors_out(): void
     {
         config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
 
         Camera::query()->create([
             'name' => 'Driveway',
@@ -166,8 +516,19 @@ class CameraRecordingCommandTest extends TestCase
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
             'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
         ]);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('capture-fails')]);
@@ -184,6 +545,8 @@ class CameraRecordingCommandTest extends TestCase
     public function test_it_recovers_a_stale_pending_segment_on_the_next_scheduler_tick(): void
     {
         config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
 
         $camera = Camera::query()->create([
             'name' => 'Lobby',
@@ -193,13 +556,24 @@ class CameraRecordingCommandTest extends TestCase
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
             'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
         ]);
 
         $recording = CameraRecording::query()->create([
             'camera_id' => $camera->id,
-            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
             'status' => CameraRecording::STATUS_QUEUED,
             'scheduled_for' => now()->utc()->startOfMinute(),
             'message' => 'Stuck in queue.',
@@ -211,7 +585,7 @@ class CameraRecordingCommandTest extends TestCase
         ])->save();
         $recording->timestamps = true;
 
-        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous')]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
 
         Artisan::call('camera-recordings:tick');
 
@@ -225,6 +599,8 @@ class CameraRecordingCommandTest extends TestCase
     public function test_it_records_motion_segments_and_prunes_expired_segments(): void
     {
         config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
 
         $camera = Camera::query()->create([
             'name' => 'Back Gate',
@@ -236,10 +612,20 @@ class CameraRecordingCommandTest extends TestCase
             'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
             'recording_retention_days' => 1,
-            'motion_sensitivity' => 70,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
         ]);
 
-        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-detected')]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
 
         Artisan::call('camera-recordings:tick');
 
@@ -563,8 +949,6 @@ class CameraRecordingCommandTest extends TestCase
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
 
-        $binaryPath = $binaryDirectory.'/ffmpeg-recording-'.$mode.'.sh';
-
         $script = match ($mode) {
             'reject-rw-timeout' => <<<'BASH'
 #!/usr/bin/env bash
@@ -573,6 +957,32 @@ if printf '%s\n' "$@" | grep -qx -- '-rw_timeout'; then
     printf '%s\n' 'Option rw_timeout not found.' >&2
     exit 1
 fi
+if printf '%s\n' "$@" | grep -qx -- 'segment'; then
+    pattern="${!#}"
+    stamp="${FFMPEG_FAKE_NOW_UTC:-$(date -u +%Y%m%d_%H%M%S)}"
+    output="${pattern//%Y%m%d_%H%M%S/$stamp}"
+    mkdir -p "$(dirname "$output")"
+    printf '%s' 'recorded-segment' > "$output"
+    exit 0
+fi
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+printf '%s' 'recorded-segment' > "$output"
+BASH,
+            'continuous-log-args' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+log_path="$(dirname "$0")/ffmpeg-segment-args.log"
+printf '%s\n' "$@" >> "$log_path"
+printf '%s\n' '---' >> "$log_path"
+if printf '%s\n' "$@" | grep -qx -- 'segment'; then
+    pattern="${!#}"
+    stamp="${FFMPEG_FAKE_NOW_UTC:-$(date -u +%Y%m%d_%H%M%S)}"
+    output="${pattern//%Y%m%d_%H%M%S/$stamp}"
+    mkdir -p "$(dirname "$output")"
+    printf '%s' 'recorded-segment' > "$output"
+    exit 0
+fi
 output="${!#}"
 mkdir -p "$(dirname "$output")"
 printf '%s' 'recorded-segment' > "$output"
@@ -580,23 +990,225 @@ BASH,
             'motion-detected' => <<<'BASH'
 #!/usr/bin/env bash
 set -e
-if printf '%s\n' "$@" | grep -q 'showinfo'; then
-    printf '%s\n' 'showinfo motion-detected' >&2
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    php -r 'echo str_repeat(chr(0), 16).str_repeat(chr(255), 16);'
+    exit 0
+fi
+if printf '%s\n' "$@" | grep -qx -- 'concat'; then
+    list_file=""
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-i" ]]; then
+            list_file="$argument"
+            break
+        fi
+        previous="$argument"
+    done
+    output="${!#}"
+    mkdir -p "$(dirname "$output")"
+    : > "$output"
+    while IFS= read -r line; do
+        path="${line#file }"
+        path="${path#\'}"
+        path="${path%\'}"
+        cat "$path" >> "$output"
+    done < "$list_file"
     exit 0
 fi
 output="${!#}"
 mkdir -p "$(dirname "$output")"
-printf '%s' 'recorded-segment' > "$output"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
 BASH,
             'motion-quiet' => <<<'BASH'
 #!/usr/bin/env bash
 set -e
-if printf '%s\n' "$@" | grep -q 'showinfo'; then
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    php -r 'echo str_repeat(chr(0), 32);'
+    exit 0
+fi
+if printf '%s\n' "$@" | grep -qx -- 'concat'; then
+    list_file=""
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-i" ]]; then
+            list_file="$argument"
+            break
+        fi
+        previous="$argument"
+    done
+    output="${!#}"
+    mkdir -p "$(dirname "$output")"
+    : > "$output"
+    while IFS= read -r line; do
+        path="${line#file }"
+        path="${path#\'}"
+        path="${path%\'}"
+        cat "$path" >> "$output"
+    done < "$list_file"
     exit 0
 fi
 output="${!#}"
 mkdir -p "$(dirname "$output")"
-printf '%s' 'recorded-segment' > "$output"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
+BASH,
+            'motion-corner' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
+    exit 0
+fi
+if printf '%s\n' "$@" | grep -qx -- 'concat'; then
+    list_file=""
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-i" ]]; then
+            list_file="$argument"
+            break
+        fi
+        previous="$argument"
+    done
+    output="${!#}"
+    mkdir -p "$(dirname "$output")"
+    : > "$output"
+    while IFS= read -r line; do
+        path="${line#file }"
+        path="${path#\'}"
+        path="${path%\'}"
+        cat "$path" >> "$output"
+    done < "$list_file"
+    exit 0
+fi
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
+BASH,
+            'motion-corner-log-input' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
+    exit 0
+fi
+input_log="$(dirname "$0")/ffmpeg-last-input.log"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-i" && "$argument" == rtsp://* ]]; then
+        mkdir -p "$(dirname "$input_log")"
+        printf '%s' "$argument" > "$input_log"
+        break
+    fi
+    previous="$argument"
+done
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
+BASH,
+            'motion-late' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    duration=""
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-t" ]]; then
+            duration="$argument"
+            break
+        fi
+        previous="$argument"
+    done
+
+    if [[ "$duration" == "7" ]]; then
+        php -r 'echo str_repeat(chr(0), 16).str_repeat(chr(0), 16).str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
+    else
+        php -r 'echo str_repeat(chr(0), 64);'
+    fi
+
+    exit 0
+fi
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
+BASH,
+            'motion-preroll-only' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    saw_offset="false"
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-ss" && "$argument" == "2" ]]; then
+            saw_offset="true"
+            break
+        fi
+        previous="$argument"
+    done
+
+    if [[ "$saw_offset" == "true" ]]; then
+        php -r 'echo str_repeat(chr(0), 64);'
+    else
+        php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).str_repeat(chr(0), 32);'
+    fi
+
+    exit 0
+fi
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+duration="capture-output"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-t" ]]; then
+        duration="capture-$argument"
+        break
+    fi
+    previous="$argument"
+done
+printf '%s' "$duration" > "$output"
 BASH,
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash
@@ -607,11 +1219,21 @@ BASH,
             default => <<<'BASH'
 #!/usr/bin/env bash
 set -e
+if printf '%s\n' "$@" | grep -qx -- 'segment'; then
+    pattern="${!#}"
+    stamp="${FFMPEG_FAKE_NOW_UTC:-$(date -u +%Y%m%d_%H%M%S)}"
+    output="${pattern//%Y%m%d_%H%M%S/$stamp}"
+    mkdir -p "$(dirname "$output")"
+    printf '%s' 'recorded-segment' > "$output"
+    exit 0
+fi
 output="${!#}"
 mkdir -p "$(dirname "$output")"
 printf '%s' 'recorded-segment' > "$output"
 BASH,
         };
+
+            $binaryPath = $binaryDirectory.'/ffmpeg-recording-'.$mode.'-'.md5($script).'.sh';
 
         File::put($binaryPath, $script);
         chmod($binaryPath, 0755);

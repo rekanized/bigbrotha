@@ -21,5 +21,6 @@
 @endsection
 
 @push('scripts')
+    <script src="{{ asset('js/vendor/sortable.min.js').'?v='.filemtime(public_path('js/vendor/sortable.min.js')) }}" defer data-navigate-once></script>
     <script src="{{ asset('js/wall-tiles-builder.js').'?v='.filemtime(public_path('js/wall-tiles-builder.js')) }}" defer data-navigate-once></script>
 @endpush

@@ -142,7 +142,7 @@ class CameraLiveStreamService
             throw new RuntimeException('ffmpeg is not available on this host. Check the live streaming configuration first.');
         }
 
-        return [
+        return array_merge([
             $ffmpegBinary,
             '-nostdin',
             '-hide_banner',
@@ -150,31 +150,34 @@ class CameraLiveStreamService
             'error',
             '-rtsp_transport',
             $this->transport($camera),
+            '-thread_queue_size',
+            (string) config('ffmpeg.live.thread_queue_size', 1024),
+        ], $this->liveInputTimeoutArguments(), [
+            '-rtbufsize',
+            (string) config('ffmpeg.live.rtbufsize', '64M'),
             '-fflags',
-            'nobuffer',
-            '-flags',
-            'low_delay',
+            (string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'),
+            '-use_wallclock_as_timestamps',
+            config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0',
             '-analyzeduration',
-            (string) config('ffmpeg.streaming.input_analyze_duration', 0),
+            (string) config('ffmpeg.live.input_analyze_duration', 1000000),
             '-probesize',
-            (string) config('ffmpeg.streaming.input_probe_size', 32768),
-            '-rw_timeout',
-            (string) config('ffmpeg.streaming.rw_timeout', 10000000),
+            (string) config('ffmpeg.live.input_probe_size', 131072),
             '-i',
             $this->authenticatedUri($camera, $profile),
             '-map',
             '0:v:0',
             '-an',
             '-vf',
-            'fps='.(string) config('ffmpeg.streaming.wall_fps', 4),
+            'fps='.(string) config('ffmpeg.live.wall_fps', 4),
             '-q:v',
-            (string) config('ffmpeg.streaming.wall_mjpeg_quality', 7),
+            (string) config('ffmpeg.live.wall_mjpeg_quality', 7),
             '-f',
             'mpjpeg',
             '-boundary_tag',
             self::MJPEG_BOUNDARY,
             'pipe:1',
-        ];
+        ]);
     }
 
     /**
@@ -184,12 +187,14 @@ class CameraLiveStreamService
     private function buildRelayCommand(Camera $camera, array $profile): array
     {
         $ffmpegBinary = $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
+        $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
+        $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
 
         if ($ffmpegBinary === null) {
             throw new RuntimeException('ffmpeg is not available on this host. Check the live streaming configuration first.');
         }
 
-        return [
+        return array_merge([
             $ffmpegBinary,
             '-nostdin',
             '-hide_banner',
@@ -197,34 +202,51 @@ class CameraLiveStreamService
             'error',
             '-rtsp_transport',
             $this->transport($camera),
+            '-thread_queue_size',
+            (string) config('ffmpeg.live.thread_queue_size', 1024),
+        ], $this->liveInputTimeoutArguments(), [
+            '-rtbufsize',
+            (string) config('ffmpeg.live.rtbufsize', '64M'),
             '-fflags',
-            'nobuffer',
-            '-flags',
-            'low_delay',
+            (string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'),
+            '-use_wallclock_as_timestamps',
+            config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0',
             '-analyzeduration',
-            (string) config('ffmpeg.streaming.input_analyze_duration', 0),
+            (string) config('ffmpeg.live.input_analyze_duration', 1000000),
             '-probesize',
-            (string) config('ffmpeg.streaming.input_probe_size', 32768),
-            '-rw_timeout',
-            (string) config('ffmpeg.streaming.rw_timeout', 10000000),
+            (string) config('ffmpeg.live.input_probe_size', 131072),
             '-i',
             $this->authenticatedUri($camera, $profile),
             '-map',
             '0:v:0',
             '-an',
+            '-fps_mode',
+            $fpsMode !== '' ? $fpsMode : 'passthrough',
+            '-avoid_negative_ts',
+            $avoidNegativeTs !== '' ? $avoidNegativeTs : 'make_zero',
             '-c:v',
             'copy',
+            '-copyinkf',
+            '-max_muxing_queue_size',
+            (string) config('ffmpeg.live.max_muxing_queue_size', 1024),
             '-movflags',
             '+cmaf+frag_keyframe+empty_moov+default_base_moof',
             '-frag_duration',
-            (string) config('ffmpeg.streaming.relay_fragment_duration', 500000),
-            '-muxdelay',
-            '0',
-            '-muxpreload',
-            '0',
+            (string) config('ffmpeg.live.relay_fragment_duration', 500000),
             '-f',
             'mp4',
             'pipe:1',
+        ]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function liveInputTimeoutArguments(): array
+    {
+        return [
+            '-timeout',
+            (string) config('ffmpeg.live.rw_timeout', 10000000),
         ];
     }
 

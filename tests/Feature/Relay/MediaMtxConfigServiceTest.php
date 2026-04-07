@@ -52,16 +52,21 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-map 0:v:0', $config);
         $this->assertStringContainsString('-map 0:a:0?', $config);
         $this->assertStringContainsString('-c:v copy', $config);
-        $this->assertStringContainsString("-analyzeduration '0'", $config);
-        $this->assertStringContainsString("-probesize '32768'", $config);
+        $this->assertStringContainsString("-timeout '10000000'", $config);
+        $this->assertStringContainsString("-rtbufsize '64M'", $config);
+        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $config);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $config);
+        $this->assertStringContainsString("-analyzeduration '1000000'", $config);
+        $this->assertStringContainsString("-probesize '131072'", $config);
+        $this->assertStringContainsString("-fps_mode 'passthrough'", $config);
+        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $config);
         $this->assertStringContainsString('-c:a', $config);
         $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $config);
         $this->assertStringContainsString("'libopus'", $config);
-        $this->assertStringContainsString('-flush_packets 1', $config);
-        $this->assertStringContainsString('-muxdelay 0', $config);
-        $this->assertStringContainsString('-muxpreload 0', $config);
+        $this->assertStringContainsString("-max_muxing_queue_size '1024'", $config);
         $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $config);
         $this->assertStringNotContainsString('libx264', $config);
+        $this->assertStringNotContainsString('-rw_timeout', $config);
         $this->assertStringNotContainsString(' -an ', $config);
     }
 

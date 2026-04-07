@@ -131,7 +131,6 @@ class TilesManager extends Component
             'tileForms.*.orientation' => ['required', 'in:landscape,portrait,square'],
             'tileForms.*.column_span' => ['required', 'integer', 'between:1,4'],
             'tileForms.*.row_span' => ['required', 'integer', 'between:1,4'],
-            'tileForms.*.is_enabled' => ['boolean'],
         ])->validate();
 
         $cameraIds = array_map(
@@ -179,7 +178,7 @@ class TilesManager extends Component
                     'orientation' => (string) $tile['orientation'],
                     'column_span' => (int) $tile['column_span'],
                     'row_span' => (int) $tile['row_span'],
-                    'is_enabled' => (bool) $tile['is_enabled'],
+                    'is_enabled' => true,
                 ]);
             }
 
@@ -227,9 +226,7 @@ class TilesManager extends Component
     public function render(): View
     {
         $walls = LiveWall::query()
-            ->withCount([
-                'tiles as configured_tiles_count' => fn ($query) => $query->where('is_enabled', true),
-            ])
+            ->withCount(['tiles as configured_tiles_count'])
             ->with(['tiles.camera' => fn ($query) => $query->orderBy('name')])
             ->orderByDesc('is_default')
             ->orderByDesc('is_active')
@@ -255,7 +252,6 @@ class TilesManager extends Component
                 'tiles' => $walls->sum('configured_tiles_count'),
                 'assigned_cameras' => $walls
                     ->flatMap(fn (LiveWall $wall) => $wall->tiles)
-                    ->where('is_enabled', true)
                     ->pluck('camera_id')
                     ->unique()
                     ->count(),
@@ -281,12 +277,12 @@ class TilesManager extends Component
             ->sortBy(fn (LiveWallTile $tile): array => [$tile->position, $tile->id])
             ->values()
             ->map(fn (LiveWallTile $tile): array => [
+                'client_key' => 'persisted-'.$tile->id,
                 'camera_id' => $tile->camera_id,
                 'position' => $tile->position,
                 'orientation' => $tile->orientation,
                 'column_span' => $tile->column_span,
                 'row_span' => $tile->row_span,
-                'is_enabled' => $tile->is_enabled,
             ])
             ->all();
         $this->errorMessage = null;
@@ -315,12 +311,12 @@ class TilesManager extends Component
     private function defaultTileForm(int $position, string $orientation): array
     {
         return [
+            'client_key' => (string) Str::uuid(),
             'camera_id' => null,
             'position' => $position,
             'orientation' => $orientation,
             'column_span' => 1,
             'row_span' => 1,
-            'is_enabled' => true,
         ];
     }
 

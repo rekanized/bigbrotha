@@ -69,6 +69,6 @@ class GoogleCallbackController extends Controller
         auth()->login($user, remember: true);
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended(route('camera-fleet.index'));
     }
 }

@@ -30,6 +30,14 @@
     gap: 0;
 }
 
+.page-live-wall .app-shell--immersive.app-shell--with-immersive-rail {
+    width: calc(100% - 24px);
+    margin: 0 auto;
+    padding: 16px 0 28px;
+    grid-template-columns: minmax(220px, 252px) minmax(0, 1fr);
+    gap: 20px;
+}
+
 .page-recording-review .app-shell--immersive {
     width: 100%;
     max-width: 100%;
@@ -62,6 +70,10 @@
     width: 100%;
     max-width: 100%;
     gap: 0;
+}
+
+.page-live-wall .app-rail--immersive-desktop-only {
+    top: 8px;
 }
 
 .page-live-wall {
@@ -186,6 +198,20 @@
 
     .app-rail__inner {
         min-height: auto;
+    }
+}
+
+@media (max-width: 960px) {
+    .page-live-wall .app-shell--immersive.app-shell--with-immersive-rail {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+    }
+
+    .page-live-wall .app-rail--immersive-desktop-only {
+        display: none;
     }
 }
 

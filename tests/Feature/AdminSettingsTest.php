@@ -76,7 +76,7 @@ class AdminSettingsTest extends TestCase
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('dashboard'))
+            ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertSee(route('admin.users.index'), false)
             ->assertSee(route('admin.settings.index'), false)
@@ -90,10 +90,33 @@ class AdminSettingsTest extends TestCase
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('dashboard'))
+            ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertDontSee(route('admin.users.index'), false)
             ->assertDontSee(route('admin.settings.index'), false);
+    }
+
+    public function test_authenticated_root_redirects_to_camera_fleet(): void
+    {
+        $operator = User::factory()->create();
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get('/')
+            ->assertRedirect(route('camera-fleet.index'));
+    }
+
+    public function test_admin_settings_page_shows_recorder_runtime_information(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('admin.settings.index'))
+            ->assertOk()
+            ->assertSee('Recorder runtime')
+            ->assertSee('ffmpeg binary')
+            ->assertSee('Temp workspace');
     }
 
     public function test_non_admin_users_cannot_open_the_current_users_page(): void

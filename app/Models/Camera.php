@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\CameraStorageService;
+use App\Services\RecordingMotionMaskService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -37,7 +38,10 @@ use Illuminate\Support\Str;
     'recording_profile_index',
     'recording_retention_days',
     'motion_sensitivity',
+    'recording_motion_pre_roll_seconds',
+    'recording_motion_post_trigger_seconds',
     'recording_motion_area',
+    'recording_motion_mask',
     'recording_last_motion_at',
     'recording_last_recorded_at',
 ])]
@@ -183,13 +187,58 @@ class Camera extends Model
      */
     public function recordingMotionArea(): array
     {
+        $legacyArea = $this->legacyRecordingMotionArea();
+
+        if ($legacyArea !== null) {
+            return $legacyArea;
+        }
+
+        return app(RecordingMotionMaskService::class)->bounds($this->recordingMotionMask());
+    }
+
+    /**
+     * @return array{version: int, grid_width: int, grid_height: int, selected_pixels: int, runs: array<int, array{0: int, 1: int}>}
+     */
+    public function recordingMotionMask(): array
+    {
+        return app(RecordingMotionMaskService::class)->normalize($this->recording_motion_mask, $this->legacyRecordingMotionArea());
+    }
+
+    public function motionTriggerThreshold(): int
+    {
+        return max(1, min(100, is_numeric($this->motion_sensitivity) ? (int) $this->motion_sensitivity : 35));
+    }
+
+    public function motionPreRollSeconds(): int
+    {
+        return max(0, min(30, is_numeric($this->recording_motion_pre_roll_seconds)
+            ? (int) $this->recording_motion_pre_roll_seconds
+            : (int) config('recording.motion.pre_roll_seconds', 8)));
+    }
+
+    public function motionPostTriggerSeconds(): int
+    {
+        return max(1, min(60, is_numeric($this->recording_motion_post_trigger_seconds)
+            ? (int) $this->recording_motion_post_trigger_seconds
+            : (int) config('recording.motion.post_trigger_seconds', 20)));
+    }
+
+    /**
+     * @return array{x: int, y: int, width: int, height: int}|null
+     */
+    private function legacyRecordingMotionArea(): ?array
+    {
+        if (!is_array($this->recording_motion_area)) {
+            return null;
+        }
+
         $defaults = [
             'x' => 0,
             'y' => 0,
             'width' => 100,
             'height' => 100,
         ];
-        $area = is_array($this->recording_motion_area) ? $this->recording_motion_area : [];
+        $area = $this->recording_motion_area;
         $normalized = [];
 
         foreach ($defaults as $key => $defaultValue) {
@@ -222,7 +271,10 @@ class Camera extends Model
             'recording_profile_index' => 'integer',
             'recording_retention_days' => 'integer',
             'motion_sensitivity' => 'integer',
+            'recording_motion_pre_roll_seconds' => 'integer',
+            'recording_motion_post_trigger_seconds' => 'integer',
             'recording_motion_area' => 'array',
+            'recording_motion_mask' => 'array',
             'recording_last_motion_at' => 'datetime',
             'recording_last_recorded_at' => 'datetime',
             'last_seen_at' => 'datetime',

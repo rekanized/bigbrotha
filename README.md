@@ -29,12 +29,12 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 ## Main Routes
 
 - `/login` Google sign-in entry.
-- `/` dashboard.
+- `/` authenticated redirect to `/camera-fleet`.
 - `/camera-fleet` camera inventory and management.
 - `/recordings` recording browser and saved segment search.
 - `/recordings/{recording}` recording playback and review screen.
 - `/admin/users` admin-only operator access page for approved sign-in emails, stored users, and admin roles.
-- `/admin/settings` admin-only operator settings such as the display timezone.
+- `/admin/settings` admin-only operator settings such as the display timezone and recorder runtime status.
 - `/wall-tiles` named wall and tile layout builder.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` private preview image endpoint.
 - `/recordings/{recording}/stream` Laravel-served MP4 playback stream for private recordings.

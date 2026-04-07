@@ -18,7 +18,7 @@ Use Blade, standard CSS under `public/css`, and plain JavaScript only when neces
 
 This affects:
 
-- dashboard access.
+- authenticated root redirects and operator pages.
 - Camera Fleet pages.
 - preview routes.
 - ONVIF Sweep pages.
@@ -98,19 +98,20 @@ If RTSP diagnostics fail unexpectedly, verify `config/ffmpeg.php` and the bindin
 
 ## Recording Worker Requirements
 
-Per-camera recording is queue-backed by design.
+Per-camera recording is scheduler-orchestrated, with queue-backed motion work and a persistent ffmpeg segmenter for continuous mode.
 
 Current expectations:
 
 - `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
-- a queue worker must process the `recordings` queue, otherwise camera policies will save successfully in the UI but no footage will be written.
+- a queue worker must process the `recordings` queue for motion clips, review assets, and legacy continuous recovery rows; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
+- hosts that need overlapping continuous and motion capture should run more than one recordings worker; set `CAMERA_RECORDING_WORKER_PROCESSES` above `1` before running `php artisan camera-recordings:install-worker-service` and Laravel will generate numbered user units for the requested pool size.
 - `camera-recordings:ensure-worker` can run from the same minute scheduler as a safety net, but it should only be enabled when the host config explicitly allows Laravel to manage the worker process.
 - `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.
 - the preferred safety-net path is to check an installed user or system systemd unit first; the direct detached fallback start is intentionally opt-in.
 - recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
-- continuous recording no longer trusts the minute scheduler as the clip boundary. Once a continuous segment starts, the recorder immediately queues the next segment from the current segment end so scheduler jitter does not create minute-aligned gaps.
-- continuous recording timestamps are now anchored to the actual segment start and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
+- continuous recording no longer trusts the minute scheduler as the clip boundary. Once the scheduler boots a camera's segmenter, ffmpeg keeps rotating segment-muxer files on its own so scheduler jitter does not create minute-aligned gaps.
+- continuous recording timestamps are now anchored to the imported segment filename timestamp and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
 - the recorder writes direct-to-disk ffmpeg copy segments; PHP should orchestrate jobs, not stream payload bytes.
 - if older crashes, tests, or manual row cleanup leave files behind without matching `camera_recordings` rows, use `php artisan camera-recordings:orphans` to audit them and `php artisan camera-recordings:orphans --purge` to remove the orphan files plus matching `_review` assets.
 
@@ -123,14 +124,18 @@ Current expectations:
 
 ## Motion Recording Tradeoff
 
-The first movement-recording implementation uses ffmpeg scene-change analysis on a cropped region of interest.
+The current movement-recording implementation uses grayscale frame differencing on a saved low-resolution motion mask.
 
 Implications:
 
 - it is intentionally basic pixel-change detection, not object classification.
-- the configured area is expressed as left, top, width, and height percentages of the feed.
-- higher sensitivity values lower the ffmpeg scene threshold so smaller changes can trigger recording.
-- there is no pre-roll buffer yet; the current behavior records the segment after motion is detected on that scheduler tick.
+- the configured area is stored as painted mask coordinates on a normalized motion grid instead of as one rectangle.
+- the threshold is the percentage of selected mask pixels that must change between sampled frames before recording starts.
+- motion mode now builds a per-camera pre-roll context window and then monitors the following span for motion; when the threshold is crossed during that monitored span, the entire buffered clip is saved.
+- when a recording relay path is already available through MediaMTX, motion recording now prefers that local relay instead of opening a second direct RTSP session to the camera, which reduces camera-side connection-limit failures.
+- because the pre-roll buffer is isolated to the motion workflow, motion cameras spend extra capture time around event evaluation and briefly suppress overlapping triggers while the current event clip is still being compiled.
+- ffmpeg runtime settings are now split by workload: recording, motion, and relay ingest prefer RTSP over TCP, larger demux queues and realtime buffers, wallclock-backed timestamp generation, and passthrough frame timing so unstable camera timecodes do not propagate into saved clips or relayed playback.
+- finalized MP4 review assets should keep `+faststart`, while live relay and streamed review responses continue using fragmented MP4 flags instead of `+faststart` because they are emitted as streaming outputs rather than completed files.
 
 ## Recording Playback Tradeoff
 
@@ -139,10 +144,11 @@ Saved footage is currently written to MKV by default and remuxed to fragmented M
 Implications:
 
 - playback depends on ffmpeg being available on the host at review time, not only at record time.
-- Timeline Review now prefers generated preview assets first, but it can still fall back to the older buffered review stream when those assets are missing or failed.
+- Timeline Review now prefers generated preview assets first, but it can still fall back to the streamed review route when those assets are missing or failed.
 - opening many recorded tiles at once can start several short ffmpeg remux processes in parallel, so bounded review walls remain the intended operator shape.
 - the browser review flow avoids re-encoding and avoids exposing private storage paths directly, but browser compatibility still depends on the original recorded codecs being browser-safe after remux.
 - the original file remains downloadable even if the browser player cannot render the remuxed segment.
+- the review-stream route no longer buffers the full ffmpeg output in PHP memory; the main scaling limit is now concurrent remux processes rather than PHP heap growth.
 
 ## Timeline Review Preview Assets
 
@@ -156,8 +162,8 @@ Current behavior:
 - those files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
 - the timeline preview page uses a Livewire parent component to own the active camera and focus time while child stage and rail components react to that shared review state.
 - the review shell should keep only camera-summary data in its public Livewire state; the rail now loads segment windows on demand instead of hydrating every segment for every selected camera into the initial payload.
-- the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the buffered review stream.
-- if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the buffered review stream instead of showing a blank player.
+- the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the streamed review route.
+- if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the streamed review route instead of showing a blank player.
 - the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
 - timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 

@@ -18,7 +18,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 ## Route Map
 
 - `/login` for Google sign-in.
-- `/` via `App\Http\Controllers\DashboardController`.
+- `/` as an authenticated redirect to `/camera-fleet`.
 - `/camera-fleet` via `App\Http\Controllers\CameraFleetController` and `App\Livewire\CameraFleet\Manager`.
 - `/recordings` plus `/recordings/{recording}` via `App\Http\Controllers\RecordingController`.
 - `/wall-tiles` via `App\Http\Controllers\WallTilesController` and `App\Livewire\LiveWall\TilesManager`.
@@ -70,7 +70,7 @@ Important model helpers:
 - `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity and captures preview frames.
 - `App\Services\CameraStorageService` manages per-camera storage folders.
 - `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
-- `App\Services\CameraRecordingService` queues per-camera segment capture, runs motion analysis on a cropped low-fps grayscale window, writes direct-to-disk ffmpeg copy segments, and prunes expired footage.
+- `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, records motion clips through a single buffered motion-only capture window whose pre-roll and post-trigger timing can be configured per camera, retains the pre-roll portion as context only, saves the full clip when motion crosses the threshold during the monitored span after pre-roll, prefers the local MediaMTX recording relay when available so motion jobs do not reopen the camera directly, and prunes expired footage.
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
 - `App\Services\Relay\MediaMtxInstaller` downloads the pinned MediaMTX release into private storage.
@@ -101,7 +101,7 @@ Current behavior includes:
 - RTSP profile refresh from ONVIF.
 - per-profile RTSP connection testing.
 - preview capture and preview display.
-- recording mode, retention, motion sensitivity, and motion-region editing.
+- recording mode, retention, movement threshold, and painted motion-mask editing over the live feed.
 - recent recording queue and retention status directly in the editor.
 - latest preview thumbnail directly in each fleet row.
 
@@ -113,19 +113,19 @@ Current behavior includes:
 
 - browser-side filtering by camera, recorder status, capture mode, date range, and free-text search.
 - a dedicated playback page per saved segment.
-- private playback remuxing through Laravel using ffmpeg stream copy from the saved container into fragmented MP4.
+- private playback remuxing through Laravel using ffmpeg stream copy from the saved container into fragmented MP4, with the review-stream route now streamed directly instead of buffering the full remuxed clip in PHP memory.
 - direct download of the original private segment file for archival or external review.
 - review of failed and skipped motion decisions alongside successful recordings so operators can troubleshoot policy behavior.
 
 ## Live Wall Delivery
 
-`App\Http\Controllers\LiveWallController` now resolves the selected active wall, loads its enabled tile assignments, and prepares each assigned camera with a preferred wall profile before rendering the Blade view at `resources/views/live-wall/index.blade.php`.
+`App\Http\Controllers\LiveWallController` now resolves the selected active wall, loads its saved tile assignments, and prepares each assigned camera with a preferred wall profile before rendering the Blade view at `resources/views/live-wall/index.blade.php`.
 
-`App\Livewire\LiveWall\TilesManager` is the operator-facing builder for named walls and camera tiles.
+`App\Livewire\LiveWall\TilesManager` is the operator-facing builder for named walls and camera tiles, with a single WYSIWYG grid surface that embeds tile configuration controls directly inside each tile.
 
 Current live viewing behavior:
 
-- only displays cameras assigned to enabled tiles on the selected active wall.
+- only displays cameras assigned to the selected active wall.
 - allows multiple named walls with separate grid column counts and tile orientation or span settings.
 - prefers a lower-cost RTSP profile such as a minor or sub stream when available.
 - uses a shared MediaMTX WebRTC relay for operator wall playback.
@@ -145,7 +145,7 @@ Current live viewing behavior:
 The current secure playback sequence is:
 
 1. `App\Livewire\LiveWall\TilesManager` saves named walls and explicit camera tile assignments.
-2. `App\Http\Controllers\LiveWallController` renders only the selected wall's enabled tiles with Laravel session bootstrap URLs.
+2. `App\Http\Controllers\LiveWallController` renders the selected wall's saved tile assignments with Laravel session bootstrap URLs.
 3. `App\Http\Controllers\LiveWallPlayerController` renders the single-camera secure player page.
 4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token }`.
 5. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
@@ -183,12 +183,15 @@ Current recording management behavior:
 
 - `routes/console.php` exposes `camera-recordings:tick`, `camera-recordings:prune`, and `camera-recordings:prune-audit`.
 - `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit and `camera-recordings:ensure-worker`, which can be scheduled every minute to verify the bounded recording worker is present and to start the configured systemd unit when the worker is absent.
-- the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap and recovery safety net instead of the primary segment boundary.
+- the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap, recovery, and segment-import safety net instead of the primary clip boundary.
 - recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
-- recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
-- successful continuous segments now re-anchor their `scheduled_for` and `started_at` timestamps to the actual capture start, derive `ended_at` from `started_at + segment_seconds`, and immediately queue the next continuous segment so the chain is not forced to wait for the next scheduler minute.
-- motion mode first runs a short ffmpeg analysis pass against the configured crop region using low FPS, grayscale conversion, and ffmpeg `scene` filtering.
+- motion recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
+- continuous mode now keeps one per-camera ffmpeg process alive with the segment muxer, writes timestamped direct-to-disk files under the normal camera recordings directory, and imports completed files back into `camera_recordings` rows so playback, review assets, and pruning keep the same downstream model.
+- imported continuous segments derive `scheduled_for`, `started_at`, and `ended_at` from the segment filename timestamp plus the configured segment duration instead of from minute scheduler timing or per-segment PHP cleanup time.
+- motion mode now captures a single motion-only buffered clip, evaluates the saved detection window inside that buffered clip against the painted mask, and only keeps the buffered clip when the threshold is crossed.
+- motion events set a short active-event guard so later scheduler ticks skip duplicate motion triggers while the current motion clip is still being recorded and compiled.
 - successful recordings are stored as per-camera segment files under private storage and expired files are removed by the hourly prune task.
+- recording capture and motion analysis now use workload-specific ffmpeg RTSP input profiles, while the live wall and relay paths keep the more aggressive low-latency probe settings.
 - prune eligibility now uses `camera_recordings.created_at < now()->subDays(recording_retention_days)` per camera, while `camera-recordings:prune-audit` reports the same candidates without deleting files or rows.
 - stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever.
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.

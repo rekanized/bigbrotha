@@ -439,7 +439,7 @@
 
                         <label class="field-stack">
                             <span>Recording source profile</span>
-                            <select class="form-select" wire:model="form.recording_profile_index">
+                            <select class="form-select" wire:model="form.recording_profile_index" data-role="motion-profile-select">
                                 <option value="">Automatic primary profile</option>
                                 @foreach ($rtspProfiles as $profile)
                                     <option value="{{ $loop->index }}">{{ $profile['name'] ?? 'Profile '.($loop->index + 1) }}</option>
@@ -458,50 +458,140 @@
                             @enderror
                         </label>
 
-                        <label class="field-stack">
-                            <span>Motion sensitivity</span>
-                            <input class="form-input" type="number" min="1" max="100" wire:model="form.motion_sensitivity">
-                            @error('form.motion_sensitivity')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
                     </div>
 
-                    <p class="probe-note">Higher sensitivity reacts to smaller pixel changes. Recordings are captured as short disk-backed segments through queued jobs, and retention cleanup removes expired footage automatically.</p>
+                    @if (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION)
+                        @php($motionMask = is_array($form['recording_motion_mask'] ?? null) ? $form['recording_motion_mask'] : app(App\Services\RecordingMotionMaskService::class)->fullFrameMask())
+                        @php($motionThreshold = max(1, min(100, (int) ($form['motion_sensitivity'] ?? 35))))
+                        @php($motionPreRollSeconds = max(0, min(30, (int) ($form['recording_motion_pre_roll_seconds'] ?? config('recording.motion.pre_roll_seconds', 8)))))
+                        @php($motionPostTriggerSeconds = max(1, min(60, (int) ($form['recording_motion_post_trigger_seconds'] ?? config('recording.motion.post_trigger_seconds', 20)))))
+                        @php($motionSessionUrlBase = $selectedCameraId ? route('camera-fleet.motion-editor-session', ['camera' => $selectedCameraId]) : '')
 
-                    <div class="camera-form-grid">
-                        <label class="field-stack">
-                            <span>Motion area left %</span>
-                            <input class="form-input" type="number" min="0" max="95" wire:model="form.recording_motion_x">
-                            @error('form.recording_motion_x')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
+                        <div class="camera-form-grid">
+                            <label class="field-stack">
+                                <span>Pre-roll buffer seconds</span>
+                                <input class="form-input" type="number" min="0" max="30" wire:model="form.recording_motion_pre_roll_seconds">
+                                <small class="probe-note">Saved as context before the monitored span begins.</small>
+                                @error('form.recording_motion_pre_roll_seconds')
+                                    <small class="field-error">{{ $message }}</small>
+                                @enderror
+                            </label>
 
-                        <label class="field-stack">
-                            <span>Motion area top %</span>
-                            <input class="form-input" type="number" min="0" max="95" wire:model="form.recording_motion_y">
-                            @error('form.recording_motion_y')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
+                            <label class="field-stack">
+                                <span>Post-trigger seconds</span>
+                                <input class="form-input" type="number" min="1" max="60" wire:model="form.recording_motion_post_trigger_seconds">
+                                <small class="probe-note">Extra clip length kept after monitoring starts and motion qualifies.</small>
+                                @error('form.recording_motion_post_trigger_seconds')
+                                    <small class="field-error">{{ $message }}</small>
+                                @enderror
+                            </label>
 
-                        <label class="field-stack">
-                            <span>Motion area width %</span>
-                            <input class="form-input" type="number" min="5" max="100" wire:model="form.recording_motion_width">
-                            @error('form.recording_motion_width')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
+                            <article class="detail-card detail-card--inline">
+                                <span class="detail-card__label">Buffered clip length</span>
+                                <strong>{{ $motionPreRollSeconds + max(3, (int) config('recording.motion.analysis_seconds', 5)) + $motionPostTriggerSeconds }} seconds</strong>
+                            </article>
+                        </div>
 
-                        <label class="field-stack">
-                            <span>Motion area height %</span>
-                            <input class="form-input" type="number" min="5" max="100" wire:model="form.recording_motion_height">
-                            @error('form.recording_motion_height')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
-                    </div>
+                        <div class="motion-threshold-card">
+                            <div>
+                                <h4 class="panel-title">Motion activity threshold</h4>
+                                <p class="panel-copy">This uses the same activity percentage shown below. Recording starts when current activity reaches this threshold.</p>
+                            </div>
+
+                            <div class="motion-threshold-card__control">
+                                <label class="field-stack">
+                                    <span>Activity percentage needed</span>
+                                    <input class="form-input motion-threshold-card__slider" type="range" min="1" max="100" value="{{ $motionThreshold }}" data-role="motion-threshold-input">
+                                </label>
+                                <strong class="motion-threshold-card__value" data-role="motion-threshold-value">{{ $motionThreshold }}%</strong>
+                            </div>
+                        </div>
+
+                        @error('form.motion_sensitivity')
+                            <small class="field-error">{{ $message }}</small>
+                        @enderror
+
+                        @error('form.recording_motion_mask')
+                            <small class="field-error">{{ $message }}</small>
+                        @enderror
+
+                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to confirm when the selected area crosses the threshold strongly enough to start recording.</p>
+
+                        <div class="motion-editor-shell">
+                            @if ($editingCameraId === null)
+                                <div class="empty-state empty-state--compact">
+                                    <strong>Save a camera before opening the live motion painter.</strong>
+                                    <p>The editor needs a saved camera so Laravel can request a secure relay session for the chosen recording profile.</p>
+                                </div>
+                            @elseif (!($form['supports_rtsp'] ?? false))
+                                <div class="empty-state empty-state--compact">
+                                    <strong>RTSP support is required for motion editing.</strong>
+                                    <p>Enable RTSP for this camera, save the record, and then return to the painter.</p>
+                                </div>
+                            @else
+                                <div
+                                    class="motion-editor"
+                                    data-motion-editor
+                                    data-session-url-base="{{ $motionSessionUrlBase }}"
+                                    data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
+                                    data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
+                                    data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
+                                    wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ $form['recording_profile_index'] ?? 'auto' }}"
+                                    wire:ignore
+                                >
+                                    <script type="application/json" data-role="motion-mask-json">@json($motionMask)</script>
+
+                                    <div class="motion-editor__stage wall-tile__stream">
+                                        <div class="webrtc-player webrtc-player--single motion-editor__player" data-role="motion-player" data-webrtc-player data-webrtc-player-skip-auto="true" data-player-label="{{ $selectedCamera?->name ?? 'camera' }}">
+                                            <video class="webrtc-player__video motion-editor__video" data-role="video" autoplay muted playsinline></video>
+                                            <div class="webrtc-player__message motion-editor__message" data-role="message" aria-live="polite">Connecting to the selected recording stream...</div>
+                                        </div>
+
+                                        <canvas class="motion-editor__canvas motion-editor__canvas--mask" data-role="mask-canvas"></canvas>
+                                        <canvas class="motion-editor__canvas motion-editor__canvas--activity" data-role="activity-canvas"></canvas>
+                                        <span class="motion-editor__status-badge" data-role="motion-status" data-state="watching">Armed and watching</span>
+                                    </div>
+
+                                    <div class="motion-editor__toolbar">
+                                        <div class="motion-editor__tool-group">
+                                            <button class="button button--soft motion-editor__tool is-active" type="button" data-role="paint-button" aria-pressed="true">Paint mask</button>
+                                            <button class="button button--soft motion-editor__tool" type="button" data-role="erase-button" aria-pressed="false">Erase mask</button>
+                                            <button class="button button--soft motion-editor__tool" type="button" data-role="reset-button">Reset full frame</button>
+                                            <button class="button button--soft motion-editor__tool" type="button" data-role="clear-button">Clear all</button>
+                                        </div>
+
+                                        <label class="field-stack motion-editor__brush-field">
+                                            <span>Brush radius</span>
+                                            <input class="form-input" type="range" min="1" max="12" value="3" data-role="brush-input">
+                                            <strong class="motion-editor__brush-value" data-role="brush-value">3 px</strong>
+                                        </label>
+                                    </div>
+
+                                    <div class="motion-editor__stats">
+                                        <article class="motion-editor__stat-card">
+                                            <span>Current activity</span>
+                                            <strong data-role="motion-activity-value">0%</strong>
+                                        </article>
+
+                                        <article class="motion-editor__stat-card">
+                                            <span>Changed masked pixels</span>
+                                            <strong data-role="motion-changed-pixels">0</strong>
+                                        </article>
+
+                                        <article class="motion-editor__stat-card">
+                                            <span>Selected mask pixels</span>
+                                            <strong data-role="motion-selected-pixels">{{ $motionMask['selected_pixels'] ?? 0 }}</strong>
+                                        </article>
+
+                                        <article class="motion-editor__stat-card">
+                                            <span>Recorder state</span>
+                                            <strong data-role="motion-state-value">Armed</strong>
+                                        </article>
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </section>
 
                 <section class="form-section">
@@ -530,7 +620,7 @@
                     </div>
 
                     <div class="probe-actions">
-                        <button class="button button--primary" type="button" wire:click="saveCamera" wire:loading.attr="disabled" wire:target="saveCamera">
+                        <button class="button button--primary" type="button" wire:click="saveCamera" wire:loading.attr="disabled" wire:target="saveCamera" data-role="camera-save-button">
                             <span wire:loading.remove wire:target="saveCamera">{{ $editingCameraId ? 'Save changes' : 'Create camera' }}</span>
                             <span wire:loading wire:target="saveCamera">Saving camera...</span>
                         </button>
@@ -687,3 +777,10 @@
         </div>
     @endif
 </div>
+
+@once
+    @push('scripts')
+        <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
+        <script src="{{ asset('js/camera-motion-editor.js').'?v='.filemtime(public_path('js/camera-motion-editor.js')) }}" defer data-navigate-once></script>
+    @endpush
+@endonce

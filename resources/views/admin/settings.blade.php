@@ -8,10 +8,9 @@
 
 @section('page_title', 'Admin settings')
 
-@section('page_lead', 'Manage operator-facing application settings such as display timezone without touching deployment config files.')
+@section('page_lead', 'Manage operator-facing application settings and verify recorder runtime prerequisites without touching deployment config files.')
 
 @section('page_actions')
-    <a class="button button--soft" href="{{ route('dashboard') }}" wire:navigate>Overview</a>
     <a class="button button--soft" href="{{ route('recordings.index') }}" wire:navigate>Recordings</a>
 @endsection
 
@@ -63,6 +62,39 @@
         </section>
 
         <div class="dashboard-secondary">
+            <article class="dashboard-panel dashboard-panel--wide">
+                <div class="panel-heading">
+                    <div>
+                        <h3 class="panel-title">Recorder runtime</h3>
+                        <p class="panel-copy">This check uses resolved ffmpeg and ffprobe binaries plus the writable temp workspace used for diagnostics, previews, and recording review assets.</p>
+                    </div>
+
+                    <span class="status-pill status-pill--{{ $recorderStatus['is_ready'] ? 'good' : 'warn' }}">{{ $recorderStatus['summary'] }}</span>
+                </div>
+
+                <div class="key-value-list">
+                    <div class="key-value-row">
+                        <span>ffmpeg binary</span>
+                        <strong>{{ $recorderStatus['ffmpeg_binary'] ?? 'Not resolved' }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>ffprobe binary</span>
+                        <strong>{{ $recorderStatus['ffprobe_binary'] ?? 'Not resolved' }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>Temp workspace</span>
+                        <strong>{{ $recorderStatus['temporary_directory'] }}</strong>
+                    </div>
+
+                    <div class="key-value-row">
+                        <span>Directory writable</span>
+                        <strong>{{ $recorderStatus['temporary_directory_writable'] ? 'Yes' : 'No' }}</strong>
+                    </div>
+                </div>
+            </article>
+
             <article class="dashboard-panel">
                 <div class="panel-heading">
                     <div>
@@ -99,7 +131,7 @@
 
                 <div class="empty-state empty-state--compact">
                     <strong>Timezone changes are immediate for new requests.</strong>
-                    <p>Any open pages may need a refresh to pick up the updated display timezone. Recording retention, scheduler timing, and private storage paths still use UTC internally.</p>
+                    <p>Any open pages may need a refresh to pick up the updated display timezone. Recording retention, scheduler timing, and private storage paths still use UTC internally. Recorder runtime status here is read-only and reflects the current server configuration.</p>
                 </div>
             </article>
         </div>

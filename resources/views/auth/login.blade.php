@@ -7,6 +7,9 @@
 
         <title>{{ config('app.name', 'Bigbrotha') }} | Sign in</title>
 
+        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}" sizes="any">
+        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+
         <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     </head>
     <body class="auth-page">

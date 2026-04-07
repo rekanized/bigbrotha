@@ -15,6 +15,7 @@ return [
 
     'worker' => [
         'ensure_running' => filter_var(env('CAMERA_RECORDING_ENSURE_WORKER', false), FILTER_VALIDATE_BOOL),
+        'processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)),
         'systemd_service' => env('CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE', 'bigbrothas-recordings-queue.service'),
         'systemd_user_dir' => env('CAMERA_RECORDING_WORKER_SYSTEMD_USER_DIR', rtrim((string) env('HOME', storage_path('app/private')), '/').'/.config/systemd/user'),
         'systemctl_binary' => env('CAMERA_RECORDING_WORKER_SYSTEMCTL_BINARY', '/usr/bin/systemctl'),
@@ -29,10 +30,22 @@ return [
         'log_path' => env('CAMERA_RECORDING_WORKER_LOG_PATH', storage_path('logs/recordings-queue-worker.log')),
     ],
 
+    'continuous' => [
+        'segmenter_enabled' => filter_var(env('CAMERA_CONTINUOUS_SEGMENTER_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'segment_time_delta' => max(0, (float) env('CAMERA_CONTINUOUS_SEGMENT_TIME_DELTA', 0.05)),
+        'startup_delay_ms' => max(0, (int) env('CAMERA_CONTINUOUS_STARTUP_DELAY_MS', 250)),
+        'runtime_dir' => env('CAMERA_CONTINUOUS_RUNTIME_DIR', storage_path('app/private/continuous-recorders')),
+        'file_suffix' => env('CAMERA_CONTINUOUS_FILE_SUFFIX', 'continuous'),
+    ],
+
     'motion' => [
+        'pre_roll_seconds' => max(0, (int) env('CAMERA_MOTION_PRE_ROLL_SECONDS', 8)),
+        'post_trigger_seconds' => max(1, (int) env('CAMERA_MOTION_POST_TRIGGER_SECONDS', 20)),
         'analysis_seconds' => max(3, (int) env('CAMERA_MOTION_ANALYSIS_SECONDS', 5)),
         'analysis_fps' => max(1, (int) env('CAMERA_MOTION_ANALYSIS_FPS', 3)),
-        'scaled_width' => max(96, (int) env('CAMERA_MOTION_ANALYSIS_WIDTH', 320)),
+        'grid_width' => max(32, (int) env('CAMERA_MOTION_ANALYSIS_WIDTH', 160)),
+        'grid_height' => max(18, (int) env('CAMERA_MOTION_ANALYSIS_HEIGHT', 90)),
+        'pixel_delta_threshold' => max(1, (int) env('CAMERA_MOTION_PIXEL_DELTA_THRESHOLD', 18)),
     ],
 
     'review_assets' => [

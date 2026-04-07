@@ -565,7 +565,9 @@
     const bootstrapPlayers = () => {
         closePlayers();
 
-        state.players = Array.from(document.querySelectorAll('[data-webrtc-player]')).map((element) => new BigBrothasWhepPlayer(element));
+        state.players = Array.from(document.querySelectorAll('[data-webrtc-player]'))
+            .filter((element) => element instanceof HTMLElement && element.dataset.webrtcPlayerSkipAuto !== 'true')
+            .map((element) => new BigBrothasWhepPlayer(element));
 
         updateMasterVolumeUi();
         state.players.forEach((player) => player.start());

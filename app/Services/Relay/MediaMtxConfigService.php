@@ -4,6 +4,7 @@ namespace App\Services\Relay;
 
 use App\Models\Camera;
 use App\Services\CameraLiveStreamService;
+use App\Services\CameraRecordingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
@@ -11,6 +12,7 @@ class MediaMtxConfigService
 {
     public function __construct(
         private readonly CameraLiveStreamService $streamService,
+        private readonly CameraRecordingService $recordingService,
     ) {
     }
 
@@ -39,6 +41,33 @@ class MediaMtxConfigService
         return 'camera-'.$camera->getKey().'-live';
     }
 
+    /**
+     * @return array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
+    {
+        $selection = $this->recordingService->resolveRecordingSource($camera, $profileIndex);
+
+        if ($selection === null) {
+            return null;
+        }
+
+        return [
+            'path' => $this->recordingPathName($camera, $profileIndex),
+            'index' => $selection['index'],
+            'profile' => $selection['profile'],
+            'authenticated_uri' => $selection['authenticated_uri'],
+            'transport' => $selection['transport'],
+        ];
+    }
+
+    public function recordingPathName(Camera $camera, ?int $profileIndex = null): string
+    {
+        return $profileIndex === null
+            ? 'camera-'.$camera->getKey().'-recording'
+            : 'camera-'.$camera->getKey().'-recording-profile-'.$profileIndex;
+    }
+
     public function browserPlayerUrl(Camera $camera, ?Request $request = null): ?string
     {
         $definition = $this->cameraRelayDefinition($camera);
@@ -61,7 +90,12 @@ class MediaMtxConfigService
             return null;
         }
 
-        return rtrim($this->browserBaseUrl($request), '/').'/'.$definition['path'].'/whep';
+        return $this->browserWhepUrlForPath($definition['path'], $request);
+    }
+
+    public function browserWhepUrlForPath(string $path, ?Request $request = null): string
+    {
+        return rtrim($this->browserBaseUrl($request), '/').'/'.$path.'/whep';
     }
 
     public function internalPlayerUrl(string $path): string
@@ -71,7 +105,10 @@ class MediaMtxConfigService
 
     public function buildConfig(): string
     {
-        $definitions = $this->enabledRelayDefinitions();
+        $definitions = $this->enabledRelayDefinitions()
+            ->merge($this->recordingRelayDefinitions())
+            ->unique('path')
+            ->values();
         $ffmpegBinary = $this->streamService->ffmpegBinary();
 
         $lines = [
@@ -156,6 +193,40 @@ class MediaMtxConfigService
             ->values();
     }
 
+    /**
+     * @return Collection<int, array{path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     */
+    private function recordingRelayDefinitions(): Collection
+    {
+        return Camera::query()
+            ->where('supports_rtsp', true)
+            ->orderBy('name')
+            ->get()
+            ->flatMap(function (Camera $camera): array {
+                $definitions = [];
+                $defaultDefinition = $this->cameraRecordingRelayDefinition($camera);
+
+                if ($defaultDefinition !== null) {
+                    $definitions[] = $defaultDefinition;
+                }
+
+                foreach ($camera->rtspProfiles() as $index => $profile) {
+                    if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+                        continue;
+                    }
+
+                    $definition = $this->cameraRecordingRelayDefinition($camera, (int) $index);
+
+                    if ($definition !== null) {
+                        $definitions[] = $definition;
+                    }
+                }
+
+                return $definitions;
+            })
+            ->values();
+    }
+
     private function browserBaseUrl(?Request $request = null): string
     {
         $configured = trim((string) config('mediamtx.webrtc.public_base_url', ''));
@@ -178,8 +249,11 @@ class MediaMtxConfigService
     {
         $gop = (int) config('mediamtx.transcode.gop', 30);
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
-        $inputAnalyzeDuration = (int) config('ffmpeg.streaming.input_analyze_duration', 0);
-        $inputProbeSize = (int) config('ffmpeg.streaming.input_probe_size', 32768);
+        $inputAnalyzeDuration = (int) config('ffmpeg.live.input_analyze_duration', config('ffmpeg.streaming.input_analyze_duration', 1000000));
+        $inputProbeSize = (int) config('ffmpeg.live.input_probe_size', config('ffmpeg.streaming.input_probe_size', 131072));
+        $inputFflags = trim((string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'));
+        $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
+        $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
@@ -188,10 +262,16 @@ class MediaMtxConfigService
             'error',
             '-rtsp_transport',
             escapeshellarg($transport),
+            '-thread_queue_size',
+            escapeshellarg((string) config('ffmpeg.live.thread_queue_size', 1024)),
+            '-timeout',
+            escapeshellarg((string) config('ffmpeg.live.rw_timeout', 10000000)),
+            '-rtbufsize',
+            escapeshellarg((string) config('ffmpeg.live.rtbufsize', '64M')),
             '-fflags',
-            'nobuffer',
-            '-flags',
-            'low_delay',
+            escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
+            '-use_wallclock_as_timestamps',
+            escapeshellarg(config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -204,9 +284,20 @@ class MediaMtxConfigService
             '0:a:0?',
         ];
 
+        if ($fpsMode !== '') {
+            $command[] = '-fps_mode';
+            $command[] = escapeshellarg($fpsMode);
+        }
+
+        if ($avoidNegativeTs !== '') {
+            $command[] = '-avoid_negative_ts';
+            $command[] = escapeshellarg($avoidNegativeTs);
+        }
+
         if ($this->shouldCopyVideo($profile)) {
             $command[] = '-c:v';
             $command[] = 'copy';
+            $command[] = '-copyinkf';
         } else {
             array_push($command,
                 '-c:v',
@@ -221,14 +312,22 @@ class MediaMtxConfigService
                 'zerolatency',
                 '-bf',
                 '0',
+                '-refs',
+                '1',
                 '-g',
                 escapeshellarg((string) $gop),
                 '-keyint_min',
                 escapeshellarg((string) $gop),
                 '-sc_threshold',
                 '0',
+                '-crf',
+                escapeshellarg((string) config('mediamtx.transcode.video_crf', 23)),
                 '-b:v',
                 escapeshellarg((string) config('mediamtx.transcode.video_bitrate', '1200k')),
+                '-maxrate',
+                escapeshellarg((string) config('mediamtx.transcode.video_maxrate', '1800k')),
+                '-bufsize',
+                escapeshellarg((string) config('mediamtx.transcode.video_bufsize', '1800k')),
             );
         }
 
@@ -243,12 +342,8 @@ class MediaMtxConfigService
             escapeshellarg((string) config('mediamtx.transcode.audio_sample_rate', 48000)),
             '-b:a',
             escapeshellarg((string) config('mediamtx.transcode.audio_bitrate', '96k')),
-            '-flush_packets',
-            '1',
-            '-muxdelay',
-            '0',
-            '-muxpreload',
-            '0',
+            '-max_muxing_queue_size',
+            escapeshellarg((string) config('ffmpeg.live.max_muxing_queue_size', 1024)),
             '-f',
             'rtsp',
             '-rtsp_transport',

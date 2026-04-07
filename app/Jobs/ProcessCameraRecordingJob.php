@@ -28,6 +28,10 @@ class ProcessCameraRecordingJob implements ShouldQueue
         $this->timeout = max(
             (int) config('recording.job_timeout_seconds', 240),
             (int) config('recording.segment_seconds', 60) + (int) config('recording.motion.analysis_seconds', 5) + 90,
+            (int) config('recording.motion.pre_roll_seconds', 8)
+                + (int) config('recording.motion.analysis_seconds', 5)
+                + (int) config('recording.motion.post_trigger_seconds', 20)
+                + 120,
         );
     }
 

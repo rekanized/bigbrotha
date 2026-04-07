@@ -23,6 +23,10 @@ class MediaMtxAuthController extends Controller
             return response()->noContent();
         }
 
+        if ($this->isInternalReader($request, $path, $action, $protocol)) {
+            return response()->noContent();
+        }
+
         abort_if($path === '' || $action === '' || $protocol === '' || $token === '', Response::HTTP_UNAUTHORIZED);
         abort_if($accessTokenService->validate($token, $path, $action, $protocol) === null, Response::HTTP_UNAUTHORIZED);
 
@@ -44,7 +48,7 @@ class MediaMtxAuthController extends Controller
 
     private function isInternalPublisher(Request $request, string $path, string $action, string $protocol): bool
     {
-        if ($action !== 'publish' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-live$/', $path)) {
+        if ($action !== 'publish' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-(live|recording(?:-profile-\d+)?)$/', $path)) {
             return false;
         }
 
@@ -61,5 +65,26 @@ class MediaMtxAuthController extends Controller
         return hash_equals($expectedUser, $user)
             && hash_equals($expectedPass, $password)
             && IpUtils::checkIp($publisherIp, ['127.0.0.1', '::1']);
+    }
+
+    private function isInternalReader(Request $request, string $path, string $action, string $protocol): bool
+    {
+        if ($action !== 'read' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-recording(?:-profile-\d+)?$/', $path)) {
+            return false;
+        }
+
+        $expectedUser = trim((string) config('mediamtx.auth.reader_user', ''));
+        $expectedPass = trim((string) config('mediamtx.auth.reader_pass', ''));
+        $user = trim((string) $request->input('user', ''));
+        $password = trim((string) $request->input('password', ''));
+        $readerIp = trim((string) $request->input('ip', ''));
+
+        if ($expectedUser === '' || $expectedPass === '' || $user === '' || $password === '') {
+            return false;
+        }
+
+        return hash_equals($expectedUser, $user)
+            && hash_equals($expectedPass, $password)
+            && IpUtils::checkIp($readerIp, ['127.0.0.1', '::1']);
     }
 }

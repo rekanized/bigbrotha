@@ -73,6 +73,8 @@ return [
         'callback_secret' => env('MEDIAMTX_AUTH_CALLBACK_SECRET', hash('sha256', (string) env('APP_KEY', 'mediamtx-auth-callback'))),
         'token_secret' => env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY')),
         'token_ttl' => max(30, (int) env('MEDIAMTX_AUTH_TOKEN_TTL', 180)),
+        'reader_user' => env('MEDIAMTX_READER_USER', 'internal-reader'),
+        'reader_pass' => env('MEDIAMTX_READER_PASS', substr(hash('sha256', (string) env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY', 'mediamtx-reader'))), 0, 32)),
         'publisher_user' => env('MEDIAMTX_PUBLISHER_USER', 'publisher'),
         'publisher_pass' => env('MEDIAMTX_PUBLISHER_PASS', substr(hash('sha256', (string) env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY', 'mediamtx-publisher'))), 0, 32)),
     ],
@@ -80,6 +82,9 @@ return [
     'transcode' => [
         'preset' => env('MEDIAMTX_TRANSCODE_PRESET', 'ultrafast'),
         'video_bitrate' => env('MEDIAMTX_TRANSCODE_VIDEO_BITRATE', '1200k'),
+        'video_crf' => max(16, (int) env('MEDIAMTX_TRANSCODE_VIDEO_CRF', 23)),
+        'video_maxrate' => env('MEDIAMTX_TRANSCODE_VIDEO_MAXRATE', '1800k'),
+        'video_bufsize' => env('MEDIAMTX_TRANSCODE_VIDEO_BUFSIZE', '1800k'),
         'audio_codec' => env('MEDIAMTX_TRANSCODE_AUDIO_CODEC', 'libopus'),
         'audio_bitrate' => env('MEDIAMTX_TRANSCODE_AUDIO_BITRATE', '96k'),
         'audio_channels' => max(1, (int) env('MEDIAMTX_TRANSCODE_AUDIO_CHANNELS', 1)),

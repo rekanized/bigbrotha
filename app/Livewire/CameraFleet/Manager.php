@@ -6,6 +6,7 @@ use App\Models\Camera;
 use App\Services\CameraStorageService;
 use App\Services\Onvif\OnvifRtspStreamService;
 use App\Services\Onvif\RtspStreamDiagnosticsService;
+use App\Services\RecordingMotionMaskService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
@@ -82,6 +83,9 @@ class Manager extends Component
             'recording_profile_index' => $camera->recording_profile_index,
             'recording_retention_days' => $camera->recording_retention_days,
             'motion_sensitivity' => $camera->motion_sensitivity,
+            'recording_motion_pre_roll_seconds' => $camera->motionPreRollSeconds(),
+            'recording_motion_post_trigger_seconds' => $camera->motionPostTriggerSeconds(),
+            'recording_motion_mask' => $camera->recordingMotionMask(),
             'recording_motion_x' => $camera->recordingMotionArea()['x'],
             'recording_motion_y' => $camera->recordingMotionArea()['y'],
             'recording_motion_width' => $camera->recordingMotionArea()['width'],
@@ -126,16 +130,18 @@ class Manager extends Component
             'form.recording_profile_index' => ['nullable', 'integer', 'min:0'],
             'form.recording_retention_days' => ['required', 'integer', 'between:1,365'],
             'form.motion_sensitivity' => ['required', 'integer', 'between:1,100'],
-            'form.recording_motion_x' => ['required', 'integer', 'between:0,95'],
-            'form.recording_motion_y' => ['required', 'integer', 'between:0,95'],
-            'form.recording_motion_width' => ['required', 'integer', 'between:5,100'],
-            'form.recording_motion_height' => ['required', 'integer', 'between:5,100'],
+            'form.recording_motion_pre_roll_seconds' => ['required', 'integer', 'between:0,30'],
+            'form.recording_motion_post_trigger_seconds' => ['required', 'integer', 'between:1,60'],
+            'form.recording_motion_mask' => ['nullable', 'array'],
         ]);
 
         $validator->after(function ($validator): void {
             $recordingMode = $this->form['recording_mode'] ?? Camera::RECORDING_MODE_OFF;
             $profileIndex = $this->nullableInteger($this->form['recording_profile_index'] ?? null);
-            $motionArea = $this->recordingMotionAreaPayload($this->form);
+            $motionMask = app(RecordingMotionMaskService::class)->normalize(
+                $this->form['recording_motion_mask'] ?? null,
+                $this->recordingMotionAreaPayload($this->form),
+            );
 
             if ($recordingMode !== Camera::RECORDING_MODE_OFF && !(bool) ($this->form['supports_rtsp'] ?? false)) {
                 $validator->errors()->add('form.recording_mode', 'Recording requires RTSP support to be enabled for this camera.');
@@ -145,16 +151,14 @@ class Manager extends Component
                 $validator->errors()->add('form.recording_profile_index', 'Choose a saved RTSP profile or leave the recording source on automatic selection.');
             }
 
-            if (($motionArea['x'] + $motionArea['width']) > 100) {
-                $validator->errors()->add('form.recording_motion_width', 'The motion area width extends beyond the right edge of the feed.');
-            }
-
-            if (($motionArea['y'] + $motionArea['height']) > 100) {
-                $validator->errors()->add('form.recording_motion_height', 'The motion area height extends beyond the bottom edge of the feed.');
+            if ($recordingMode === Camera::RECORDING_MODE_MOTION && ($motionMask['selected_pixels'] ?? 0) < 1) {
+                $validator->errors()->add('form.recording_motion_mask', 'Select at least one motion zone pixel before enabling movement recording.');
             }
         });
 
         $validated = $validator->validate()['form'];
+        $maskService = app(RecordingMotionMaskService::class);
+        $motionMask = $maskService->normalize($validated['recording_motion_mask'] ?? null, $this->recordingMotionAreaPayload($validated));
 
         $camera = $this->editingCameraId !== null
             ? Camera::query()->findOrFail($this->editingCameraId)
@@ -185,7 +189,10 @@ class Manager extends Component
             'recording_profile_index' => $this->nullableInteger($validated['recording_profile_index']),
             'recording_retention_days' => (int) $validated['recording_retention_days'],
             'motion_sensitivity' => (int) $validated['motion_sensitivity'],
-            'recording_motion_area' => $this->recordingMotionAreaPayload($validated),
+            'recording_motion_pre_roll_seconds' => (int) $validated['recording_motion_pre_roll_seconds'],
+            'recording_motion_post_trigger_seconds' => (int) $validated['recording_motion_post_trigger_seconds'],
+            'recording_motion_area' => $maskService->bounds($motionMask),
+            'recording_motion_mask' => $motionMask,
         ]);
 
         if ($camera->exists) {
@@ -204,6 +211,19 @@ class Manager extends Component
         $this->statusMessage = $camera->wasRecentlyCreated
             ? 'Created '.$camera->name.' in the camera fleet.'
             : 'Updated '.$camera->name.' in the camera fleet.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $mask
+     */
+    public function syncMotionMask(array $mask): void
+    {
+        $this->form['recording_motion_mask'] = app(RecordingMotionMaskService::class)->normalize($mask, $this->recordingMotionAreaPayload($this->form));
+    }
+
+    public function syncMotionThreshold(mixed $threshold): void
+    {
+        $this->form['motion_sensitivity'] = max(1, min(100, is_numeric($threshold) ? (int) $threshold : 35));
     }
 
     public function toggleEnabled(int $cameraId): void
@@ -419,6 +439,9 @@ class Manager extends Component
             'recording_profile_index' => null,
             'recording_retention_days' => 1,
             'motion_sensitivity' => 35,
+            'recording_motion_pre_roll_seconds' => max(0, min(30, (int) config('recording.motion.pre_roll_seconds', 8))),
+            'recording_motion_post_trigger_seconds' => max(1, min(60, (int) config('recording.motion.post_trigger_seconds', 20))),
+            'recording_motion_mask' => app(RecordingMotionMaskService::class)->fullFrameMask(),
             'recording_motion_x' => 0,
             'recording_motion_y' => 0,
             'recording_motion_width' => 100,

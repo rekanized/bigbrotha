@@ -17,7 +17,7 @@ class ExampleTest extends TestCase
 
         config()->set('network.website_allowed_ips', ['192.168.1.1']);
 
-        $this->actingAs($operator)->withServerVariables($server)->get('/')->assertOk();
+        $this->actingAs($operator)->withServerVariables($server)->get('/')->assertRedirect('/camera-fleet');
         $this->actingAs($operator)->withServerVariables($server)->get('/camera-fleet')->assertOk();
         $this->actingAs($operator)->withServerVariables($server)->get('/live-wall')->assertOk();
         $this->actingAs($operator)->withServerVariables($server)->get('/discovery/onvif-sweep')->assertOk();

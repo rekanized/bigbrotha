@@ -6,6 +6,7 @@ use App\Livewire\CameraFleet\Manager;
 use App\Models\Camera;
 use App\Models\User;
 use App\Services\CameraStorageService;
+use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\File;
@@ -254,6 +255,17 @@ BASH);
 
     public function test_it_can_save_recording_policy_settings_from_the_gui(): void
     {
+        $mask = [
+            'version' => 1,
+            'grid_width' => 8,
+            'grid_height' => 6,
+            'selected_pixels' => 24,
+            'runs' => [
+                [0, 11],
+                [16, 27],
+            ],
+        ];
+
         Livewire::test(Manager::class)
             ->call('newCamera')
             ->set('form.name', 'Warehouse Entrance')
@@ -266,11 +278,10 @@ BASH);
             ->set('form.rtsp_path', '/record-stream')
             ->set('form.recording_mode', Camera::RECORDING_MODE_MOTION)
             ->set('form.recording_retention_days', 1)
-            ->set('form.motion_sensitivity', 64)
-            ->set('form.recording_motion_x', 10)
-            ->set('form.recording_motion_y', 12)
-            ->set('form.recording_motion_width', 55)
-            ->set('form.recording_motion_height', 45)
+            ->set('form.motion_sensitivity', 14)
+            ->set('form.recording_motion_pre_roll_seconds', 12)
+            ->set('form.recording_motion_post_trigger_seconds', 26)
+            ->call('syncMotionMask', $mask)
             ->call('saveCamera')
             ->assertHasNoErrors();
 
@@ -278,13 +289,58 @@ BASH);
 
         $this->assertSame(Camera::RECORDING_MODE_MOTION, $camera->recording_mode);
         $this->assertSame(1, $camera->recording_retention_days);
-        $this->assertSame(64, $camera->motion_sensitivity);
-        $this->assertSame([
-            'x' => 10,
-            'y' => 12,
-            'width' => 55,
-            'height' => 45,
-        ], $camera->recordingMotionArea());
+        $this->assertSame(14, $camera->motionTriggerThreshold());
+        $this->assertSame(12, $camera->motionPreRollSeconds());
+        $this->assertSame(26, $camera->motionPostTriggerSeconds());
+        $this->assertSame($mask, $camera->recordingMotionMask());
+    }
+
+    public function test_it_bootstraps_a_profile_specific_motion_editor_session(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Entrance',
+            'local_ip' => '192.168.1.90',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/record-stream',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => false,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'Main stream',
+                        'uri' => 'rtsp://192.168.1.90:554/record-stream',
+                    ],
+                ],
+            ],
+        ]);
+
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-secret');
+
+        $this->mock(MediaMtxProcessService::class, function ($mock): void {
+            $mock->shouldReceive('ensureRunning')->once()->andReturn([
+                'installed' => true,
+                'running' => true,
+                'api_reachable' => true,
+                'config_changed' => false,
+                'binary_path' => '/tmp/mediamtx',
+                'config_path' => '/tmp/mediamtx.yml',
+                'log_path' => '/tmp/mediamtx.log',
+                'pid' => 321,
+            ]);
+        });
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id, 'profileIndex' => 0]))
+            ->assertOk()
+            ->assertJsonPath('camera.id', $camera->id)
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-recording-profile-0')
+            ->assertJsonPath('profile_index', 0)
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/whep');
     }
 
     public function test_it_falls_back_to_a_placeholder_image_when_a_saved_preview_is_invalid(): void
