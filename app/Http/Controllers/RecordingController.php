@@ -808,7 +808,7 @@ class RecordingController extends Controller
             'preferredStreamUrl' => $assetState['ready'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
             'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
-            'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),
+            'thumbnailUrl' => $reviewAssets->thumbnailDataUrl($recording),
             'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
             'scrubFrameIntervalMs' => is_array($scrubSprite) ? ((int) ($scrubSprite['frame_interval_seconds'] ?? 0) * 1000) : 0,

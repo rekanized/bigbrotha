@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
@@ -13,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class CameraRecordingCommandTest extends TestCase
@@ -131,6 +134,195 @@ class CameraRecordingCommandTest extends TestCase
 
         $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
         $this->assertFileExists(app(RecordingReviewAssetService::class)->scrubSpriteAbsolutePath($recording));
+    }
+
+    public function test_queue_review_assets_requires_a_selective_filter(): void
+    {
+        Queue::fake();
+
+        $this->artisan('camera-recordings:queue-review-assets')
+            ->assertExitCode(1);
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_queue_review_assets_can_target_one_camera(): void
+    {
+        Queue::fake();
+
+        $selectedCamera = Camera::query()->create([
+            'name' => 'Loading Dock',
+            'local_ip' => '192.168.1.44',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $otherCamera = Camera::query()->create([
+            'name' => 'Garage',
+            'local_ip' => '192.168.1.45',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $selectedRecording = CameraRecording::query()->create([
+            'camera_id' => $selectedCamera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 9, 15, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 9, 15, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 9, 16, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$selectedCamera->id.'/recordings/2026/04/07/loading-dock.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        $otherRecording = CameraRecording::query()->create([
+            'camera_id' => $otherCamera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 9, 15, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 9, 15, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 9, 16, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$otherCamera->id.'/recordings/2026/04/07/garage.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        $this->artisan('camera-recordings:queue-review-assets', [
+            '--camera_id' => (string) $selectedCamera->id,
+        ])->assertSuccessful();
+
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($selectedRecording): bool {
+            return $job->recordingId === $selectedRecording->id;
+        });
+        Queue::assertNotPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($otherRecording): bool {
+            return $job->recordingId === $otherRecording->id;
+        });
+    }
+
+    public function test_queue_review_assets_can_target_a_display_date_range(): void
+    {
+        Queue::fake();
+
+        app(ApplicationSettingsService::class)->saveAppTimezone('Europe/Amsterdam');
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Entrance',
+            'local_ip' => '192.168.1.81',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $matchingRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 22, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 22, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 22, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/back-entrance-2230.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        $outsideRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 8, 22, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 8, 22, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 8, 22, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/08/back-entrance-2230-next-day.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        $this->artisan('camera-recordings:queue-review-assets', [
+            '--date_from' => '2026-04-08',
+            '--date_to' => '2026-04-08',
+        ])->assertSuccessful();
+
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($matchingRecording): bool {
+            return $job->recordingId === $matchingRecording->id;
+        });
+        Queue::assertNotPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($outsideRecording): bool {
+            return $job->recordingId === $outsideRecording->id;
+        });
+    }
+
+    public function test_review_asset_generation_retries_scrub_generation_when_a_preview_is_ready_but_the_sprite_failed(): void
+    {
+        config()->set('queue.default', 'sync');
+
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.170',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream170',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 11, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/atrium-review-assets.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Clip saved.',
+        ]);
+
+        $recordingPath = app(CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($recordingPath));
+        File::put($recordingPath, 'recorded-segment');
+
+        $recording->forceFill([
+            'file_size_bytes' => filesize($recordingPath) ?: null,
+        ])->save();
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous')]);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+        $reviewAssets->generateForRecording($recording);
+
+        $manifestPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
+        $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
+
+        @unlink($scrubSpriteAbsolutePath);
+
+        $manifest = json_decode((string) file_get_contents($manifestPath), true);
+
+        $this->assertIsArray($manifest);
+
+        file_put_contents($manifestPath, json_encode(array_merge($manifest, [
+            'scrub_status' => RecordingReviewAssetService::STATUS_FAILED,
+            'scrub_error_message' => 'Unable to generate the scrub preview sprite.',
+        ]), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        $reviewAssets->generateForRecording($recording->fresh());
+
+        $this->assertFileExists($reviewAssets->scrubSpriteAbsolutePath($recording));
+        $this->assertSame(
+            RecordingReviewAssetService::STATUS_READY,
+            app(RecordingReviewAssetService::class)->assetState($recording)['scrub_status']
+        );
     }
 
     public function test_it_uses_the_segment_muxer_for_continuous_recording(): void

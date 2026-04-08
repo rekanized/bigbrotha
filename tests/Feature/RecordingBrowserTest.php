@@ -691,6 +691,20 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($frontDoorLatestRecording);
 
+        $frontDoorPreviewPath = app(CameraStorageService::class)->writableAbsolutePath('cameras/'.$frontDoor->id.'/previews/front-door-latest.png');
+        File::ensureDirectoryExists(dirname($frontDoorPreviewPath));
+        File::put($frontDoorPreviewPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII='));
+        $frontDoor->forceFill([
+            'metadata' => [
+                'rtsp_profiles' => [[
+                    'name' => 'Main stream',
+                    'uri' => 'rtsp://front-door/stream1',
+                    'preview_path' => 'cameras/'.$frontDoor->id.'/previews/front-door-latest.png',
+                    'preview_generated_at' => now()->utc()->toIso8601String(),
+                ]],
+            ],
+        ])->save();
+
         $garageRecording = CameraRecording::query()->create([
             'camera_id' => $garage->id,
             'capture_mode' => Camera::RECORDING_MODE_MOTION,
@@ -729,7 +743,7 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('60 s')
                 ->assertSee('Garage')
             ->assertSee(route('recordings.review-stream', ['recording' => $frontDoorLatestRecording]), false)
-            ->assertSee(route('recordings.preview-thumbnail', ['recording' => $frontDoorLatestRecording]), false)
+            ->assertDontSee(route('recordings.preview-thumbnail', ['recording' => $frontDoorLatestRecording]), false)
             ->assertDontSee(route('live-wall.session', ['camera' => $frontDoor]), false);
     }
 
@@ -827,6 +841,58 @@ class RecordingBrowserTest extends TestCase
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
             ->assertSee('viewBox="0 0 128 72"', false)
             ->assertSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
+    }
+
+    public function test_timeline_preview_thumbnail_route_requeues_scrub_generation_when_the_preview_is_ready_but_the_sprite_failed(): void
+    {
+        Queue::fake();
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Receiving Bay',
+            'local_ip' => '192.168.1.100',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/receiving-bay-retry-thumb.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Clip saved.',
+        ]);
+
+        $this->writeRecordedSegment($recording);
+
+        $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
+        File::put($previewPath, 'preview-stream');
+        $this->writeCurrentReviewManifest($recording, [
+            'preview_relative_path' => app(CameraStorageService::class)->recordingRelativePathFromAbsolute($previewPath),
+            'scrub_status' => RecordingReviewAssetService::STATUS_FAILED,
+            'scrub_error_message' => 'Unable to generate the scrub preview sprite.',
+        ]);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
+            ->assertOk()
+            ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
+            ->assertSee('Thumbnail not ready yet');
+
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($recording): bool {
+            return $job->recordingId === $recording->id;
+        });
     }
 
     public function test_timeline_preview_stream_route_queues_asset_generation_when_the_preview_is_missing(): void

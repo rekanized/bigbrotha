@@ -45,7 +45,6 @@ class RecordingTimelineReviewService
             $latestRecordingPayload = $latestRecording instanceof CameraRecording
                 ? $this->recordingReviewPayload($latestRecording, $reviewWindowStart, $reviewWindowEnd)
                 : null;
-            $previewPayload = $selectedRecordingPayload ?? $latestRecordingPayload;
 
             return [
                 'cameraId' => (int) $camera->getKey(),
@@ -57,8 +56,8 @@ class RecordingTimelineReviewService
                 'segmentCount' => $cameraRecordings->count(),
                 'hasFocusSegment' => $selectedRecording instanceof CameraRecording,
                 'latestRecordingLabel' => $latestRecordingPayload['timeLabel'] ?? null,
-                'previewThumbnailUrl' => $previewPayload['thumbnailUrl'] ?? null,
-                'previewTimeLabel' => $previewPayload['timeLabel'] ?? null,
+                'previewThumbnailUrl' => $this->cameraPreviewThumbnailUrl($camera),
+                'previewTimeLabel' => $latestRecordingPayload['timeLabel'] ?? null,
             ];
         })->values();
     }
@@ -161,7 +160,7 @@ class RecordingTimelineReviewService
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $timelineAssets['status'] ?? RecordingReviewAssetService::STATUS_MISSING,
             'streamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
-            'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),
+            'thumbnailUrl' => $this->reviewAssets->thumbnailDataUrl($recording),
             'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
             'scrubFrameIntervalMs' => is_array($scrubSprite) ? ((int) ($scrubSprite['frame_interval_seconds'] ?? 0) * 1000) : 0,
@@ -182,6 +181,20 @@ class RecordingTimelineReviewService
                 ? number_format($recording->file_size_bytes / 1048576, 2).' MB'
                 : 'No file saved',
         ];
+    }
+
+    private function cameraPreviewThumbnailUrl(Camera $camera): ?string
+    {
+        $preview = $camera->latestRtspPreview();
+
+        if (!is_array($preview) || !is_numeric($preview['index'] ?? null)) {
+            return null;
+        }
+
+        return route('camera-fleet.preview', [
+            'camera' => $camera,
+            'profileIndex' => (int) $preview['index'],
+        ]);
     }
 
     /**

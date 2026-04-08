@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
+use Symfony\Component\Process\Process;
 use Throwable;
 
 class CameraStorageService
@@ -312,9 +313,15 @@ class CameraStorageService
         }
 
         if ($this->isCameraRelativePath($relativePath)) {
-            return $this->usingNetworkStorage()
-                ? $this->cameraDisk()->exists($this->cameraDiskRelativePath($relativePath))
-                : $this->resolveExistingPrivateAbsolutePath($relativePath) !== null;
+            if (!$this->usingNetworkStorage()) {
+                return $this->resolveExistingPrivateAbsolutePath($relativePath) !== null;
+            }
+
+            try {
+                return $this->cameraDisk()->exists($this->cameraDiskRelativePath($relativePath));
+            } catch (Throwable) {
+                return false;
+            }
         }
 
         return $this->resolveExistingPrivateAbsolutePath($relativePath) !== null;
@@ -959,17 +966,85 @@ class CameraStorageService
                 continue;
             }
 
-            $disk->makeDirectory($path);
+            try {
+                $disk->makeDirectory($path);
+            } catch (Throwable $exception) {
+                if (!$this->createCameraDiskDirectoryWithSmbClient($path)) {
+                    throw $exception;
+                }
+            }
         }
     }
 
     private function cameraDiskDirectoryExists(FilesystemContract $disk, string $path): bool
     {
-        if (method_exists($disk, 'directoryExists')) {
-            return $disk->directoryExists($path);
+        try {
+            if (method_exists($disk, 'directoryExists')) {
+                return $disk->directoryExists($path);
+            }
+
+            return $disk->files($path) !== [] || $disk->directories($path) !== [];
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function createCameraDiskDirectoryWithSmbClient(string $path): bool
+    {
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+
+        if (!is_array($networkConfig)) {
+            return false;
         }
 
-        return $disk->files($path) !== [] || $disk->directories($path) !== [];
+        $binary = $this->smbClientBinary();
+
+        if ($binary === null) {
+            return false;
+        }
+
+        $targetPath = trim(($networkConfig['root'] !== '' ? $networkConfig['root'].'/' : '').ltrim($path, '/'), '/');
+
+        if ($targetPath === '') {
+            return false;
+        }
+
+        $command = [
+            $binary,
+            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+            '-U',
+            $networkConfig['username'].'%'.$networkConfig['password'],
+            '-c',
+            'mkdir "'.$targetPath.'"',
+        ];
+
+        $process = new Process($command);
+        $process->setTimeout(30);
+        $process->run();
+
+        if ($process->isSuccessful()) {
+            return true;
+        }
+
+        $errorOutput = trim($process->getErrorOutput().' '.$process->getOutput());
+
+        return str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_COLLISION')
+            || str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_EXISTS');
+    }
+
+    private function smbClientBinary(): ?string
+    {
+        foreach (['/usr/bin/smbclient', 'smbclient'] as $candidate) {
+            if ($candidate === 'smbclient') {
+                return $candidate;
+            }
+
+            if (is_file($candidate) && is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function pruneEmptyDirectoryTree(string $directory, string $stopAt): void

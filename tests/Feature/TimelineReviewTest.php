@@ -10,6 +10,7 @@ use App\Models\CameraRecording;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
+use App\Services\RecordingTimelineReviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -230,6 +231,61 @@ class TimelineReviewTest extends TestCase
             ->assertSeeHtml('data-role="camera-switch"')
             ->assertSeeHtml('data-rail-url="'.route('recordings.timeline.rail-data', ['camera' => $camera]).'"')
             ->assertDontSeeHtml('wire:click="selectCamera(');
+    }
+
+    public function test_camera_summaries_use_the_saved_camera_fleet_preview_for_switcher_images(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $previewPath = app(CameraStorageService::class)->writableAbsolutePath('cameras/'.$camera->id.'/previews/north-gate.png');
+        \Illuminate\Support\Facades\File::ensureDirectoryExists(dirname($previewPath));
+        \Illuminate\Support\Facades\File::put($previewPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII='));
+
+        $camera->forceFill([
+            'metadata' => [
+                'rtsp_profiles' => [[
+                    'name' => 'Main stream',
+                    'uri' => 'rtsp://north-gate/stream1',
+                    'preview_path' => 'cameras/'.$camera->id.'/previews/north-gate.png',
+                    'preview_generated_at' => '2026-04-03 12:00:00 UTC',
+                ]],
+            ],
+        ])->save();
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $summaries = app(RecordingTimelineReviewService::class)->buildCameraSummaries(
+            collect([$camera->fresh()]),
+            collect([$recording]),
+            now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 30),
+            now()->utc()->setDate(2026, 4, 3)->startOfDay(),
+            now()->utc()->setDate(2026, 4, 4)->startOfDay(),
+        );
+
+        $this->assertSame(
+            route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 0]),
+            $summaries->first()['previewThumbnailUrl'] ?? null,
+        );
     }
 
     public function test_timeline_review_initial_stage_falls_back_to_the_latest_clip_before_focus(): void

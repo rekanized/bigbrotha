@@ -4,6 +4,7 @@ use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Jobs\RefreshCameraPreviewJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
@@ -472,6 +473,7 @@ Artisan::command('camera-recordings:orphans {--purge}', function (): int {
 Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missing}', function (): int {
     $reviewAssets = app(RecordingReviewAssetService::class);
     $generated = 0;
+    $failed = 0;
     $skipped = 0;
 
     CameraRecording::query()
@@ -481,16 +483,20 @@ Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missin
             $query->where('camera_id', (int) $this->option('camera_id'));
         })
         ->orderBy('id')
-        ->chunkById(50, function ($recordings) use (&$generated, &$skipped, $reviewAssets): void {
+        ->chunkById(50, function ($recordings) use (&$generated, &$failed, &$skipped, $reviewAssets): void {
             foreach ($recordings as $recording) {
-                if ($this->option('missing') && $reviewAssets->assetState($recording)['ready']) {
+                if ($this->option('missing') && $reviewAssets->hasReadyAssets($recording, true)) {
                     $skipped++;
 
                     continue;
                 }
 
-                GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
-                $generated++;
+                try {
+                    GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
+                    $generated++;
+                } catch (\Throwable $exception) {
+                    $failed++;
+                }
             }
         });
 
@@ -500,10 +506,134 @@ Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missin
         $message .= ' Skipped '.$skipped.' recording'.($skipped === 1 ? '' : 's').' with ready assets.';
     }
 
+    if ($failed > 0) {
+        $message .= ' Failed '.$failed.' recording'.($failed === 1 ? '' : 's').'.';
+    }
+
     $this->components->info($message);
 
     return 0;
 })->purpose('Build scrub preview assets for saved recording segments');
+
+Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_from=} {--date_to=}', function (): int {
+    $reviewAssets = app(RecordingReviewAssetService::class);
+    $settings = app(ApplicationSettingsService::class);
+    $cameraIdOption = trim((string) ($this->option('camera_id') ?? ''));
+    $dateFromOption = trim((string) ($this->option('date_from') ?? ''));
+    $dateToOption = trim((string) ($this->option('date_to') ?? ''));
+
+    if ($cameraIdOption === '' && $dateFromOption === '' && $dateToOption === '') {
+        $this->components->error('Provide --camera_id and/or --date_from/--date_to to keep the backfill scope selective.');
+
+        return 1;
+    }
+
+    $cameraId = null;
+
+    if ($cameraIdOption !== '') {
+        if (!ctype_digit($cameraIdOption) || (int) $cameraIdOption < 1) {
+            $this->components->error('camera_id must be a positive integer.');
+
+            return 1;
+        }
+
+        $cameraId = (int) $cameraIdOption;
+    }
+
+    $rangeStart = null;
+    $rangeEndExclusive = null;
+
+    if ($dateFromOption !== '') {
+        try {
+            $rangeStart = $settings->startOfDisplayDayUtc($dateFromOption);
+        } catch (\Throwable) {
+            $this->components->error('date_from must use the YYYY-MM-DD format in '.$settings->appTimezone().'.');
+
+            return 1;
+        }
+    }
+
+    if ($dateToOption !== '') {
+        try {
+            $rangeEndExclusive = $settings->startOfDisplayDayUtc($dateToOption)->addDay();
+        } catch (\Throwable) {
+            $this->components->error('date_to must use the YYYY-MM-DD format in '.$settings->appTimezone().'.');
+
+            return 1;
+        }
+    }
+
+    if ($rangeStart !== null && $rangeEndExclusive !== null && $rangeEndExclusive->lessThanOrEqualTo($rangeStart)) {
+        $this->components->error('date_to must be the same day as or after date_from.');
+
+        return 1;
+    }
+
+    $selected = 0;
+    $queued = 0;
+    $skipped = 0;
+
+    CameraRecording::query()
+        ->where('status', CameraRecording::STATUS_RECORDED)
+        ->whereNotNull('relative_path')
+        ->when($cameraId !== null, function ($query) use ($cameraId): void {
+            $query->where('camera_id', $cameraId);
+        })
+        ->when($rangeStart !== null, function ($query) use ($rangeStart): void {
+            $query->where('scheduled_for', '>=', $rangeStart);
+        })
+        ->when($rangeEndExclusive !== null, function ($query) use ($rangeEndExclusive): void {
+            $query->where('scheduled_for', '<', $rangeEndExclusive);
+        })
+        ->orderBy('id')
+        ->chunkById(50, function ($recordings) use (&$selected, &$queued, &$skipped, $reviewAssets): void {
+            foreach ($recordings as $recording) {
+                $selected++;
+
+                if ($reviewAssets->ensureQueued($recording, true)) {
+                    $queued++;
+
+                    continue;
+                }
+
+                $skipped++;
+            }
+        });
+
+    if ($selected === 0) {
+        $this->components->info('No recorded segments matched the selected backfill scope.');
+
+        return 0;
+    }
+
+    $scopeParts = [];
+
+    if ($cameraId !== null) {
+        $scopeParts[] = 'camera '.$cameraId;
+    }
+
+    if ($dateFromOption !== '' || $dateToOption !== '') {
+        $dateSummary = $dateFromOption !== ''
+            ? ($dateToOption !== '' ? $dateFromOption.' through '.$dateToOption : 'from '.$dateFromOption)
+            : 'through '.$dateToOption;
+
+        $scopeParts[] = $dateSummary.' in '.$settings->appTimezone();
+    }
+
+    $message = 'Queued review-asset generation for '.$queued.' recording'.($queued === 1 ? '' : 's').'.';
+
+    if ($skipped > 0) {
+        $message .= ' Skipped '.$skipped.' recording'.($skipped === 1 ? '' : 's').' that were already ready or already pending.';
+    }
+
+    if ($scopeParts !== []) {
+        $message .= ' Scope: '.implode(', ', $scopeParts).'.';
+    }
+
+    $this->components->info($message);
+
+    return 0;
+})->purpose('Queue selective scrub preview backfills for one camera or a display-date range');
 
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()

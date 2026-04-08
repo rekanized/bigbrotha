@@ -128,6 +128,8 @@ php artisan camera-recordings:orphans
 php artisan camera-recordings:orphans --purge
 php artisan migrate
 php artisan camera-recordings:build-review-assets --missing
+php artisan camera-recordings:queue-review-assets --camera_id=12
+php artisan camera-recordings:queue-review-assets --date_from=2026-04-01 --date_to=2026-04-03
 php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
 composer recordings:worker:install
 composer relay:install

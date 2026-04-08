@@ -224,6 +224,15 @@ class RecordingReviewAssetService
         ];
     }
 
+    public function hasReadyAssets(CameraRecording $recording, bool $requireScrubSprite = false): bool
+    {
+        return $this->assetStateSatisfiesRequirement(
+            $this->assetState($recording),
+            $recording,
+            $requireScrubSprite,
+        );
+    }
+
     public function ensureQueued(CameraRecording $recording, bool $requireScrubSprite = false): bool
     {
         if ($recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
@@ -231,10 +240,8 @@ class RecordingReviewAssetService
         }
 
         $assetState = $this->assetState($recording);
-        $scrubReady = ($assetState['scrub_status'] ?? null) === self::STATUS_READY;
-        $scrubSpriteAvailable = (bool) ($assetState['scrub_sprite_available'] ?? false);
 
-        if ((($assetState['ready'] ?? false) && (!$requireScrubSprite || !$scrubReady || $scrubSpriteAvailable)) || (($assetState['status'] ?? null) === self::STATUS_PENDING)) {
+        if ($this->assetStateSatisfiesRequirement($assetState, $recording, $requireScrubSprite) || (($assetState['status'] ?? null) === self::STATUS_PENDING)) {
             return false;
         }
 
@@ -290,7 +297,6 @@ class RecordingReviewAssetService
             && $this->storage->privateFileExists($previewRelativePath)
             && (
                 (($existingManifest['scrub_status'] ?? null) === self::STATUS_READY && $scrubSpriteRelativePath !== null && $this->storage->privateFileExists($scrubSpriteRelativePath))
-                || (($existingManifest['scrub_status'] ?? null) === self::STATUS_FAILED)
                 || (($existingManifest['scrub_status'] ?? null) === self::STATUS_MISSING && $expectedScrubStatus === self::STATUS_MISSING)
             )
         ) {
@@ -438,6 +444,17 @@ class RecordingReviewAssetService
         );
     }
 
+    public function thumbnailDataUrl(CameraRecording $recording): ?string
+    {
+        $svg = $this->thumbnailSvg($recording);
+
+        if (!is_string($svg) || trim($svg) === '') {
+            return null;
+        }
+
+        return 'data:image/svg+xml;charset=UTF-8,'.rawurlencode($svg);
+    }
+
     /**
      * @return array<string, int|string>|null
      */
@@ -493,6 +510,23 @@ class RecordingReviewAssetService
     private function previewRelativePath(CameraRecording $recording): ?string
     {
         return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'preview.mp4');
+    }
+
+    /**
+     * @param  array<string, mixed>  $assetState
+     */
+    private function assetStateSatisfiesRequirement(array $assetState, CameraRecording $recording, bool $requireScrubSprite): bool
+    {
+        if (!(bool) ($assetState['ready'] ?? false)) {
+            return false;
+        }
+
+        if (!$requireScrubSprite || $this->scrubFrameCount($recording) < 1) {
+            return true;
+        }
+
+        return ($assetState['scrub_status'] ?? null) === self::STATUS_READY
+            && (bool) ($assetState['scrub_sprite_available'] ?? false);
     }
 
     private function scrubSpriteRelativePath(CameraRecording $recording): ?string
