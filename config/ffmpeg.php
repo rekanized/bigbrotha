@@ -1,7 +1,7 @@
 <?php
 
-$defaultFfmpegBinary = '/home/administrator/.local/bin/ffmpeg';
-$defaultFfprobeBinary = '/home/administrator/.local/bin/ffprobe';
+$defaultFfmpegBinary = base_path('bin/ffmpeg');
+$defaultFfprobeBinary = base_path('bin/ffprobe');
 
 return [
     'timeout' => (int) env('FFMPEG_TIMEOUT', 3600),
@@ -10,8 +10,7 @@ return [
 
     'ffmpeg' => [
         'binaries' => array_values(array_filter([
-            env('FFMPEG_BINARY'),
-            is_file($defaultFfmpegBinary) ? $defaultFfmpegBinary : null,
+            env('FFMPEG_BINARIES', $defaultFfmpegBinary),
             'ffmpeg',
         ])),
         'threads' => max(1, (int) env('FFMPEG_THREADS', 2)),
@@ -19,8 +18,7 @@ return [
 
     'ffprobe' => [
         'binaries' => array_values(array_filter([
-            env('FFPROBE_BINARY'),
-            is_file($defaultFfprobeBinary) ? $defaultFfprobeBinary : null,
+            env('FFPROBE_BINARIES', $defaultFfprobeBinary),
             'ffprobe',
         ])),
     ],

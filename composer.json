@@ -57,6 +57,9 @@
         "recordings:worker:install": [
             "@php artisan camera-recordings:install-worker-service"
         ],
+        "ffmpeg:binaries:chmod": [
+            "@php -r 'foreach ([\"bin/ffmpeg\", \"bin/ffprobe\"] as $binary) { if (is_file($binary)) { chmod($binary, 0755); echo \"chmod +x {$binary}\".PHP_EOL; } }'"
+        ],
         "relay:stop": [
             "@php artisan relay:stop"
         ],
@@ -72,7 +75,11 @@
             "@php artisan package:discover --ansi"
         ],
         "post-update-cmd": [
+            "@ffmpeg:binaries:chmod",
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-install-cmd": [
+            "@ffmpeg:binaries:chmod"
         ],
         "post-root-package-install": [
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""

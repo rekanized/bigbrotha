@@ -12,7 +12,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - Blade plus Livewire 4 for the operator UI.
 - Laravel Socialite for Google sign-in.
 - Standard CSS under `public/css`.
-- ffmpeg and ffprobe for RTSP diagnostics and preview generation.
+- bundled or system ffmpeg and ffprobe for RTSP diagnostics and preview generation.
 - ffmpeg stream-copy recording with persistent continuous segmenting and a rolling short-segment motion buffer that stitches dynamic motion events with pre-roll and resettable post-trigger time.
 - MediaMTX for shared WebRTC fan-out from RTSP camera sources.
 - Admin-managed Google sign-in allowlist with automatic first-user bootstrap.
@@ -90,9 +90,9 @@ In normal operation this is enough. A `php-fpm` restart is only needed if the ho
 
 Use this short checklist during deployment:
 
-1. Install PHP 8.3, Composer, ffmpeg, ffprobe, a database, cron, and a user-level or system-level process manager.
+1. Install PHP 8.3, Composer, a database, cron, and a user-level or system-level process manager.
 2. Run `composer install --no-dev --optimize-autoloader`.
-3. Create `.env`, set database, Google auth, ffmpeg, MediaMTX, and recording worker values, then run `php artisan key:generate` if the app key is still empty.
+3. Commit the Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries in `bin/`, or point `FFMPEG_BINARIES` and `FFPROBE_BINARIES` at alternate absolute paths if a deployment needs an override. Then create `.env`, set database, Google auth, ffmpeg, MediaMTX, and recording worker values, and run `php artisan key:generate` if the app key is still empty.
 4. Run `php artisan migrate --force`.
 5. Run `composer relay:install` and `php artisan relay:sync`.
 6. Run `composer recordings:worker:install` so Laravel writes and enables the recordings worker systemd unit.
@@ -100,6 +100,10 @@ Use this short checklist during deployment:
 8. Run `php artisan optimize:clear`, `php artisan relay:start`, and `php artisan camera-recordings:ensure-worker`.
 
 If the host uses a specific PHP binary such as `/usr/bin/php8.3`, set `CAMERA_RECORDING_WORKER_PHP_BINARY` in `.env` before running `composer recordings:worker:install` so the generated worker unit uses the correct interpreter.
+
+Composer now reapplies execute permissions to `bin/ffmpeg` and `bin/ffprobe` on `install` and `update`. If you replace those files manually, rerun `composer ffmpeg:binaries:chmod`.
+
+If you build this app into Docker, copy the repository `bin/` directory into the image so the container uses the same pinned binaries Laravel is configured to resolve.
 
 For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/startup-from-scratch.md).
 

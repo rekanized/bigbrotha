@@ -102,12 +102,12 @@ If the file is missing, corrupt, or contains invalid bytes, the route returns a 
 
 ## Media Binary Assumptions
 
-This environment currently uses:
+The default application expectation is:
 
-- `/home/administrator/.local/bin/ffmpeg`
-- `/home/administrator/.local/bin/ffprobe`
+- `FFMPEG_BINARIES=/var/www/bigbrothas/bin/ffmpeg`
+- `FFPROBE_BINARIES=/var/www/bigbrothas/bin/ffprobe`
 
-If RTSP diagnostics fail unexpectedly, verify `config/ffmpeg.php` and the bindings in `AppServiceProvider`.
+If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that `config/ffmpeg.php` still resolves the intended paths.
 
 ## Recording Worker Requirements
 

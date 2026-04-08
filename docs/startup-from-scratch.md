@@ -6,7 +6,7 @@ Use this when you are bringing up a new BigBrothas host from nothing.
 
 - PHP 8.3 CLI and the PHP extensions required by Laravel.
 - Composer.
-- ffmpeg and ffprobe installed on the host.
+- Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries committed in `bin/`, or alternate absolute binary paths ready for `.env`.
 - A writable database supported by Laravel.
 - Cron running on the host.
 - User systemd, system systemd, Supervisor, or another real process manager.
@@ -41,8 +41,8 @@ Minimum values to review:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
-- `FFMPEG_BINARY`
-- `FFPROBE_BINARY`
+- `FFMPEG_BINARIES`
+- `FFPROBE_BINARIES`
 - `MEDIAMTX_WEBRTC_PUBLIC_URL`
 - `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`
 - `MEDIAMTX_AUTH_CALLBACK_URL`
@@ -57,6 +57,8 @@ If the correct CLI binary is not just `php`, also set:
 - `CAMERA_RECORDING_WORKER_PHP_BINARY=/usr/bin/php8.3`
 
 That ensures the generated recordings worker service uses the right interpreter.
+
+The default `.env.example` points those media variables at `/var/www/bigbrothas/bin/ffmpeg` and `/var/www/bigbrothas/bin/ffprobe`. Keep those values when the repository or Docker image includes the bundled binaries, or replace them with host-specific absolute paths before production startup.
 
 ## 3. Prepare The Database
 
