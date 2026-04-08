@@ -741,9 +741,10 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('Recorded feeds available in the camera strip.')
             ->assertSee('Download file')
             ->assertSee('60 s')
-                ->assertSee('Garage')
+            ->assertSee('Garage')
+            ->assertSee(route('camera-fleet.preview', ['camera' => $frontDoor, 'profileIndex' => 0]), false)
+            ->assertSee('alt="Front Door camera preview"', false)
             ->assertSee(route('recordings.review-stream', ['recording' => $frontDoorLatestRecording]), false)
-            ->assertDontSee(route('recordings.preview-thumbnail', ['recording' => $frontDoorLatestRecording]), false)
             ->assertDontSee(route('live-wall.session', ['camera' => $frontDoor]), false);
     }
 

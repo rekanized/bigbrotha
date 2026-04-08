@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\Camera;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Symfony\Component\Process\Process;
 use Throwable;
 
@@ -157,6 +160,19 @@ class RecordingWorkerService
                     'started' => false,
                     'method' => 'disabled',
                     'message' => 'Recordings worker supervision is disabled.',
+                    'pid' => $pids[0] ?? null,
+                ];
+            }
+
+            $serviceInstallResult = $this->ensureSystemdServicesInstalled();
+
+            if ($serviceInstallResult !== null && !$serviceInstallResult['ok']) {
+                return [
+                    'ok' => false,
+                    'running' => $pids !== [],
+                    'started' => false,
+                    'method' => 'systemd',
+                    'message' => $serviceInstallResult['message'],
                     'pid' => $pids[0] ?? null,
                 ];
             }
@@ -555,6 +571,50 @@ class RecordingWorkerService
         ]);
     }
 
+    /**
+     * @return array{ok: bool, message: string}|null
+     */
+    private function ensureSystemdServicesInstalled(): ?array
+    {
+        if (!$this->systemdServicesNeedInstall()) {
+            return null;
+        }
+
+        $result = $this->installSystemdUserService(false);
+
+        return [
+            'ok' => (bool) ($result['ok'] ?? false),
+            'message' => (string) ($result['message'] ?? 'Unable to install the recordings worker systemd units.'),
+        ];
+    }
+
+    private function systemdServicesNeedInstall(): bool
+    {
+        $services = $this->systemdServiceNames();
+
+        if ($services === []) {
+            return false;
+        }
+
+        $expectedContents = $this->systemdServiceContents();
+
+        foreach ($services as $serviceName) {
+            $path = $this->systemdServicePath($serviceName);
+
+            if (!is_file($path)) {
+                return true;
+            }
+
+            $existingContents = file_get_contents($path);
+
+            if (!is_string($existingContents) || $existingContents !== $expectedContents) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function disableLegacySingleWorkerService(): void
     {
         $legacyService = $this->legacySingleWorkerServiceName();
@@ -590,7 +650,41 @@ class RecordingWorkerService
 
     private function desiredWorkerCount(): int
     {
-        return max(1, (int) config('recording.worker.processes', 1));
+        $minimumWorkers = max(1, (int) config('recording.worker.processes', 1));
+
+        if (!(bool) config('recording.worker.dynamic_enabled', true)) {
+            return $minimumWorkers;
+        }
+
+        $maximumWorkers = max($minimumWorkers, (int) config('recording.worker.max_processes', $minimumWorkers));
+        $cameraTarget = (int) ceil($this->enabledRecordingCameraCount() / max(1, (int) config('recording.worker.cameras_per_process', 4)));
+        $queueTarget = (int) ceil($this->queuedWorkerJobsCount() / max(1, (int) config('recording.worker.jobs_per_process', 200)));
+
+        return min($maximumWorkers, max($minimumWorkers, $cameraTarget, $queueTarget));
+    }
+
+    private function enabledRecordingCameraCount(): int
+    {
+        if (!Schema::hasTable('cameras')) {
+            return 0;
+        }
+
+        return Camera::query()
+            ->where('is_enabled', true)
+            ->where('supports_rtsp', true)
+            ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
+            ->count();
+    }
+
+    private function queuedWorkerJobsCount(): int
+    {
+        if (!Schema::hasTable('jobs')) {
+            return 0;
+        }
+
+        return DB::table('jobs')
+            ->whereIn('queue', $this->workerQueueList())
+            ->count();
     }
 
     private function legacySingleWorkerServiceName(): ?string
@@ -616,6 +710,17 @@ class RecordingWorkerService
     private function workerQueues(): string
     {
         return (string) config('recording.worker.queue', config('recording.queue', 'recordings').',default');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function workerQueueList(): array
+    {
+        return array_values(array_filter(array_map(
+            static fn (string $queue): string => trim($queue),
+            explode(',', $this->workerQueues())
+        ), static fn (string $queue): bool => $queue !== ''));
     }
 
     private function maxJobs(): int

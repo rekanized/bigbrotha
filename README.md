@@ -128,6 +128,7 @@ php artisan camera-recordings:orphans
 php artisan camera-recordings:orphans --purge
 php artisan migrate
 php artisan camera-recordings:build-review-assets --missing
+php artisan camera-recordings:build-review-assets --missing --limit=10
 php artisan camera-recordings:queue-review-assets --camera_id=12
 php artisan camera-recordings:queue-review-assets --date_from=2026-04-01 --date_to=2026-04-03
 php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
@@ -140,7 +141,9 @@ php artisan relay:start
 php artisan relay:status
 ```
 
-Run `php artisan schedule:run` from cron every minute so the built-in preview refresh and recording tasks continue automatically. Recording jobs are queued, so production also needs a queue worker process for the `recordings` queue. If you want Laravel's minute scheduler to act as a safety net, enable `CAMERA_RECORDING_ENSURE_WORKER=true` and point `CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE` at the installed unit so `camera-recordings:ensure-worker` can start it when the worker is absent.
+Run `php artisan schedule:run` from cron every minute so the built-in preview refresh, recording tasks, and bounded missing review-asset backfill continue automatically. Recording jobs are still queued, so production also needs a queue worker process for the `recordings` queue. The scheduler now also runs `camera-recordings:build-review-assets --missing --limit=...` as a safety net for preview MP4 and scrub-sprite generation; tune it with `CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED` and `CAMERA_REVIEW_ASSET_SCHEDULER_LIMIT`. If you want Laravel's minute scheduler to act as a worker safety net too, enable `CAMERA_RECORDING_ENSURE_WORKER=true` and point `CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE` at the installed unit so `camera-recordings:ensure-worker` can start it when the worker is absent.
+
+Recordings worker sizing is now dynamic by default. `CAMERA_RECORDING_WORKER_PROCESSES` remains the minimum worker count, and the worker supervisor can scale above that floor up to `CAMERA_RECORDING_WORKER_MAX_PROCESSES` using both enabled recording-camera count and queued `recordings,default` job backlog. Tune the ramp with `CAMERA_RECORDING_WORKER_CAMERAS_PER_PROCESS` and `CAMERA_RECORDING_WORKER_JOBS_PER_PROCESS`.
 
 For repeatable setup on Linux hosts with user systemd available, run `php artisan camera-recordings:install-worker-service` once during deployment, or use `composer recordings:worker:install`. That removes the hand-edited unit file step, but it still relies on systemd for real background-process persistence.
 

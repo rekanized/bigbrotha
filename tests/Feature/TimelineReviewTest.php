@@ -76,6 +76,10 @@ class TimelineReviewTest extends TestCase
         $this->assertIsArray($reviewTiles);
         $this->assertCount(1, $reviewTiles);
         $this->assertSame('North Gate', $reviewTiles[0]['cameraName']);
+        $this->assertSame('NG', $reviewTiles[0]['cameraInitials']);
+        $this->assertSame('North Gate camera preview', $reviewTiles[0]['cameraPreviewAlt']);
+        $this->assertTrue($reviewTiles[0]['cameraPreviewAvailable']);
+        $this->assertSame('https://example.test/recordings/north-gate-thumb.jpg', $reviewTiles[0]['cameraPreviewUrl']);
         $this->assertSame(1, $reviewTiles[0]['segmentCount']);
         $this->assertTrue($reviewTiles[0]['hasFocusSegment']);
         $this->assertArrayNotHasKey('segments', $reviewTiles[0]);
@@ -282,6 +286,10 @@ class TimelineReviewTest extends TestCase
             now()->utc()->setDate(2026, 4, 4)->startOfDay(),
         );
 
+        $this->assertSame(
+            route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 0]),
+            $summaries->first()['cameraPreviewUrl'] ?? null,
+        );
         $this->assertSame(
             route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 0]),
             $summaries->first()['previewThumbnailUrl'] ?? null,

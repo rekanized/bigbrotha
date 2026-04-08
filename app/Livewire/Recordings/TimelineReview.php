@@ -261,18 +261,46 @@ class TimelineReview extends Component
      */
     private function summarizeReviewTiles(array $reviewTiles): array
     {
-        return array_values(array_map(static function (array $tile): array {
+        return array_values(array_map(function (array $tile): array {
+            $cameraName = (string) ($tile['cameraName'] ?? '');
+            $cameraPreviewUrl = $this->normalizeOptionalString($tile['cameraPreviewUrl'] ?? $tile['previewThumbnailUrl'] ?? null);
+            $cameraPreviewAlt = $this->normalizeOptionalString($tile['cameraPreviewAlt'] ?? null)
+                ?? ($cameraName !== '' ? $cameraName.' camera preview' : 'Camera preview');
+
             return [
                 'cameraId' => (int) ($tile['cameraId'] ?? 0),
-                'cameraName' => (string) ($tile['cameraName'] ?? ''),
+                'cameraName' => $cameraName,
                 'cameraIp' => (string) ($tile['cameraIp'] ?? ''),
+                'cameraInitials' => $this->cameraInitials($cameraName),
+                'cameraPreviewAlt' => $cameraPreviewAlt,
+                'cameraPreviewAvailable' => $cameraPreviewUrl !== null,
+                'cameraPreviewUrl' => $cameraPreviewUrl,
                 'hasFocusSegment' => !empty($tile['hasFocusSegment']),
                 'latestRecordingLabel' => $tile['latestRecordingLabel'] ?? null,
-                'previewThumbnailUrl' => $tile['previewThumbnailUrl'] ?? null,
+                'previewThumbnailUrl' => $cameraPreviewUrl,
                 'previewTimeLabel' => $tile['previewTimeLabel'] ?? null,
                 'segmentCount' => (int) ($tile['segmentCount'] ?? 0),
             ];
         }, array_values(array_filter($reviewTiles, static fn (mixed $tile): bool => is_array($tile)))));
+    }
+
+    private function normalizeOptionalString(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value !== '' ? $value : null;
+    }
+
+    private function cameraInitials(string $cameraName): string
+    {
+        $parts = preg_split('/\s+/', trim($cameraName));
+        $parts = is_array($parts) ? array_values(array_filter($parts)) : [];
+
+        return strtoupper(substr((string) ($parts[0] ?? ''), 0, 1).substr((string) ($parts[1] ?? ''), 0, 1));
     }
 
     private function cameraExists(int $cameraId): bool

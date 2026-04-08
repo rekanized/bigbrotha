@@ -331,7 +331,7 @@ class RecordingController extends Controller
                     ->whereNotNull('relative_path');
             })
             ->orderBy('name')
-            ->get(['id', 'name', 'local_ip']);
+            ->get(['id', 'name', 'local_ip', 'metadata']);
     }
 
     /**

@@ -1684,7 +1684,13 @@ body.page-recording-review .recording-review-switcher__camera.is-active {
 }
 
 body.page-recording-review .recording-review-switcher__camera-thumb {
+    display: flex;
+    flex: 0 0 56px;
+    align-items: center;
+    justify-content: center;
     width: 56px;
+    min-width: 56px;
+    max-width: 56px;
     height: 42px;
     border-radius: 8px;
     background: #dde5ef;

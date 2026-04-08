@@ -147,9 +147,9 @@
 
                         <div class="recording-review-switcher__list">
                             @foreach ($reviewTiles as $reviewTile)
-                                @php($cameraInitialParts = preg_split('/\s+/', trim((string) ($reviewTile['cameraName'] ?? ''))))
-                                @php($cameraInitialParts = is_array($cameraInitialParts) ? array_values(array_filter($cameraInitialParts)) : [])
-                                @php($cameraInitials = strtoupper(substr((string) ($cameraInitialParts[0] ?? ''), 0, 1).substr((string) ($cameraInitialParts[1] ?? ''), 0, 1)))
+                                @php($cameraPreviewUrl = is_string($reviewTile['cameraPreviewUrl'] ?? null) ? trim((string) $reviewTile['cameraPreviewUrl']) : '')
+                                @php($cameraPreviewAlt = (string) ($reviewTile['cameraPreviewAlt'] ?? (($reviewTile['cameraName'] ?? 'Camera').' camera preview')))
+                                @php($cameraInitials = (string) ($reviewTile['cameraInitials'] ?? ''))
                                 <button
                                     class="recording-review-switcher__camera{{ ($activeCameraId ?? null) === (int) ($reviewTile['cameraId'] ?? 0) ? ' is-active' : '' }}"
                                     type="button"
@@ -162,12 +162,19 @@
                                     data-stage-url="{{ route('recordings.timeline.stage-data', ['camera' => (int) ($reviewTile['cameraId'] ?? 0)]) }}"
                                     aria-pressed="{{ ($activeCameraId ?? null) === (int) ($reviewTile['cameraId'] ?? 0) ? 'true' : 'false' }}"
                                 >
-                                    <span class="recording-review-switcher__camera-thumb">
-                                        @if (!empty($reviewTile['previewThumbnailUrl']))
-                                            <img src="{{ $reviewTile['previewThumbnailUrl'] }}" alt="{{ $reviewTile['cameraName'] }} thumbnail preview" loading="lazy" decoding="async">
-                                        @else
-                                            <span class="recording-review-switcher__camera-fallback">{{ $cameraInitials !== '' ? $cameraInitials : 'NA' }}</span>
+                                    <span class="recording-review-switcher__camera-thumb" data-has-preview="{{ $cameraPreviewUrl !== '' ? 'true' : 'false' }}">
+                                        @if ($cameraPreviewUrl !== '')
+                                            <img
+                                                src="{{ $cameraPreviewUrl }}"
+                                                alt="{{ $cameraPreviewAlt }}"
+                                                loading="lazy"
+                                                decoding="async"
+                                                onload="this.parentElement.dataset.hasPreview='true'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'true'); }"
+                                                onerror="this.parentElement.dataset.hasPreview='false'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'false'); } this.remove();"
+                                            >
                                         @endif
+
+                                        <span class="recording-review-switcher__camera-fallback" aria-hidden="{{ $cameraPreviewUrl !== '' ? 'true' : 'false' }}">{{ $cameraInitials !== '' ? $cameraInitials : 'NA' }}</span>
                                     </span>
 
                                     <span class="recording-review-switcher__camera-copy">

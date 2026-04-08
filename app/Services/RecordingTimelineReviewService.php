@@ -39,6 +39,7 @@ class RecordingTimelineReviewService
 
             $selectedRecording = $this->selectRecordingForFocus($cameraRecordings, $focusAt);
             $latestRecording = $cameraRecordings->last();
+            $cameraPreview = $this->cameraPreviewImage($camera);
             $selectedRecordingPayload = $selectedRecording instanceof CameraRecording
                 ? $this->recordingReviewPayload($selectedRecording, $reviewWindowStart, $reviewWindowEnd)
                 : null;
@@ -56,7 +57,10 @@ class RecordingTimelineReviewService
                 'segmentCount' => $cameraRecordings->count(),
                 'hasFocusSegment' => $selectedRecording instanceof CameraRecording,
                 'latestRecordingLabel' => $latestRecordingPayload['timeLabel'] ?? null,
-                'previewThumbnailUrl' => $this->cameraPreviewThumbnailUrl($camera),
+                'cameraPreviewAlt' => $cameraPreview['alt'],
+                'cameraPreviewAvailable' => $cameraPreview['available'],
+                'cameraPreviewUrl' => $cameraPreview['url'],
+                'previewThumbnailUrl' => $cameraPreview['url'],
                 'previewTimeLabel' => $latestRecordingPayload['timeLabel'] ?? null,
             ];
         })->values();
@@ -202,6 +206,21 @@ class RecordingTimelineReviewService
             'camera' => $camera,
             'profileIndex' => (int) $preview['index'],
         ]);
+    }
+
+    /**
+     * @return array{alt: string, available: bool, url: ?string}
+     */
+    private function cameraPreviewImage(Camera $camera): array
+    {
+        $cameraName = trim((string) $camera->name);
+        $previewUrl = $this->cameraPreviewThumbnailUrl($camera);
+
+        return [
+            'alt' => $cameraName !== '' ? $cameraName.' camera preview' : 'Camera preview',
+            'available' => $previewUrl !== null,
+            'url' => $previewUrl,
+        ];
     }
 
     /**

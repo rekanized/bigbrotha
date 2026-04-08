@@ -470,37 +470,70 @@ Artisan::command('camera-recordings:orphans {--purge}', function (): int {
     return 0;
 })->purpose('Audit orphan recording files and optionally purge them from private storage');
 
-Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missing}', function (): int {
+Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missing} {--limit=}', function (): int {
     $reviewAssets = app(RecordingReviewAssetService::class);
     $generated = 0;
     $failed = 0;
     $skipped = 0;
 
-    CameraRecording::query()
+    $limitOption = trim((string) ($this->option('limit') ?? ''));
+    $limit = null;
+
+    if ($limitOption !== '') {
+        if (!ctype_digit($limitOption) || (int) $limitOption < 1) {
+            $this->components->error('limit must be a positive integer.');
+
+            return 1;
+        }
+
+        $limit = (int) $limitOption;
+    }
+
+    $buildAssets = function ($recordings) use (&$generated, &$failed, &$skipped, $reviewAssets): void {
+        foreach ($recordings as $recording) {
+            if ($this->option('missing') && $reviewAssets->hasReadyAssets($recording, true)) {
+                $skipped++;
+
+                continue;
+            }
+
+            try {
+                GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
+                $generated++;
+            } catch (\Throwable $exception) {
+                $failed++;
+            }
+        }
+    };
+
+    $query = CameraRecording::query()
         ->where('status', CameraRecording::STATUS_RECORDED)
         ->whereNotNull('relative_path')
         ->when($this->option('camera_id'), function ($query): void {
             $query->where('camera_id', (int) $this->option('camera_id'));
-        })
-        ->orderBy('id')
-        ->chunkById(50, function ($recordings) use (&$generated, &$failed, &$skipped, $reviewAssets): void {
-            foreach ($recordings as $recording) {
-                if ($this->option('missing') && $reviewAssets->hasReadyAssets($recording, true)) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                try {
-                    GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
-                    $generated++;
-                } catch (\Throwable $exception) {
-                    $failed++;
-                }
-            }
         });
 
+    if ($limit !== null) {
+        $buildAssets(
+            $query
+                ->orderByDesc('started_at')
+                ->orderByDesc('id')
+                ->limit($limit)
+                ->get()
+        );
+    } else {
+        $query
+            ->orderBy('id')
+            ->chunkById(50, function ($recordings) use ($buildAssets): void {
+                $buildAssets($recordings);
+            });
+    }
+
     $message = 'Generated review assets for '.$generated.' recording'.($generated === 1 ? '' : 's').'.';
+
+    if ($limit !== null) {
+        $message .= ' Limit '.$limit.'.';
+    }
 
     if ($skipped > 0) {
         $message .= ' Skipped '.$skipped.' recording'.($skipped === 1 ? '' : 's').' with ready assets.';
@@ -642,6 +675,15 @@ Schedule::command('camera-fleet:refresh-previews')
 Schedule::command('camera-recordings:ensure-worker')
     ->everyMinute()
     ->withoutOverlapping();
+
+if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
+    Schedule::command('camera-recordings:build-review-assets', [
+        '--missing' => true,
+        '--limit' => (string) config('recording.review_assets.scheduler_limit', 4),
+    ])
+        ->everyMinute()
+        ->withoutOverlapping();
+}
 
 Schedule::command('camera-recordings:tick')
     ->everyMinute()

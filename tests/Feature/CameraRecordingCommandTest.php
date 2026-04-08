@@ -325,6 +325,69 @@ class CameraRecordingCommandTest extends TestCase
         );
     }
 
+    public function test_build_review_assets_can_limit_a_missing_backfill_to_the_newest_segments(): void
+    {
+        config()->set('queue.default', 'database');
+
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.170',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream170',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $olderRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 6, 11, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 6, 11, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 6, 11, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/06/atrium-older.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Older clip saved.',
+        ]);
+
+        $newerRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 11, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/atrium-newer.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Newer clip saved.',
+        ]);
+
+        foreach ([$olderRecording, $newerRecording] as $recording) {
+            $recordingPath = app(CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+            File::ensureDirectoryExists(dirname($recordingPath));
+            File::put($recordingPath, 'recorded-segment');
+
+            $recording->forceFill([
+                'file_size_bytes' => filesize($recordingPath) ?: null,
+            ])->save();
+        }
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous')]);
+
+        $this->artisan('camera-recordings:build-review-assets', [
+            '--missing' => true,
+            '--limit' => '1',
+        ])->assertSuccessful();
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+
+        $this->assertTrue($reviewAssets->hasReadyAssets($newerRecording->fresh(), true));
+        $this->assertFalse($reviewAssets->hasReadyAssets($olderRecording->fresh(), true));
+    }
+
     public function test_it_uses_the_segment_muxer_for_continuous_recording(): void
     {
         config()->set('queue.default', 'sync');
@@ -1341,6 +1404,9 @@ class CameraRecordingCommandTest extends TestCase
         $ensureWorkerEvent = collect(app(Schedule::class)->events())
             ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:ensure-worker'));
 
+        $reviewBackfillEvent = collect(app(Schedule::class)->events())
+            ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:build-review-assets'));
+
         $tickEvent = collect(app(Schedule::class)->events())
             ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:tick'));
 
@@ -1349,6 +1415,9 @@ class CameraRecordingCommandTest extends TestCase
 
         $this->assertNotNull($ensureWorkerEvent);
         $this->assertSame('* * * * *', $ensureWorkerEvent->expression);
+        $this->assertNotNull($reviewBackfillEvent);
+        $this->assertSame('* * * * *', $reviewBackfillEvent->expression);
+        $this->assertStringContainsString('--missing', (string) $reviewBackfillEvent->command);
         $this->assertNotNull($tickEvent);
         $this->assertSame('* * * * *', $tickEvent->expression);
         $this->assertNotNull($pruneEvent);
