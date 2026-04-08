@@ -63,6 +63,8 @@
 
         <livewire:admin.network-storage-settings-panel />
 
+        <livewire:admin.admin-job-queue />
+
         <div class="dashboard-secondary">
             <article class="dashboard-panel dashboard-panel--wide">
                 <div class="panel-heading">

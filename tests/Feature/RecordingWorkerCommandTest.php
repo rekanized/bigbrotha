@@ -386,6 +386,66 @@ BASH);
         $this->assertStringContainsString('Installed and started 3 recordings worker systemd units.', $output);
       }
 
+  public function test_snapshot_reports_running_capacity_and_backlog_targets(): void
+  {
+    $binaryDirectory = storage_path('app/private/test-binaries');
+    File::ensureDirectoryExists($binaryDirectory);
+
+    $psBinary = $binaryDirectory.'/recording-worker-ps-snapshot.sh';
+    File::put($psBinary, <<<'BASH'
+#!/usr/bin/env bash
+cat <<'OUT'
+ 5100 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
+ 5101 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
+OUT
+exit 0
+BASH);
+    chmod($psBinary, 0755);
+
+    foreach (range(1, 5) as $index) {
+      Camera::query()->create([
+        'name' => 'Snapshot Cam '.$index,
+        'local_ip' => '192.168.1.'.(150 + $index),
+        'rtsp_port' => 554,
+        'rtsp_path' => '/stream'.$index,
+        'supports_onvif' => false,
+        'supports_rtsp' => true,
+        'is_enabled' => true,
+        'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+        'recording_retention_days' => 1,
+      ]);
+    }
+
+    foreach (range(1, 240) as $index) {
+      DB::table('jobs')->insert([
+        'queue' => 'recordings',
+        'payload' => json_encode(['displayName' => 'App\\Jobs\\ProcessCameraRecordingJob']),
+        'attempts' => 0,
+        'reserved_at' => null,
+        'available_at' => now()->timestamp,
+        'created_at' => now()->timestamp,
+      ]);
+    }
+
+    config()->set('recording.worker.ensure_running', true);
+    config()->set('recording.worker.processes', 1);
+    config()->set('recording.worker.dynamic_enabled', true);
+    config()->set('recording.worker.max_processes', 4);
+    config()->set('recording.worker.cameras_per_process', 4);
+    config()->set('recording.worker.jobs_per_process', 120);
+    config()->set('recording.worker.queue', 'recordings,default');
+    config()->set('recording.worker.ps_binary', $psBinary);
+
+    $snapshot = app(\App\Services\RecordingWorkerService::class)->snapshot();
+
+    $this->assertFalse($snapshot['running']);
+    $this->assertSame(0, $snapshot['running_workers']);
+    $this->assertSame(2, $snapshot['desired_workers']);
+    $this->assertSame(['recordings', 'default'], $snapshot['queue_names']);
+    $this->assertSame(5, $snapshot['enabled_recording_cameras']);
+    $this->assertSame(240, $snapshot['queued_worker_jobs']);
+  }
+
     public function test_it_noops_when_worker_supervision_is_disabled(): void
     {
         $binaryDirectory = storage_path('app/private/test-binaries');

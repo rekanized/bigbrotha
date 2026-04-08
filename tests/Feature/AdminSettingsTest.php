@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Livewire\Admin\AdminJobQueue;
 use App\Livewire\Admin\NetworkStorageSettingsPanel;
 use App\Livewire\Recordings\TimelineReview;
 use App\Models\Camera;
@@ -12,6 +13,7 @@ use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -120,9 +122,93 @@ class AdminSettingsTest extends TestCase
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('admin.settings.index'))
             ->assertOk()
+            ->assertSee('Job queue monitor')
             ->assertSee('Recorder runtime')
             ->assertSee('ffmpeg binary')
             ->assertSee('Temp workspace');
+    }
+
+    public function test_admin_job_queue_component_lists_pending_and_failed_jobs(): void
+    {
+        config()->set('queue.default', 'database');
+        config()->set('recording.worker.queue', 'recordings,default');
+
+        DB::table('jobs')->insert([
+            [
+                'queue' => 'recordings',
+                'payload' => json_encode([
+                    'displayName' => 'App\\Jobs\\GenerateRecordingReviewAssetsJob',
+                ], JSON_THROW_ON_ERROR),
+                'attempts' => 0,
+                'reserved_at' => null,
+                'available_at' => now()->addSecond()->timestamp,
+                'created_at' => now()->timestamp,
+            ],
+            [
+                'queue' => 'default',
+                'payload' => json_encode([
+                    'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                ], JSON_THROW_ON_ERROR),
+                'attempts' => 1,
+                'reserved_at' => null,
+                'available_at' => now()->timestamp,
+                'created_at' => now()->timestamp,
+            ],
+        ]);
+
+        DB::table('failed_jobs')->insert([
+            'uuid' => '9e339aa3-8f8f-4f6c-bf2f-3b1e8fd22222',
+            'connection' => 'database',
+            'queue' => 'recordings',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\ProcessCameraRecordingJob',
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: test',
+            'failed_at' => now(),
+        ]);
+
+        Livewire::test(AdminJobQueue::class)
+            ->assertSee('Job queue monitor')
+            ->assertSee('recordings')
+            ->assertSee('default')
+            ->assertSee('GenerateRecordingReviewAssetsJob')
+            ->assertSee('RefreshCameraPreviewJob')
+            ->assertSee('ProcessCameraRecordingJob')
+            ->assertSee('Failed');
+    }
+
+    public function test_admin_job_queue_component_can_retry_a_failed_job(): void
+    {
+        config()->set('queue.default', 'database');
+
+        $failedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '4db6a062-e945-4ad2-a6d1-8d91679f1234',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+                'data' => [
+                    'commandName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                    'command' => 'serialized-command-placeholder',
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: test',
+            'failed_at' => now(),
+        ]);
+
+        Livewire::test(AdminJobQueue::class)
+            ->call('retryFailedJob', $failedJobId)
+            ->assertSet('statusTone', 'good')
+            ->assertSet('statusMessage', 'Queued the failed job for another attempt.');
+
+        $this->assertDatabaseMissing('failed_jobs', [
+            'id' => $failedJobId,
+        ]);
+
+        $this->assertDatabaseHas('jobs', [
+            'queue' => 'default',
+        ]);
     }
 
     public function test_non_admin_users_cannot_open_the_current_users_page(): void

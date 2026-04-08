@@ -14,6 +14,45 @@ use Throwable;
 class RecordingWorkerService
 {
     /**
+     * @return array{
+     *     running: bool,
+     *     running_workers: int,
+     *     desired_workers: int,
+     *     running_pids: array<int>,
+     *     queue_names: array<int, string>,
+     *     ensure_running: bool,
+     *     dynamic_enabled: bool,
+     *     minimum_workers: int,
+     *     maximum_workers: int,
+     *     cameras_per_process: int,
+     *     jobs_per_process: int,
+     *     enabled_recording_cameras: int,
+     *     queued_worker_jobs: int
+     * }
+     */
+    public function snapshot(): array
+    {
+        $runningPids = $this->runningPids();
+        $minimumWorkers = max(1, (int) config('recording.worker.processes', 1));
+
+        return [
+            'running' => $runningPids !== [],
+            'running_workers' => count($runningPids),
+            'desired_workers' => $this->desiredWorkerCount(),
+            'running_pids' => $runningPids,
+            'queue_names' => $this->workerQueueList(),
+            'ensure_running' => (bool) config('recording.worker.ensure_running', false),
+            'dynamic_enabled' => (bool) config('recording.worker.dynamic_enabled', true),
+            'minimum_workers' => $minimumWorkers,
+            'maximum_workers' => max($minimumWorkers, (int) config('recording.worker.max_processes', $minimumWorkers)),
+            'cameras_per_process' => max(1, (int) config('recording.worker.cameras_per_process', 4)),
+            'jobs_per_process' => max(1, (int) config('recording.worker.jobs_per_process', 200)),
+            'enabled_recording_cameras' => $this->enabledRecordingCameraCount(),
+            'queued_worker_jobs' => $this->queuedWorkerJobsCount(),
+        ];
+    }
+
+    /**
      * @return array{ok: bool, wrote: bool, enabled: bool, started: bool, message: string, path: string}
      */
     public function installSystemdUserService(bool $start = true): array

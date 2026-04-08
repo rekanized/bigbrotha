@@ -332,6 +332,74 @@
     grid-column: span 6;
 }
 
+.queue-monitor {
+    gap: var(--space-5);
+}
+
+.queue-monitor__summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.queue-monitor__detail-copy,
+.queue-monitor__muted {
+    color: var(--text-soft);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.queue-monitor__panel-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.queue-monitor__panel-card {
+    grid-column: span 6;
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: hsla(0 0% 100% / 0.58);
+}
+
+.queue-monitor__panel-grid > .queue-monitor__panel-card:last-child {
+    grid-column: span 12;
+}
+
+.panel-heading--compact {
+    align-items: center;
+}
+
+.queue-monitor__table {
+    gap: 12px;
+}
+
+.queue-monitor__summary-head,
+.queue-monitor__summary-row,
+.queue-monitor__jobs-head,
+.queue-monitor__jobs-row,
+.queue-monitor__failed-head,
+.queue-monitor__failed-row {
+    grid-template-columns: minmax(120px, 0.9fr) minmax(120px, 1.2fr) minmax(80px, 0.6fr) minmax(160px, 1fr) minmax(110px, 0.8fr);
+}
+
+.queue-monitor__failed-head,
+.queue-monitor__failed-row {
+    grid-template-columns: minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(100px, 0.7fr);
+}
+
+.queue-monitor__summary-row,
+.queue-monitor__jobs-row,
+.queue-monitor__failed-row {
+    align-items: start;
+}
+
+.queue-monitor__action-button {
+    justify-self: start;
+    min-width: 96px;
+}
+
 .key-value-list {
     display: grid;
     gap: 12px;
@@ -3516,6 +3584,12 @@ body.live-wall-focus-mode {
     color: hsl(151 52% 28%);
 }
 
+.notice--warning {
+    background: hsla(35 88% 52% / 0.12);
+    border: 1px solid hsla(35 88% 52% / 0.2);
+    color: hsl(28 68% 32%);
+}
+
 .tag {
     display: inline-flex;
     align-items: center;
@@ -3597,6 +3671,11 @@ body.live-wall-focus-mode {
         grid-column: span 6;
     }
 
+    .queue-monitor__panel-card,
+    .queue-monitor__panel-grid > .queue-monitor__panel-card:last-child {
+        grid-column: span 12;
+    }
+
     .camera-list {
         grid-template-columns: 1fr;
     }
@@ -3609,6 +3688,7 @@ body.live-wall-focus-mode {
     .motion-threshold-card,
     .motion-editor__toolbar,
     .inline-action-form-row,
+    .queue-monitor__panel-grid,
     .recording-browser__filters,
     .data-table__head,
     .data-table__row {
