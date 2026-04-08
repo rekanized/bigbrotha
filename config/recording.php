@@ -17,7 +17,7 @@ return [
         'ensure_running' => filter_var(env('CAMERA_RECORDING_ENSURE_WORKER', false), FILTER_VALIDATE_BOOL),
         'processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)),
         'dynamic_enabled' => filter_var(env('CAMERA_RECORDING_WORKER_DYNAMIC', true), FILTER_VALIDATE_BOOL),
-        'max_processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_MAX_PROCESSES', max(4, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)))),
+        'max_processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_MAX_PROCESSES', max(8, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)))),
         'cameras_per_process' => max(1, (int) env('CAMERA_RECORDING_WORKER_CAMERAS_PER_PROCESS', 4)),
         'jobs_per_process' => max(1, (int) env('CAMERA_RECORDING_WORKER_JOBS_PER_PROCESS', 200)),
         'systemd_service' => env('CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE', 'bigbrothas-recordings-queue.service'),

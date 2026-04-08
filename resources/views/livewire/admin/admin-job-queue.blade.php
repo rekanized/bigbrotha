@@ -13,6 +13,10 @@
             <div class="notice notice--{{ $statusTone === 'good' ? 'success' : 'warning' }}">{{ $statusMessage }}</div>
         @endif
 
+        @if ($workerPressureMessage)
+            <div class="notice notice--{{ $workerPressureTone }}">{{ $workerPressureMessage }}</div>
+        @endif
+
         @if (! $usesDatabaseQueue)
             <div class="notice notice--warning">The active queue connection uses the <strong>{{ $queueDriver !== '' ? $queueDriver : 'unknown' }}</strong> driver. Pending job inspection in this panel is only available when the Laravel queue driver is set to <strong>database</strong>.</div>
         @elseif (! $jobsTableAvailable)
@@ -30,7 +34,7 @@
         <article class="detail-card">
             <span class="detail-card__label">Worker capacity</span>
             <strong>{{ $worker['running_workers'] ?? 0 }} / {{ $worker['desired_workers'] ?? 0 }} running</strong>
-            <span class="queue-monitor__detail-copy">Dynamic scaling {{ ($worker['dynamic_enabled'] ?? false) ? 'enabled' : 'disabled' }}. Minimum {{ $worker['minimum_workers'] ?? 1 }}, maximum {{ $worker['maximum_workers'] ?? 1 }}.</span>
+            <span class="queue-monitor__detail-copy">Dynamic scaling {{ ($worker['dynamic_enabled'] ?? false) ? 'enabled' : 'disabled' }}. Minimum {{ $worker['minimum_workers'] ?? 1 }}, maximum {{ $worker['maximum_workers'] ?? 1 }}. Default ceiling is now 8 workers unless CAMERA_RECORDING_WORKER_MAX_PROCESSES overrides it.</span>
         </article>
 
         <article class="detail-card">

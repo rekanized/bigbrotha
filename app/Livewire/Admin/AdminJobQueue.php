@@ -56,6 +56,10 @@ class AdminJobQueue extends Component
 
     public string $statusTone = 'neutral';
 
+    public ?string $workerPressureMessage = null;
+
+    public string $workerPressureTone = 'neutral';
+
     public function mount(RecordingWorkerService $workerService): void
     {
         $this->loadSnapshot($workerService);
@@ -124,6 +128,7 @@ class AdminJobQueue extends Component
             'status_tone' => $this->workerStatusTone($workerSnapshot),
             'status_label' => $this->workerStatusLabel($workerSnapshot),
         ];
+        [$this->workerPressureTone, $this->workerPressureMessage] = $this->workerPressureState($workerSnapshot);
 
         if (!$this->usesDatabaseQueue || !$this->jobsTableAvailable) {
             $this->pendingJobTotal = 0;
@@ -365,6 +370,36 @@ class AdminJobQueue extends Component
         }
 
         return 'Healthy';
+    }
+
+    /**
+     * @param  array<string, mixed>  $workerSnapshot
+     * @return array{0: string, 1: string|null}
+     */
+    private function workerPressureState(array $workerSnapshot): array
+    {
+        $desiredWorkers = (int) ($workerSnapshot['desired_workers'] ?? 1);
+        $maximumWorkers = max(1, (int) ($workerSnapshot['maximum_workers'] ?? 1));
+
+        if (!(bool) ($workerSnapshot['dynamic_enabled'] ?? false)) {
+            return ['warning', 'Dynamic worker scaling is disabled. The worker pool will stay fixed until you change the configured process count.'];
+        }
+
+        if ($desiredWorkers >= $maximumWorkers) {
+            return [
+                'warning',
+                'Worker demand has reached the configured ceiling of '.$maximumWorkers.' processes. If backlog keeps growing, raise CAMERA_RECORDING_WORKER_MAX_PROCESSES or reduce per-job load.',
+            ];
+        }
+
+        if ($maximumWorkers > 1 && $desiredWorkers >= max(1, (int) ceil($maximumWorkers * 0.75))) {
+            return [
+                'warning',
+                'Worker demand is nearing the configured ceiling: '.$desiredWorkers.' of '.$maximumWorkers.' available worker slots are now targeted.',
+            ];
+        }
+
+        return ['warning', null];
     }
 
     private function formatUnixTimestamp(int $timestamp): string

@@ -211,6 +211,34 @@ class AdminSettingsTest extends TestCase
         ]);
     }
 
+    public function test_admin_job_queue_component_warns_when_worker_demand_reaches_the_cap(): void
+    {
+        config()->set('queue.default', 'database');
+        config()->set('recording.worker.ensure_running', true);
+        config()->set('recording.worker.processes', 1);
+        config()->set('recording.worker.dynamic_enabled', true);
+        config()->set('recording.worker.max_processes', 2);
+        config()->set('recording.worker.cameras_per_process', 4);
+        config()->set('recording.worker.jobs_per_process', 200);
+
+        foreach (range(1, 8) as $index) {
+            Camera::query()->create([
+                'name' => 'Queue Warning Cam '.$index,
+                'local_ip' => '192.168.1.'.(40 + $index),
+                'rtsp_port' => 554,
+                'rtsp_path' => '/stream'.$index,
+                'supports_onvif' => false,
+                'supports_rtsp' => true,
+                'is_enabled' => true,
+                'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+                'recording_retention_days' => 1,
+            ]);
+        }
+
+        Livewire::test(AdminJobQueue::class)
+            ->assertSee('Worker demand has reached the configured ceiling of 2 processes.');
+    }
+
     public function test_non_admin_users_cannot_open_the_current_users_page(): void
     {
         User::factory()->admin()->create();
