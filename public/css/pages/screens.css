@@ -1124,6 +1124,15 @@
     background: hsla(220 18% 8% / 0.38);
 }
 
+.wall-grid-builder__tile-controls .field-stack,
+.wall-grid-builder__tile-controls .form-select {
+    min-width: 0;
+}
+
+.wall-grid-builder__tile-controls .field-stack:not(.field-stack--wide) {
+    max-width: 132px;
+}
+
 .wall-grid-builder__tile-controls .field-stack span {
     color: hsla(0 0% 100% / 0.78);
 }
@@ -2995,7 +3004,6 @@ body.live-wall-focus-mode {
     inset: 0;
     left: 50%;
     width: 20px;
-    border-radius: 999px;
     background: #0f77f2;
     box-shadow: 0 0 0 1px rgba(15, 119, 242, 0.08);
     transform: translateX(-50%);

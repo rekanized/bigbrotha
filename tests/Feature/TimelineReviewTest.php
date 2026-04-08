@@ -7,6 +7,9 @@ use App\Livewire\Recordings\TimelineRail;
 use App\Livewire\Recordings\TimelineStage;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Models\User;
+use App\Services\ApplicationSettingsService;
+use App\Services\CameraStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -15,7 +18,7 @@ class TimelineReviewTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_timeline_review_select_focus_updates_server_focus_state_only(): void
+    public function test_timeline_review_initializes_focus_state_from_payload(): void
     {
         Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
@@ -39,8 +42,6 @@ class TimelineReviewTest extends TestCase
             ],
         ])
             ->assertSet('focusAtMs', 4_000)
-            ->call('selectFocus', 8_000)
-            ->assertSet('focusAtMs', 8_000)
             ->assertSet('activeCameraId', 7);
     }
 
@@ -79,7 +80,105 @@ class TimelineReviewTest extends TestCase
         $this->assertArrayNotHasKey('segments', $reviewTiles[0]);
     }
 
-    public function test_timeline_review_loads_only_the_requested_rail_window(): void
+    public function test_timeline_review_prefers_controller_supplied_initial_payloads(): void
+    {
+        Livewire::test(TimelineReview::class, [
+            'timelineCameraOptions' => [
+                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+            ],
+            'reviewTiles' => [
+                [
+                    'cameraId' => 7,
+                    'cameraName' => 'North Gate',
+                    'cameraIp' => '192.168.1.70',
+                    'hasFocusSegment' => true,
+                    'segmentCount' => 1,
+                    'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
+                ],
+            ],
+            'timelinePayload' => [
+                'dayStartMs' => 0,
+                'dayEndMs' => 3_600_000,
+                'focusAtMs' => 5_000,
+                'activeCameraId' => 7,
+            ],
+            'initialCurrentSegment' => [
+                'id' => 81,
+                'cameraId' => 7,
+                'startMs' => 2_000,
+                'endMs' => 8_000,
+                'durationSeconds' => 6,
+                'streamUrl' => 'https://example.test/recordings/north-gate-stream.mp4',
+                'timeLabel' => '2026-04-03 12:00:00 UTC',
+                'modeLabel' => 'Movement clip',
+                'durationLabel' => '6 s',
+                'fileSizeLabel' => '12.00 MB',
+                'downloadUrl' => 'https://example.test/recordings/north-gate-download.mkv',
+            ],
+            'initialRailSegments' => [[
+                'id' => 81,
+                'cameraId' => 7,
+                'startMs' => 2_000,
+                'endMs' => 8_000,
+                'midpointMs' => 5_000,
+                'topPercent' => 12,
+                'renderHeightPercent' => 18,
+                'captureMode' => 'motion',
+                'timeLabel' => '2026-04-03 12:00:00 UTC',
+                'modeLabel' => 'Movement clip',
+                'thumbnailUrl' => 'https://example.test/recordings/north-gate-thumb.jpg',
+                'scheduledLabel' => '2026-04-03 12:00:00 UTC',
+            ]],
+            'initialRailWindowStartMs' => 0,
+            'initialRailWindowEndMs' => 3_600_000,
+        ])
+            ->assertSeeHtml('data-recording-id="81"')
+            ->assertSeeHtml('data-role="rail-segment"');
+    }
+
+    public function test_timeline_route_does_not_probe_recording_files_during_initial_render(): void
+    {
+        $user = User::factory()->create();
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldNotReceive('recordingExists');
+        $this->app->instance(CameraStorageService::class, $storage);
+
+        $this->actingAs($user)
+            ->get(route('recordings.timeline', [
+                'camera_ids' => [$camera->id],
+                'date_from' => '2026-04-03',
+                'date_to' => '2026-04-03',
+            ]))
+            ->assertOk()
+            ->assertSee('Timeline Review')
+            ->assertSeeHtml('data-recording-id="'.$recording->id.'"');
+    }
+
+    public function test_timeline_review_shell_uses_client_owned_rail_loading(): void
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
@@ -107,19 +206,7 @@ class TimelineReviewTest extends TestCase
 
         $this->writeRecordedSegment($inWindow);
 
-        CameraRecording::query()->create([
-            'camera_id' => $camera->id,
-            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-            'status' => CameraRecording::STATUS_RECORDED,
-            'scheduled_for' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 0, 0),
-            'started_at' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 0, 0),
-            'ended_at' => now()->utc()->setDate(2026, 4, 4)->setTime(18, 1, 0),
-            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/04/out-of-window.mkv',
-            'file_size_bytes' => 1024,
-            'message' => 'Out of window segment',
-        ]);
-
-        $component = Livewire::test(TimelineReview::class, [
+        Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
                 ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
             ],
@@ -139,17 +226,10 @@ class TimelineReviewTest extends TestCase
                 'focusAtMs' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0)->valueOf(),
                 'activeCameraId' => $camera->id,
             ],
-        ]);
-
-        $payload = $component->instance()->loadRailChunk(
-            $camera->id,
-            now()->utc()->setDate(2026, 4, 3)->setTime(11, 0, 0)->valueOf(),
-            now()->utc()->setDate(2026, 4, 3)->setTime(13, 0, 0)->valueOf(),
-        );
-
-        $this->assertSame($camera->id, $payload['cameraId']);
-        $this->assertCount(1, $payload['segments']);
-        $this->assertSame($inWindow->id, $payload['segments'][0]['id']);
+        ])
+            ->assertSeeHtml('data-role="camera-switch"')
+            ->assertSeeHtml('data-rail-url="'.route('recordings.timeline.rail-data', ['camera' => $camera]).'"')
+            ->assertDontSeeHtml('wire:click="selectCamera(');
     }
 
     public function test_timeline_review_initial_stage_falls_back_to_the_latest_clip_before_focus(): void
@@ -265,8 +345,6 @@ class TimelineReviewTest extends TestCase
                 'startMs' => 2_000,
                 'endMs' => 8_000,
                 'durationSeconds' => 6,
-                'preferredStreamUrl' => 'https://example.test/recordings/north-gate-preview.mp4',
-                'reviewStreamUrl' => 'https://example.test/recordings/north-gate-review.mp4',
                 'streamUrl' => 'https://example.test/recordings/north-gate-stream.mp4',
                 'timeLabel' => '2026-04-03 12:00:00 UTC',
                 'modeLabel' => 'Motion',
@@ -280,11 +358,9 @@ class TimelineReviewTest extends TestCase
             ->assertSeeHtml('data-role="playback-toggle"')
             ->assertSeeHtml('data-role="companion-audio"')
             ->assertSeeHtml('data-role="audio-volume-slider"')
-            ->assertSeeHtml('data-role="scrub-preview-layer"')
-            ->assertSeeHtml('data-active-layer-index="0"')
             ->assertSee('100%')
-            ->assertSeeHtml('src="https://example.test/recordings/north-gate-preview.mp4"')
-            ->assertSeeHtml('data-review-stream-url="https://example.test/recordings/north-gate-review.mp4"')
+            ->assertSee('Playback stream')
+            ->assertSeeHtml('src="https://example.test/recordings/north-gate-stream.mp4"')
             ->assertSeeHtml('data-direct-stream-url="https://example.test/recordings/north-gate-stream.mp4"')
             ->assertDontSeeHtml(' controls');
 
@@ -297,8 +373,6 @@ class TimelineReviewTest extends TestCase
                 'startMs' => 2_000,
                 'endMs' => 8_000,
                 'durationSeconds' => 6,
-                'preferredStreamUrl' => 'https://example.test/recordings/north-gate-preview.mp4',
-                'reviewStreamUrl' => 'https://example.test/recordings/north-gate-review.mp4',
                 'streamUrl' => 'https://example.test/recordings/north-gate-stream.mp4',
                 'timeLabel' => '2026-04-03 12:00:00 UTC',
                 'modeLabel' => 'Motion',
@@ -308,7 +382,26 @@ class TimelineReviewTest extends TestCase
         ])
             ->assertSeeHtml('data-audio-state="muted"')
             ->assertSeeHtml('aria-pressed="false"')
-            ->assertSeeHtml('src="https://example.test/recordings/north-gate-preview.mp4"');
+            ->assertSeeHtml('src="https://example.test/recordings/north-gate-stream.mp4"');
+
+        Livewire::test(TimelineStage::class, [
+            'tile' => [
+                'cameraName' => 'North Gate',
+            ],
+            'segment' => [
+                'id' => 81,
+                'startMs' => 2_000,
+                'endMs' => 8_000,
+                'durationSeconds' => 6,
+                'streamUrl' => 'https://example.test/recordings/north-gate-stream.mp4',
+                'timeLabel' => '2026-04-03 12:00:00 UTC',
+                'modeLabel' => 'Motion',
+                'durationLabel' => '00:06',
+                'fileSizeLabel' => '12 MB',
+            ],
+        ])
+            ->assertSee('Playback stream')
+            ->assertSeeHtml('src="https://example.test/recordings/north-gate-stream.mp4"');
     }
 
     public function test_timeline_rail_uses_js_owned_focus_targets_without_livewire_click_dispatch(): void

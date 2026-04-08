@@ -1,10 +1,8 @@
 @php
     $cameraName = $tile['cameraName'] ?? 'No camera selected';
-    $previewStreamUrl = is_array($segment) ? ($segment['preferredStreamUrl'] ?? null) : null;
-    $reviewStreamUrl = is_array($segment) ? ($segment['reviewStreamUrl'] ?? null) : null;
     $directStreamUrl = is_array($segment) ? ($segment['streamUrl'] ?? null) : null;
-    $segmentSourceUrl = $previewStreamUrl ?: $directStreamUrl;
-    $assetStatus = $previewStreamUrl ? 'Assets cached' : 'Direct stream';
+    $segmentSourceUrl = $directStreamUrl;
+    $assetStatus = $directStreamUrl ? 'Playback stream' : 'No clip selected';
     $fallbackLatest = !empty($tile['latestRecordingLabel'])
         ? 'Latest clip: '.$tile['latestRecordingLabel']
         : 'Choose a camera below or drag the scrub rail onto a saved event.';
@@ -28,7 +26,7 @@
             <p data-role="empty-copy">{{ $fallbackLatest }}</p>
         </div>
 
-        <div class="recording-review-tile__video-shell recording-review-focus__video-shell" data-role="video-shell" @if (!$segment) hidden @endif>
+        <div class="recording-review-tile__video-shell recording-review-focus__video-shell" data-role="video-shell" wire:ignore @if (!$segment) hidden @endif>
             <video
                 class="recording-review-tile__video recording-review-focus__video"
                 data-role="video"
@@ -36,19 +34,18 @@
                 data-start-ms="{{ $segment['startMs'] ?? '' }}"
                 data-end-ms="{{ $segment['endMs'] ?? '' }}"
                 data-duration-seconds="{{ $segment['durationSeconds'] ?? '' }}"
-                data-fallback-stream-url="{{ $segment['streamUrl'] ?? '' }}"
-                data-preview-stream-url="{{ $previewStreamUrl ?? '' }}"
-                data-review-stream-url="{{ $reviewStreamUrl ?? '' }}"
                 data-direct-stream-url="{{ $directStreamUrl ?? '' }}"
-                data-preview-status-label="{{ $assetStatus }}"
-                data-review-status-label="Playback stream"
-                data-direct-status-label="Direct stream"
+                data-direct-status-label="Playback stream"
                 autoplay
                 playsinline
-                preload="auto"
+                preload="metadata"
                 muted
-                @if ($segmentSourceUrl) src="{{ $segmentSourceUrl }}" @endif
-            ></video>
+                crossorigin="anonymous"
+                @if (!empty($segment['thumbnailUrl'])) poster="{{ $segment['thumbnailUrl'] }}" @endif
+            >
+                <source data-role="video-source" @if ($segmentSourceUrl) src="{{ $segmentSourceUrl }}" @endif type="video/mp4">
+                Your browser could not load the timeline review video.
+            </video>
 
             <audio data-role="companion-audio" preload="auto" hidden></audio>
 
@@ -128,8 +125,6 @@
             </label>
         </div>
 
-        @if (!empty($segment['downloadUrl']))
-            <a class="button button--soft" data-role="download-link" href="{{ $segment['downloadUrl'] }}">Download file</a>
-        @endif
+        <a class="button button--soft" data-role="download-link" href="{{ $segment['downloadUrl'] ?? '#' }}" @if (empty($segment['downloadUrl'])) hidden @endif>Download file</a>
     </div>
 </div>

@@ -120,8 +120,8 @@ class RecordingTimelineReviewService
     public function recordingReviewPayload(CameraRecording $recording, Carbon $reviewWindowStart, Carbon $reviewWindowEnd): array
     {
         [$recordingStart, $recordingEnd] = $this->recordingBounds($recording);
-        $assetState = $this->reviewAssets->assetState($recording);
-        $scrubSprite = $this->reviewAssets->scrubSpriteMetadata($recording);
+        $timelineAssets = $this->reviewAssets->timelinePlaybackMetadata($recording);
+        $scrubSprite = is_array($timelineAssets['scrub'] ?? null) ? $timelineAssets['scrub'] : null;
 
         $clippedStart = $recordingStart->greaterThan($reviewWindowStart)
             ? $recordingStart->copy()
@@ -137,7 +137,9 @@ class RecordingTimelineReviewService
         $spanSeconds = max(1, $clippedStart->diffInSeconds($clippedEnd));
         $midpoint = $clippedStart->copy()->addSeconds((int) floor($spanSeconds / 2));
         $modeLabel = $recording->capture_mode === Camera::RECORDING_MODE_MOTION ? 'Movement clip' : 'Continuous clip';
-        $durationSeconds = $this->durationSeconds($recording) ?? max(1, $recordingStart->diffInSeconds($recordingEnd));
+        $durationSeconds = is_numeric($timelineAssets['duration_seconds'] ?? null)
+            ? max(1, (int) $timelineAssets['duration_seconds'])
+            : ($this->durationSeconds($recording) ?? max(1, $recordingStart->diffInSeconds($recordingEnd)));
 
         return [
             'id' => $recording->getKey(),
@@ -157,10 +159,8 @@ class RecordingTimelineReviewService
             'renderWidthPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'renderHeightHours' => round($spanHours, 6),
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
-            'previewStatus' => $assetState['status'],
-            'preferredStreamUrl' => $assetState['preview_available'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
-            'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
-            'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
+            'previewStatus' => $timelineAssets['status'] ?? RecordingReviewAssetService::STATUS_MISSING,
+            'streamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => route('recordings.preview-thumbnail', ['recording' => $recording]),
             'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,

@@ -256,6 +256,12 @@ body.auth-page .auth-card__mark {
     letter-spacing: 0.08em;
 }
 
+body.page-dashboard .sidebar-brand__mark {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
 body.page-dashboard .sidebar-brand__eyebrow,
 body.page-dashboard .rail-kicker,
 body.page-dashboard .sidebar-nav__section-title,
@@ -984,6 +990,12 @@ body.page-recording-review .sidebar-brand__mark {
     color: #ffffff;
     font-size: 0.78rem;
     letter-spacing: 0.08em;
+}
+
+body.page-recording-review .sidebar-brand__mark {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 body.page-recording-review .sidebar-brand__eyebrow,
@@ -1731,6 +1743,12 @@ body.page-live-wall .sidebar-brand__mark {
     color: #ffffff;
     font-size: 0.78rem;
     letter-spacing: 0.08em;
+}
+
+body.page-live-wall .sidebar-brand__mark {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
 }
 
 body.page-live-wall .sidebar-brand__eyebrow,

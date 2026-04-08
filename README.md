@@ -13,7 +13,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 - Laravel Socialite for Google sign-in.
 - Standard CSS under `public/css`.
 - ffmpeg and ffprobe for RTSP diagnostics and preview generation.
-- ffmpeg stream-copy recording with optional motion-triggered capture on a cropped analysis region.
+- ffmpeg stream-copy recording with persistent continuous segmenting and a rolling short-segment motion buffer that stitches dynamic motion events with pre-roll and resettable post-trigger time.
 - MediaMTX for shared WebRTC fan-out from RTSP camera sources.
 - Admin-managed Google sign-in allowlist with automatic first-user bootstrap.
 - Scheduled preview refreshes and recording retention cleanup can run with Laravel's scheduler so saved thumbnails and recording segments stay current without operator intervention.

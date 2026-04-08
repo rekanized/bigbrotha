@@ -4,12 +4,10 @@ namespace App\Livewire\Recordings;
 
 use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
-use App\Services\CameraStorageService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
-use Livewire\Attributes\On;
 use Livewire\Component;
 
 class TimelineReview extends Component
@@ -28,6 +26,11 @@ class TimelineReview extends Component
      * @var array<int, array<string, mixed>>
      */
     public array $reviewTiles = [];
+
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    public array $timelineTicks = [];
 
     /**
      * @var array<int, int>
@@ -67,25 +70,54 @@ class TimelineReview extends Component
     public ?int $activeCameraId = null;
 
     /**
+     * @var array<string, mixed>|null
+     */
+    public ?array $initialCurrentSegment = null;
+
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    public array $initialRailSegments = [];
+
+    public int $initialRailWindowStartMs = 0;
+
+    public int $initialRailWindowEndMs = 1000;
+
+    protected bool $hasInitialCurrentSegment = false;
+
+    protected bool $hasInitialRailSegments = false;
+
+    protected bool $hasInitialRailWindow = false;
+
+    /**
      * @param  array<string, int>  $summary
      * @param  array<int, array<string, mixed>>  $timelineCameraOptions
+        * @param  array<int, array<string, mixed>>  $timelineTicks
      * @param  array<int, array<string, mixed>>  $reviewTiles
      * @param  array<string, mixed>  $timelinePayload
      * @param  array<int, int>  $selectedCameraIds
      * @param  array<string, string>  $dateRange
+     * @param  array<string, mixed>|null  $initialCurrentSegment
+     * @param  array<int, array<string, mixed>>|null  $initialRailSegments
      */
     public function mount(
         array $summary = [],
         array $timelineCameraOptions = [],
+        array $timelineTicks = [],
         array $reviewTiles = [],
         int $timelineHours = 24,
         array $timelinePayload = [],
         string $reviewRangeLabel = '',
         array $selectedCameraIds = [],
         array $dateRange = [],
+        ?array $initialCurrentSegment = null,
+        ?array $initialRailSegments = null,
+        ?int $initialRailWindowStartMs = null,
+        ?int $initialRailWindowEndMs = null,
     ): void {
         $this->summary = $summary;
         $this->timelineCameraOptions = array_values($timelineCameraOptions);
+        $this->timelineTicks = array_values(array_filter($timelineTicks, static fn (mixed $tick): bool => is_array($tick)));
         $this->reviewTiles = $this->summarizeReviewTiles($reviewTiles);
         $this->selectedCameraIds = array_values(array_unique(array_map($this->asInt(...), $selectedCameraIds)));
         $this->dateFrom = is_string($dateRange['from'] ?? null) ? $dateRange['from'] : '';
@@ -102,73 +134,36 @@ class TimelineReview extends Component
         $this->focusAtMs = $this->clampFocusMs($this->asInt($timelinePayload['focusAtMs'] ?? $this->dayStartMs));
         $this->reviewRangeLabel = $reviewRangeLabel;
         $this->activeCameraId = $this->resolveActiveCameraId($timelinePayload['activeCameraId'] ?? null);
-    }
-
-    #[On('timeline-focus-selected')]
-    public function selectFocus(int $focusMs, ?float $zoomScale = null): void
-    {
-        $currentSegment = $this->currentSegment($this->currentTile());
-
-        if ($zoomScale !== null) {
-            $this->timelineZoomScale = $this->clampZoomScale($zoomScale);
-        }
-
-        $this->focusAtMs = $this->clampFocusMs($focusMs);
-
-        if (is_array($currentSegment) && $this->segmentContainsFocus($currentSegment, $this->focusAtMs)) {
-            $this->skipRender();
-        }
-    }
-
-    public function syncZoomScale(float $zoomScale): void
-    {
-        $this->timelineZoomScale = $this->clampZoomScale($zoomScale);
-    }
-
-    public function selectCamera(int $cameraId): void
-    {
-        $cameraId = $this->resolveActiveCameraId($cameraId);
-
-        if ($cameraId !== null) {
-            $this->activeCameraId = $cameraId;
-        }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function loadRailChunk(int $cameraId, int $windowStartMs, int $windowEndMs): array
-    {
-        if (!$this->cameraExists($cameraId)) {
-            return [
-                'cameraId' => $cameraId,
-                'segments' => [],
-                'windowEndMs' => $this->dayStartMs,
-                'windowStartMs' => $this->dayStartMs,
-            ];
-        }
-
-        [$normalizedStartMs, $normalizedEndMs] = $this->normalizeRailWindow($windowStartMs, $windowEndMs);
-
-        return [
-            'cameraId' => $cameraId,
-            'segments' => $this->segmentPayloadsForCameraWindow($cameraId, $normalizedStartMs, $normalizedEndMs),
-            'windowEndMs' => $normalizedEndMs,
-            'windowStartMs' => $normalizedStartMs,
-        ];
+        $this->hasInitialCurrentSegment = $initialCurrentSegment !== null;
+        $this->initialCurrentSegment = is_array($initialCurrentSegment) ? $initialCurrentSegment : null;
+        $this->hasInitialRailSegments = $initialRailSegments !== null;
+        $this->initialRailSegments = $initialRailSegments !== null
+            ? array_values(array_filter($initialRailSegments, static fn (mixed $segment): bool => is_array($segment)))
+            : [];
+        $this->hasInitialRailWindow = $initialRailWindowStartMs !== null && $initialRailWindowEndMs !== null;
+        $this->initialRailWindowStartMs = $initialRailWindowStartMs !== null ? $this->asInt($initialRailWindowStartMs) : $this->dayStartMs;
+        $this->initialRailWindowEndMs = $initialRailWindowEndMs !== null
+            ? max($this->initialRailWindowStartMs + 1000, $this->asInt($initialRailWindowEndMs))
+            : max($this->initialRailWindowStartMs + 1000, $this->dayStartMs + 1000);
     }
 
     public function render(): View
     {
         $currentTile = $this->currentTile();
-        $currentSegment = $this->currentSegment($currentTile);
-        [$initialRailWindowStartMs, $initialRailWindowEndMs] = $this->initialRailWindow();
+        [$initialRailWindowStartMs, $initialRailWindowEndMs] = $this->resolvedInitialRailWindow();
+        $currentSegment = $this->providedCurrentSegment($currentTile)
+            ?? $this->currentSegment($currentTile);
+        $initialRailSegments = $this->providedInitialRailSegments($currentTile, $initialRailWindowStartMs, $initialRailWindowEndMs);
+
+        if ($initialRailSegments === []) {
+            $initialRailSegments = $this->loadInitialRailSegments($currentTile, $initialRailWindowStartMs, $initialRailWindowEndMs);
+        }
 
         return view('livewire.recordings.timeline-review', [
             'currentTile' => $currentTile,
             'currentSegment' => $currentSegment,
             'focusLabel' => $this->formatFocusLabel($this->focusAtMs),
-            'initialRailSegments' => $this->initialRailSegments($currentTile, $initialRailWindowStartMs, $initialRailWindowEndMs),
+            'initialRailSegments' => $initialRailSegments,
             'initialRailWindowEndMs' => $initialRailWindowEndMs,
             'initialRailWindowStartMs' => $initialRailWindowStartMs,
         ]);
@@ -218,25 +213,24 @@ class TimelineReview extends Component
             : null;
     }
 
+    /**
+     * @param  array<string, mixed>|null  $tile
+     * @return array<string, mixed>|null
+     */
+    private function providedCurrentSegment(?array $tile): ?array
+    {
+        if (!$this->hasInitialCurrentSegment || !is_array($this->initialCurrentSegment) || !is_array($tile)) {
+            return null;
+        }
+
+        return (int) ($this->initialCurrentSegment['cameraId'] ?? 0) === (int) ($tile['cameraId'] ?? 0)
+            ? $this->initialCurrentSegment
+            : null;
+    }
+
     private function clampFocusMs(int $focusMs): int
     {
         return min($this->timelineMaximumFocusMs(), max($this->dayStartMs, $focusMs));
-    }
-
-    /**
-     * @param  array<string, mixed>  $segment
-     */
-    private function segmentContainsFocus(array $segment, int $focusMs): bool
-    {
-        $segmentStartMs = $this->asInt($segment['startMs'] ?? 0);
-        $segmentEndMs = max($segmentStartMs, $this->asInt($segment['endMs'] ?? $segmentStartMs));
-
-        if ($segmentEndMs <= $segmentStartMs) {
-            return $focusMs === $segmentStartMs;
-        }
-
-        return $segmentStartMs <= $focusMs
-            && $focusMs < $segmentEndMs;
     }
 
     private function timelineDurationMs(): int
@@ -309,10 +303,22 @@ class TimelineReview extends Component
     }
 
     /**
+     * @return array{0: int, 1: int}
+     */
+    private function resolvedInitialRailWindow(): array
+    {
+        if (!$this->hasInitialRailWindow) {
+            return $this->initialRailWindow();
+        }
+
+        return $this->normalizeRailWindow($this->initialRailWindowStartMs, $this->initialRailWindowEndMs);
+    }
+
+    /**
      * @param  array<string, mixed>|null  $tile
      * @return array<int, array<string, mixed>>
      */
-    private function initialRailSegments(?array $tile, int $windowStartMs, int $windowEndMs): array
+    private function loadInitialRailSegments(?array $tile, int $windowStartMs, int $windowEndMs): array
     {
         $cameraId = is_array($tile) ? (int) ($tile['cameraId'] ?? 0) : 0;
 
@@ -321,6 +327,34 @@ class TimelineReview extends Component
         }
 
         return $this->segmentPayloadsForCameraWindow($cameraId, $windowStartMs, $windowEndMs);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $tile
+     * @return array<int, array<string, mixed>>
+     */
+    private function providedInitialRailSegments(?array $tile, int $windowStartMs, int $windowEndMs): array
+    {
+        $cameraId = is_array($tile) ? (int) ($tile['cameraId'] ?? 0) : 0;
+
+        if (!$this->hasInitialRailSegments || !$this->cameraExists($cameraId)) {
+            return [];
+        }
+
+        [$normalizedStartMs, $normalizedEndMs] = $this->normalizeRailWindow($windowStartMs, $windowEndMs);
+
+        return array_values(array_filter($this->initialRailSegments, static function (mixed $segment) use ($cameraId, $normalizedStartMs, $normalizedEndMs): bool {
+            if (!is_array($segment)) {
+                return false;
+            }
+
+            $segmentStartMs = is_numeric($segment['startMs'] ?? null) ? (int) $segment['startMs'] : 0;
+            $segmentEndMs = is_numeric($segment['endMs'] ?? null) ? (int) $segment['endMs'] : $segmentStartMs;
+
+            return (int) ($segment['cameraId'] ?? 0) === $cameraId
+                && $segmentStartMs < $normalizedEndMs
+                && max($segmentStartMs + 1000, $segmentEndMs) > $normalizedStartMs;
+        }));
     }
 
     /**
@@ -358,9 +392,10 @@ class TimelineReview extends Component
     private function recordingsForCameraWindow(int $cameraId, Carbon $windowStart, Carbon $windowEnd): \Illuminate\Support\Collection
     {
         return CameraRecording::query()
-            ->with('camera')
+            ->select($this->timelineRecordingColumns())
             ->where('camera_id', $cameraId)
             ->where('status', CameraRecording::STATUS_RECORDED)
+            ->whereNotNull('relative_path')
             ->where(function (Builder $windowQuery) use ($windowStart, $windowEnd): void {
                 $windowQuery
                     ->where(function (Builder $scheduledQuery) use ($windowStart, $windowEnd): void {
@@ -376,11 +411,28 @@ class TimelineReview extends Component
                             ->where('ended_at', '>', $windowStart);
                     });
             })
-            ->orderByRaw('COALESCE(started_at, scheduled_for) asc')
+            ->orderBy('scheduled_for')
             ->orderBy('id')
-                ->get()
-                ->filter(fn (CameraRecording $recording): bool => app(CameraStorageService::class)->recordingExists($recording->relative_path))
-                ->values();
+            ->get();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function timelineRecordingColumns(): array
+    {
+        return [
+            'id',
+            'camera_id',
+            'capture_mode',
+            'status',
+            'scheduled_for',
+            'started_at',
+            'ended_at',
+            'relative_path',
+            'file_size_bytes',
+            'message',
+        ];
     }
 
     private function formatFocusLabel(int $focusMs): string

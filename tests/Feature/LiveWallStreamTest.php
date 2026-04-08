@@ -341,6 +341,40 @@ class LiveWallStreamTest extends TestCase
         ));
     }
 
+    public function test_live_wall_session_returns_service_unavailable_when_the_relay_api_is_unhealthy(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example/__webrtc');
+        $this->mockRelayProcess(running: true, apiReachable: false);
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Entrance',
+            'local_ip' => '192.168.1.90',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.90:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->getJson(route('live-wall.session', ['camera' => $camera]))
+            ->assertStatus(503)
+            ->assertSeeText('Media relay is not available.');
+    }
+
     public function test_it_streams_a_browser_safe_mjpeg_live_feed(): void
     {
         $camera = Camera::query()->create([
@@ -429,12 +463,14 @@ class LiveWallStreamTest extends TestCase
         $this->assertStringContainsString('ftypisomrelay-data', $response->streamedContent());
     }
 
-    private function mockRelayProcess(bool $running): void
+    private function mockRelayProcess(bool $running, ?bool $apiReachable = null): void
     {
+        $apiReachable ??= $running;
+
         $status = [
             'installed' => true,
             'running' => $running,
-            'api_reachable' => $running,
+            'api_reachable' => $apiReachable,
             'config_changed' => false,
             'binary_path' => '/tmp/mediamtx',
             'config_path' => '/tmp/mediamtx.yml',

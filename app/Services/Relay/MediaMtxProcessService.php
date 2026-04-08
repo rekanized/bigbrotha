@@ -23,16 +23,19 @@ class MediaMtxProcessService
         $configChanged = $this->syncConfig();
         $installed = $this->installer->isInstalled();
         $running = $this->isRunning();
+        $apiReachable = $running && $this->apiReachable();
 
         if ($installed && (bool) config('mediamtx.auto_start', true)) {
-            if ($configChanged && $running) {
+            if (($configChanged || ($running && !$apiReachable)) && $running) {
                 $this->stop();
                 $running = false;
+                $apiReachable = false;
             }
 
             if (!$running) {
                 $this->start(syncConfig: false);
                 $running = $this->isRunning();
+                $apiReachable = $running && $this->apiReachable();
             }
         }
 

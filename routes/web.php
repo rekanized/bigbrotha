@@ -43,6 +43,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)->name('camera-fleet.motion-editor-session');
     Route::get('/recordings', [RecordingController::class, 'index'])->name('recordings.index');
     Route::get('/recordings/timeline', [RecordingController::class, 'timeline'])->name('recordings.timeline');
+    Route::get('/recordings/timeline/cameras/{camera}/segments', [RecordingController::class, 'timelineRailData'])->name('recordings.timeline.rail-data');
+    Route::get('/recordings/timeline/cameras/{camera}/stage', [RecordingController::class, 'timelineStageData'])->name('recordings.timeline.stage-data');
     Route::get('/recordings/{recording}', [RecordingController::class, 'show'])->name('recordings.show');
     Route::get('/recordings/{recording}/preview-stream', [RecordingController::class, 'previewStream'])->name('recordings.preview-stream');
     Route::get('/recordings/{recording}/preview-thumbnail', [RecordingController::class, 'previewThumbnail'])->name('recordings.preview-thumbnail');

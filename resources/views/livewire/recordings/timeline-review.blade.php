@@ -126,14 +126,15 @@
                         </form>
                     </section>
 
-                    <livewire:recordings.timeline-stage
-                        :tile="$currentTile ?? []"
-                        :segment="$currentSegment"
-                        :focus-label="$focusLabel"
-                        :review-range-label="$reviewRangeLabel"
-                        :focus-at-ms="$focusAtMs"
-                        :key="'timeline-stage-'.($activeCameraId ?? 'none').'-'.($currentSegment['id'] ?? 'empty')"
-                    />
+                    <div wire:ignore>
+                        @include('livewire.recordings.timeline-stage', [
+                            'tile' => $currentTile ?? [],
+                            'segment' => $currentSegment,
+                            'focusLabel' => $focusLabel,
+                            'reviewRangeLabel' => $reviewRangeLabel,
+                            'focusAtMs' => $focusAtMs,
+                        ])
+                    </div>
 
                     <section class="recording-review-switcher" aria-label="Loaded cameras">
                         <div class="recording-review-switcher__header">
@@ -154,7 +155,12 @@
                                     type="button"
                                     data-role="camera-switch"
                                     data-camera-id="{{ $reviewTile['cameraId'] }}"
-                                    wire:click="selectCamera({{ (int) ($reviewTile['cameraId'] ?? 0) }})"
+                                    data-camera-name="{{ $reviewTile['cameraName'] ?? '' }}"
+                                    data-camera-ip="{{ $reviewTile['cameraIp'] ?? '' }}"
+                                    data-latest-recording-label="{{ $reviewTile['latestRecordingLabel'] ?? '' }}"
+                                    data-rail-url="{{ route('recordings.timeline.rail-data', ['camera' => (int) ($reviewTile['cameraId'] ?? 0)]) }}"
+                                    data-stage-url="{{ route('recordings.timeline.stage-data', ['camera' => (int) ($reviewTile['cameraId'] ?? 0)]) }}"
+                                    aria-pressed="{{ ($activeCameraId ?? null) === (int) ($reviewTile['cameraId'] ?? 0) ? 'true' : 'false' }}"
                                 >
                                     <span class="recording-review-switcher__camera-thumb">
                                         @if (!empty($reviewTile['previewThumbnailUrl']))
@@ -175,19 +181,21 @@
                     </section>
                 </div>
 
-                <livewire:recordings.timeline-rail
-                    :tile="$currentTile ?? []"
-                    :initial-segments="$initialRailSegments"
-                    :initial-window-start-ms="$initialRailWindowStartMs"
-                    :initial-window-end-ms="$initialRailWindowEndMs"
-                    :focus-at-ms="$focusAtMs"
-                    :focus-label="$focusLabel"
-                    :day-start-ms="$dayStartMs"
-                    :day-end-ms="$dayEndMs"
-                    :timeline-zoom-scale="$timelineZoomScale"
-                    :active-segment-id="isset($currentSegment['id']) ? (int) $currentSegment['id'] : null"
-                    :key="'timeline-rail-'.($currentTile['cameraId'] ?? 'none')"
-                />
+                <div wire:ignore>
+                    @include('livewire.recordings.timeline-rail', [
+                        'tile' => $currentTile ?? [],
+                        'initialSegments' => $initialRailSegments,
+                        'initialWindowStartMs' => $initialRailWindowStartMs,
+                        'initialWindowEndMs' => $initialRailWindowEndMs,
+                        'focusAtMs' => $focusAtMs,
+                        'focusLabel' => $focusLabel,
+                        'dayStartMs' => $dayStartMs,
+                        'dayEndMs' => $dayEndMs,
+                        'timelineZoomScale' => $timelineZoomScale,
+                        'activeSegmentId' => isset($currentSegment['id']) ? (int) $currentSegment['id'] : null,
+                        'timelineTicks' => $timelineTicks,
+                    ])
+                </div>
             </section>
         </section>
         @endif

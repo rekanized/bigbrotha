@@ -2,34 +2,25 @@
 
 namespace App\Services;
 
-use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\Camera;
-use App\Models\CameraRecording;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 use Throwable;
 
-class ContinuousRecordingSegmenterService
+class MotionRecordingSegmenterService
 {
-    public function __construct(
-        private readonly CameraStorageService $storage,
-        private readonly RecordingReviewAssetService $reviewAssets,
-    ) {
-    }
-
     public function enabled(): bool
     {
-        return (bool) config('recording.continuous.segmenter_enabled', true);
+        return (bool) config('recording.motion.segmenter_enabled', true);
     }
 
     /**
      * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
-     * @return array{started: bool, running: bool, imported: int, pid: int|null}
+     * @return array{started: bool, running: bool, pid: int|null}
      */
     public function syncCamera(Camera $camera, array $source): array
     {
@@ -37,7 +28,6 @@ class ContinuousRecordingSegmenterService
             return [
                 'started' => false,
                 'running' => false,
-                'imported' => 0,
                 'pid' => null,
             ];
         }
@@ -48,7 +38,6 @@ class ContinuousRecordingSegmenterService
             return [
                 'started' => false,
                 'running' => $this->isRunning($camera, $source),
-                'imported' => 0,
                 'pid' => $this->pid($camera),
             ];
         }
@@ -63,20 +52,16 @@ class ContinuousRecordingSegmenterService
                 $this->start($camera, $source);
                 $started = true;
 
-                $startupDelayMs = max(0, (int) config('recording.continuous.startup_delay_ms', 250));
+                $startupDelayMs = max(0, (int) config('recording.motion.startup_delay_ms', 150));
 
                 if ($startupDelayMs > 0) {
                     usleep($startupDelayMs * 1000);
                 }
             }
 
-            $running = $this->isRunning($camera, $source);
-            $imported = $this->importSegments($camera, $source['index'], $running);
-
             return [
                 'started' => $started,
-                'running' => $running,
-                'imported' => $imported,
+                'running' => $this->isRunning($camera, $source),
                 'pid' => $this->pid($camera),
             ];
         } finally {
@@ -114,7 +99,7 @@ class ContinuousRecordingSegmenterService
             if ($camera instanceof Camera
                 && $camera->is_enabled
                 && $camera->supports_rtsp
-                && $camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS) {
+                && $camera->recording_mode === Camera::RECORDING_MODE_MOTION) {
                 continue;
             }
 
@@ -125,8 +110,6 @@ class ContinuousRecordingSegmenterService
             if ($this->stop($legacyCamera)) {
                 $stopped++;
             }
-
-            $this->importSegments($legacyCamera, null, false);
         }
 
         return $stopped;
@@ -145,7 +128,7 @@ class ContinuousRecordingSegmenterService
                 $process->setTimeout(10);
                 $process->run();
             } catch (Throwable $exception) {
-                Log::warning('Unable to stop a continuous recording segmenter process.', [
+                Log::warning('Unable to stop a motion recording segmenter process.', [
                     'camera_id' => $camera->getKey(),
                     'pid' => $pid,
                     'error' => $exception->getMessage(),
@@ -189,27 +172,68 @@ class ContinuousRecordingSegmenterService
     }
 
     /**
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     * @return array<int, array{path: string, started_at: Carbon, ended_at: Carbon}>
      */
-    public function handleLegacyQueuedRecording(Camera $camera, CameraRecording $recording, array $source): void
+    public function closedSegmentsSince(Camera $camera, ?Carbon $after = null, bool $recorderRunning = true): array
     {
-        $result = $this->syncCamera($camera, $source);
+        $segments = $this->segmentRows($camera, $recorderRunning);
 
-        $recording->forceFill([
-            'status' => CameraRecording::STATUS_SKIPPED,
-            'ended_at' => $recording->ended_at ?? now()->utc(),
-            'message' => Str::limit(
-                'Continuous recording is now handled by the persistent segment muxer. '
-                .($result['started'] ? 'Started the recorder process. ' : 'Recorder process already matched the current source. ')
-                .'Imported '.$result['imported'].' completed segment'.($result['imported'] === 1 ? '' : 's').'.',
-                240,
-            ),
-        ])->save();
+        if (!$after instanceof Carbon) {
+            return $segments;
+        }
+
+        return array_values(array_filter($segments, static fn (array $segment): bool => $segment['started_at']->greaterThan($after)));
+    }
+
+    /**
+     * @return array<int, array{path: string, started_at: Carbon, ended_at: Carbon}>
+     */
+    public function segmentsForWindow(Camera $camera, Carbon $windowStart, Carbon $windowEnd, bool $recorderRunning = true): array
+    {
+        return array_values(array_filter(
+            $this->segmentRows($camera, $recorderRunning),
+            static fn (array $segment): bool => $segment['ended_at']->greaterThan($windowStart)
+                && $segment['started_at']->lessThan($windowEnd),
+        ));
+    }
+
+    public function pruneSegments(Camera $camera, ?Carbon $keepFrom = null, bool $recorderRunning = true): int
+    {
+        $segments = $this->segmentRows($camera, $recorderRunning);
+
+        if ($segments === []) {
+            return 0;
+        }
+
+        $keepFrom = ($keepFrom ?? now()->utc()->subSeconds($this->idleBufferSeconds()))->copy()->utc();
+        $deleted = 0;
+
+        foreach ($segments as $segment) {
+            if ($segment['ended_at']->greaterThan($keepFrom)) {
+                continue;
+            }
+
+            if (@unlink($segment['path'])) {
+                $deleted++;
+            }
+        }
+
+        return $deleted;
     }
 
     private function runtimeDirectory(): string
     {
-        return rtrim((string) config('recording.continuous.runtime_dir', storage_path('app/private/continuous-recorders')), '/');
+        return rtrim((string) config('recording.motion.runtime_dir', storage_path('app/private/motion-recorders')), '/');
+    }
+
+    private function cameraDirectory(Camera $camera): string
+    {
+        return $this->runtimeDirectory().'/camera-'.(int) $camera->getKey();
+    }
+
+    private function segmentDirectory(Camera $camera): string
+    {
+        return $this->cameraDirectory($camera).'/segments';
     }
 
     private function pidPath(Camera $camera): string
@@ -227,19 +251,9 @@ class ContinuousRecordingSegmenterService
         return $this->runtimeDirectory().'/camera-'.(int) $camera->getKey().'.log';
     }
 
-    private function recordingDirectory(Camera $camera): string
-    {
-        $cameraRoot = $this->storage->ensureCameraDirectories($camera);
-
-        return $cameraRoot.'/recordings';
-    }
-
     private function outputPattern(Camera $camera): string
     {
-        $suffix = trim((string) config('recording.continuous.file_suffix', 'continuous'));
-        $extension = trim((string) config('recording.extension', 'mkv'));
-
-        return $this->recordingDirectory($camera).'/%Y%m%d_%H%M%S-'.($suffix !== '' ? $suffix : 'continuous').'.'.$extension;
+        return $this->segmentDirectory($camera).'/%Y%m%d_%H%M%S-buffer.'.trim((string) config('recording.extension', 'mkv'));
     }
 
     /**
@@ -256,9 +270,10 @@ class ContinuousRecordingSegmenterService
         }
 
         File::ensureDirectoryExists($this->runtimeDirectory());
-        File::ensureDirectoryExists($this->recordingDirectory($camera));
+        File::deleteDirectory($this->segmentDirectory($camera));
+        File::ensureDirectoryExists($this->segmentDirectory($camera));
 
-        $command = array_merge([
+        $command = [
             $ffmpegBinary,
             '-nostdin',
             '-hide_banner',
@@ -300,7 +315,7 @@ class ContinuousRecordingSegmenterService
             '-f',
             'segment',
             '-segment_time',
-            (string) max(1, (int) config('recording.segment_seconds', 60)),
+            (string) $this->segmentSeconds(),
             '-segment_atclocktime',
             '1',
             '-segment_time_delta',
@@ -312,7 +327,7 @@ class ContinuousRecordingSegmenterService
             '-segment_format',
             $this->segmentFormat(),
             $this->outputPattern($camera),
-        ]);
+        ];
 
         $shellCommand = sprintf(
             'export TZ=UTC; export FFMPEG_FAKE_NOW_UTC=%s; nohup %s >> %s 2>&1 & echo $!',
@@ -326,7 +341,7 @@ class ContinuousRecordingSegmenterService
         $process->run();
 
         if (!$process->isSuccessful()) {
-            throw new RuntimeException('Unable to start the continuous recording segmenter: '.trim($process->getErrorOutput() ?: $process->getOutput()));
+            throw new RuntimeException('Unable to start the motion recording segmenter: '.trim($process->getErrorOutput() ?: $process->getOutput()));
         }
 
         $pid = (int) trim($process->getOutput());
@@ -469,7 +484,7 @@ class ContinuousRecordingSegmenterService
                 $process->setTimeout(10);
                 $process->run();
             } catch (Throwable $exception) {
-                Log::warning('Unable to stop a duplicate continuous recording segmenter process.', [
+                Log::warning('Unable to stop a duplicate motion recording segmenter process.', [
                     'camera_id' => $camera->getKey(),
                     'pid' => $pid,
                     'error' => $exception->getMessage(),
@@ -501,7 +516,7 @@ class ContinuousRecordingSegmenterService
                 continue;
             }
 
-            if (!preg_match('#/cameras/(\d+)/recordings/%Y%m%d_%H%M%S-[^\s]+\.[^\s]+#', $args, $matches)) {
+            if (!preg_match('#/motion-recorders/camera-(\d+)/segments/%Y%m%d_%H%M%S-buffer\.[^\s]+#', $args, $matches)) {
                 continue;
             }
 
@@ -536,7 +551,7 @@ class ContinuousRecordingSegmenterService
 
     private function syncLockKey(Camera $camera): string
     {
-        return 'camera-recordings:continuous-segmenter:'.(int) $camera->getKey();
+        return 'camera-recordings:motion-segmenter:'.(int) $camera->getKey();
     }
 
     private function syncLockSeconds(): int
@@ -582,8 +597,89 @@ class ContinuousRecordingSegmenterService
             'index' => $source['index'],
             'uri' => $source['authenticated_uri'],
             'transport' => $source['transport'],
-            'segment_seconds' => (int) config('recording.segment_seconds', 60),
+            'segment_seconds' => $this->segmentSeconds(),
         ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function segmentFiles(Camera $camera): array
+    {
+        $directory = $this->segmentDirectory($camera);
+
+        if (!is_dir($directory)) {
+            return [];
+        }
+
+        $files = File::glob($directory.'/*.'.trim((string) config('recording.extension', 'mkv')));
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * @return array<int, array{path: string, started_at: Carbon, ended_at: Carbon}>
+     */
+    private function segmentRows(Camera $camera, bool $recorderRunning): array
+    {
+        $files = $this->segmentFiles($camera);
+
+        if ($files === []) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($files as $index => $path) {
+            $isLast = $index === array_key_last($files);
+
+            if ($recorderRunning && $isLast) {
+                continue;
+            }
+
+            $startedAt = $this->timestampFromSegmentPath($path);
+
+            if (!$startedAt instanceof Carbon) {
+                continue;
+            }
+
+            $nextStartedAt = isset($files[$index + 1]) ? $this->timestampFromSegmentPath($files[$index + 1]) : null;
+            $endedAt = $nextStartedAt instanceof Carbon
+                ? $nextStartedAt->copy()->utc()->startOfSecond()
+                : $startedAt->copy()->addSeconds($this->segmentSeconds());
+
+            $rows[] = [
+                'path' => $path,
+                'started_at' => $startedAt,
+                'ended_at' => $endedAt,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function timestampFromSegmentPath(string $path): ?Carbon
+    {
+        if (!preg_match('/(\d{8}_\d{6})-buffer\.[^.]+$/', basename($path), $matches)) {
+            return null;
+        }
+
+        try {
+            return Carbon::createFromFormat('Ymd_His', $matches[1], 'UTC')->utc()->startOfSecond();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function segmentSeconds(): int
+    {
+        return max(1, (int) config('recording.motion.segment_seconds', 1));
+    }
+
+    private function idleBufferSeconds(): int
+    {
+        return max(30, (int) config('recording.motion.idle_buffer_seconds', 180));
     }
 
     /**
@@ -596,7 +692,7 @@ class ContinuousRecordingSegmenterService
 
     private function segmentTimeDelta(): string
     {
-        $value = max(0, (float) config('recording.continuous.segment_time_delta', 0.05));
+        $value = max(0, (float) config('recording.motion.segment_time_delta', config('recording.continuous.segment_time_delta', 0.05)));
 
         return rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
     }
@@ -613,11 +709,6 @@ class ContinuousRecordingSegmenterService
     private function ffmpegBinary(): ?string
     {
         return $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
-    }
-
-    private function ffprobeBinary(): ?string
-    {
-        return $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
     }
 
     /**
@@ -652,186 +743,5 @@ class ContinuousRecordingSegmenterService
         }
 
         return null;
-    }
-
-    private function importSegments(Camera $camera, ?int $sourceProfileIndex, bool $recorderRunning): int
-    {
-        $files = $this->segmentFiles($camera);
-
-        if ($files === []) {
-            return 0;
-        }
-
-        $imported = 0;
-        $cameraLastRecordedAt = $camera->recording_last_recorded_at instanceof Carbon
-            ? $camera->recording_last_recorded_at->copy()->utc()
-            : null;
-
-        foreach ($files as $index => $file) {
-            $isLast = $index === array_key_last($files);
-
-            if ($recorderRunning && $isLast) {
-                continue;
-            }
-
-            $scheduledFor = $this->timestampFromSegmentPath($file['path']);
-
-            if (!$scheduledFor instanceof Carbon) {
-                continue;
-            }
-
-            $nextStart = isset($files[$index + 1])
-                ? $this->timestampFromSegmentPath($files[$index + 1]['path'])
-                : null;
-            $endedAt = $nextStart instanceof Carbon
-                ? $nextStart->copy()->utc()->startOfSecond()
-                : $scheduledFor->copy()->addSeconds($this->segmentDurationSecondsForTail($file['path']));
-            $relativePath = $this->storage->recordingRelativePathFromAbsolute($file['path']);
-
-            try {
-                $this->storage->finalizeStagedWrite($relativePath, $file['path']);
-            } catch (Throwable $exception) {
-                Log::warning('Failed to move a continuous recording segment into the active camera storage disk.', [
-                    'camera_id' => $camera->getKey(),
-                    'relative_path' => $relativePath,
-                    'error' => $exception->getMessage(),
-                ]);
-
-                continue;
-            }
-
-            $recording = CameraRecording::query()->firstOrNew([
-                'camera_id' => $camera->getKey(),
-                'scheduled_for' => $scheduledFor,
-            ]);
-            $wasRecorded = $recording->exists
-                && $recording->status === CameraRecording::STATUS_RECORDED
-                && $recording->relative_path === $relativePath;
-
-            $recording->forceFill([
-                'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-                'status' => CameraRecording::STATUS_RECORDED,
-                'message' => Str::limit('Recorded continuously via the FFmpeg segment muxer.', 240),
-                'started_at' => $scheduledFor,
-                'ended_at' => $endedAt,
-                'relative_path' => $relativePath,
-                'file_size_bytes' => $file['size'],
-                'source_profile_index' => $sourceProfileIndex,
-            ])->save();
-
-            if (!$wasRecorded) {
-                $this->dispatchReviewAssets($recording);
-                $imported++;
-            }
-
-            if ($cameraLastRecordedAt === null || $endedAt->greaterThan($cameraLastRecordedAt)) {
-                $cameraLastRecordedAt = $endedAt;
-            }
-        }
-
-        if ($cameraLastRecordedAt instanceof Carbon) {
-            $camera->forceFill([
-                'recording_last_recorded_at' => $cameraLastRecordedAt,
-            ])->save();
-        }
-
-        return $imported;
-    }
-
-    /**
-     * @return array<int, array{path: string, size: int|null, timestamp: Carbon}>
-     */
-    private function segmentFiles(Camera $camera): array
-    {
-        $suffix = trim((string) config('recording.continuous.file_suffix', 'continuous'));
-        $extension = trim((string) config('recording.extension', 'mkv'));
-        $pattern = $this->recordingDirectory($camera).'/*-'.($suffix !== '' ? $suffix : 'continuous').'.'.$extension;
-        $files = [];
-
-        foreach (File::glob($pattern) as $path) {
-            if (!is_file($path)) {
-                continue;
-            }
-
-            $timestamp = $this->timestampFromSegmentPath($path);
-
-            if (!$timestamp instanceof Carbon) {
-                continue;
-            }
-
-            $files[] = [
-                'path' => $path,
-                'size' => is_file($path) ? filesize($path) ?: null : null,
-                'timestamp' => $timestamp,
-            ];
-        }
-
-        usort($files, static fn (array $left, array $right): int => $left['timestamp']->getTimestamp() <=> $right['timestamp']->getTimestamp());
-
-        return $files;
-    }
-
-    private function timestampFromSegmentPath(string $path): ?Carbon
-    {
-        $suffix = preg_quote(trim((string) config('recording.continuous.file_suffix', 'continuous')) ?: 'continuous', '/');
-        $extension = preg_quote(trim((string) config('recording.extension', 'mkv')), '/');
-
-        if (!preg_match('/(\d{8}_\d{6})-'.$suffix.'\.'.$extension.'$/', basename($path), $matches)) {
-            return null;
-        }
-
-        $timestamp = Carbon::createFromFormat('Ymd_His', $matches[1], 'UTC');
-
-        return $timestamp instanceof Carbon ? $timestamp->startOfSecond() : null;
-    }
-
-    private function segmentDurationSecondsForTail(string $absolutePath): int
-    {
-        $ffprobeBinary = $this->ffprobeBinary();
-
-        if ($ffprobeBinary === null) {
-            return max(1, (int) config('recording.segment_seconds', 60));
-        }
-
-        try {
-            $process = new Process([
-                $ffprobeBinary,
-                '-v',
-                'error',
-                '-show_entries',
-                'format=duration',
-                '-of',
-                'default=noprint_wrappers=1:nokey=1',
-                $absolutePath,
-            ]);
-            $process->setTimeout(5);
-            $process->run();
-
-            if ($process->isSuccessful()) {
-                $duration = (float) trim($process->getOutput());
-
-                if ($duration > 0) {
-                    return max(1, (int) round($duration));
-                }
-            }
-        } catch (Throwable) {
-            // Fall back to configured segment size when ffprobe cannot inspect the clip.
-        }
-
-        return max(1, (int) config('recording.segment_seconds', 60));
-    }
-
-    private function dispatchReviewAssets(CameraRecording $recording): void
-    {
-        try {
-            GenerateRecordingReviewAssetsJob::dispatch($recording->getKey())
-                ->onQueue($this->reviewAssets->queueName());
-        } catch (Throwable $exception) {
-            Log::warning('Unable to dispatch review assets for a continuous recording segment.', [
-                'recording_id' => $recording->getKey(),
-                'camera_id' => $recording->camera_id,
-                'error' => $exception->getMessage(),
-            ]);
-        }
     }
 }

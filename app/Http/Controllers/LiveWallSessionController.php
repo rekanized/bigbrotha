@@ -25,7 +25,11 @@ class LiveWallSessionController extends Controller
 
         $relayStatus = $relayProcess->ensureRunning();
 
-        abort_unless($relayStatus['running'] ?? false, Response::HTTP_SERVICE_UNAVAILABLE, 'Media relay is not running.');
+        abort_unless(
+            ($relayStatus['running'] ?? false) && ($relayStatus['api_reachable'] ?? false),
+            Response::HTTP_SERVICE_UNAVAILABLE,
+            'Media relay is not available.',
+        );
 
         $liveSelection = $streamService->selectWallProfile($camera);
         $whepUrl = $relayConfig->browserWhepUrl($camera, $request);

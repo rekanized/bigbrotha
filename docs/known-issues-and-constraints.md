@@ -144,28 +144,28 @@ Implications:
 - it is intentionally basic pixel-change detection, not object classification.
 - the configured area is stored as painted mask coordinates on a normalized motion grid instead of as one rectangle.
 - the threshold is the percentage of selected mask pixels that must change between sampled frames before recording starts.
-- motion mode now builds a per-camera pre-roll context window and then monitors the following span for motion; when the threshold is crossed during that monitored span, the entire buffered clip is saved.
-- quiet motion evaluations are treated as transient work and are deleted instead of remaining in `camera_recordings` as long-term `skipped` rows.
-- stale pending motion evaluations are also treated as transient work and are deleted instead of being re-queued minutes later against a no-longer-relevant live window.
+- motion mode now depends on a persistent per-camera rolling buffer of short closed segments, not a one-shot buffered capture window.
+- the first detected motion segment opens the event, pre-roll is recovered from the buffered segments before that point, and the event stays open while later motion segments keep resetting the quiet post-trigger deadline.
+- quiet motion scans remain transient work with no durable row until a real motion event opens, while stale legacy motion rows without an owning motion state are still discarded during recovery.
 - the hourly `camera-recordings:prune` maintenance pass now also reconciles `recorded` rows whose backing segment file is already missing by marking them failed and clearing stale review assets.
-- when a recording relay path is already available through MediaMTX, motion recording now prefers that local relay instead of opening a second direct RTSP session to the camera, which reduces camera-side connection-limit failures.
+- motion recording can optionally read through the local MediaMTX recording relay when `recording.motion.use_relay_source` is enabled, but the default path now reads directly from the camera so each motion feed does not require an extra always-on relay publisher.
 - because the pre-roll buffer is isolated to the motion workflow, motion cameras spend extra capture time around event evaluation and briefly suppress overlapping triggers while the current event clip is still being compiled.
 - the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
 - ffmpeg runtime settings are now split by workload: recording, motion, and relay ingest prefer RTSP over TCP, larger demux queues and realtime buffers, wallclock-backed timestamp generation, and passthrough frame timing so unstable camera timecodes do not propagate into saved clips or relayed playback.
-- finalized MP4 review assets should keep `+faststart`, while live relay and streamed review responses continue using fragmented MP4 flags instead of `+faststart` because they are emitted as streaming outputs rather than completed files.
+- finalized MP4 review assets should keep `+faststart`, and the Timeline Review fallback route now also materializes a short-lived finalized MP4 with `+faststart` before serving it so browser seeks and audio playback do not depend on fragmented stdout remuxing.
 
 ## Recording Playback Tradeoff
 
-Saved footage is currently written to MKV by default and remuxed to fragmented MP4 only when an operator opens the playback screen.
+Saved footage is currently written to MKV by default. The direct playback route can still stream a fragmented MP4 remux, while the Timeline Review fallback now builds a short-lived finalized MP4 before sending it to the browser.
 
 Implications:
 
 - playback depends on ffmpeg being available on the host at review time, not only at record time.
-- Timeline Review now prefers generated preview assets first, but it can still fall back to the streamed review route when those assets are missing or failed.
+- Timeline Review now uses the same buffered review-stream route as the standalone Recordings page for the stage player. Preview assets are still used for thumbnails and scrub metadata, but the stage itself does not hop between preview, buffered review, and streamed remux routes.
 - opening many recorded tiles at once can start several short ffmpeg remux processes in parallel, so bounded review walls remain the intended operator shape.
-- the browser review flow avoids re-encoding and avoids exposing private storage paths directly, but browser compatibility still depends on the original recorded codecs being browser-safe after remux.
+- the browser review flow avoids exposing private storage paths directly, but browser compatibility for the fallback route still depends on the original recorded video codec being browser-safe when copied into MP4.
 - the original file remains downloadable even if the browser player cannot render the remuxed segment.
-- the review-stream route no longer buffers the full ffmpeg output in PHP memory; the main scaling limit is now concurrent remux processes rather than PHP heap growth.
+- the review-stream route now remuxes to a short-lived local MP4 file instead of buffering ffmpeg stdout in PHP memory; the main scaling limit is concurrent remux processes plus temporary disk churn rather than PHP heap growth.
 
 ## Timeline Review Preview Assets
 
@@ -177,10 +177,11 @@ Current behavior:
 - each recorded segment can also produce a thumbnail image for the vertical review rail.
 - each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
 - those files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
-- the timeline preview page uses a Livewire parent component to own the active camera and focus time while child stage and rail components react to that shared review state.
+- the initial timeline page and rail JSON route now trust recorded database rows plus the review-asset manifest state; they do not synchronously probe the backing recording file on SMB during page load.
+- the timeline preview page now renders a plain Blade shell from controller payloads; public/js/recordings-review.js owns active camera switching, focus movement, stage playback, and rail virtualization without a mounted Livewire review component morphing the player DOM.
 - the review shell should keep only camera-summary data in its public Livewire state; the rail now loads segment windows on demand instead of hydrating every segment for every selected camera into the initial payload.
-- the generated preview MP4 is the first-choice stage source, and the rail can request the private scrub sprite for hover previews before falling back to the streamed review route.
-- if preview generation has not completed yet, the thumbnail route returns a placeholder image and the timeline falls back to the streamed review route instead of showing a blank player.
+- the generated preview MP4 is now a rail and scrub aid only; the timeline stage player uses the buffered review-stream route so it behaves like the standalone Recordings viewer while still supporting timeline seeks against SMB-backed clips.
+- if preview generation has not completed yet, the thumbnail route still returns a placeholder image, but the stage player continues to use the buffered review-stream route instead of swapping to another stage source.
 - the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
 - timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 

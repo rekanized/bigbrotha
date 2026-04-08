@@ -36,7 +36,7 @@
                     </div>
                 @else
                     <div class="recording-player__shell">
-                        <video class="recording-player__video" controls preload="metadata" src="{{ route('recordings.stream', ['recording' => $recording]) }}"></video>
+                        <video class="recording-player__video" controls preload="metadata" src="{{ route('recordings.review-stream', ['recording' => $recording]) }}"></video>
                     </div>
                 @endif
             </div>

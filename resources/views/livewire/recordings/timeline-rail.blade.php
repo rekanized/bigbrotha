@@ -118,6 +118,9 @@
     data-active-segment-id="{{ $activeSegmentId ?? '' }}"
     data-initial-window-start-ms="{{ $initialWindowStartMs }}"
     data-initial-window-end-ms="{{ $initialWindowEndMs }}"
+    data-rail-url="{{ !empty($tile['cameraId']) ? route('recordings.timeline.rail-data', ['camera' => (int) $tile['cameraId']]) : '' }}"
+    data-stage-url="{{ !empty($tile['cameraId']) ? route('recordings.timeline.stage-data', ['camera' => (int) $tile['cameraId']]) : '' }}"
+    wire:ignore
 >
     <div class="recording-review-focus__rail-shell" data-role="rail-shell">
         <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
@@ -204,7 +207,7 @@
                     @endforeach
                 </div>
 
-                <div class="recording-review-focus__rail-thumbnails" data-role="rail-thumbnails">
+                <div class="recording-review-focus__rail-thumbnails" data-role="rail-thumbnails" wire:ignore>
                     @foreach ($thumbnailSegments as $segment)
                         @php($captureMode = ($segment['captureMode'] ?? null) === 'motion' ? 'motion' : 'continuous')
                         @php($segmentFocusMs = (int) ($segment['startMs'] ?? 0))

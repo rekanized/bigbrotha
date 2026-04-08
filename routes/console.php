@@ -9,15 +9,144 @@ use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
+use App\Services\MotionRecordingSegmenterService;
 use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('db:import-sqlite {path=database/database.sqlite}', function (): int {
+    $sourcePathArgument = (string) $this->argument('path');
+    $sourcePath = str_starts_with($sourcePathArgument, DIRECTORY_SEPARATOR)
+        ? $sourcePathArgument
+        : base_path($sourcePathArgument);
+
+    if (!is_file($sourcePath)) {
+        $this->components->error('SQLite source file not found: '.$sourcePath);
+
+        return 1;
+    }
+
+    $target = DB::connection();
+
+    if ($target->getDriverName() !== 'pgsql') {
+        $this->components->error('The active database connection must be pgsql to import SQLite data.');
+
+        return 1;
+    }
+
+    $sqlite = new PDO('sqlite:'.$sourcePath);
+    $sqlite->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $sqlite->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+
+    $tables = [
+        'cache',
+        'cache_locks',
+        'password_reset_tokens',
+        'users',
+        'sessions',
+        'app_settings',
+        'cameras',
+        'allowed_login_emails',
+        'live_walls',
+        'live_wall_tiles',
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+        'camera_recordings',
+    ];
+
+    $sourceTables = [];
+
+    foreach ($sqlite->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'") as $row) {
+        $name = is_array($row) ? ($row['name'] ?? null) : null;
+
+        if (is_string($name) && $name !== '') {
+            $sourceTables[$name] = true;
+        }
+    }
+
+    $missingTables = array_values(array_filter($tables, fn (string $table): bool => !isset($sourceTables[$table])));
+
+    if ($missingTables !== []) {
+        $this->components->warn('Skipping missing SQLite tables: '.implode(', ', $missingTables));
+    }
+
+    $importCounts = [];
+
+    $target->transaction(function () use ($sqlite, $target, $tables, &$importCounts): void {
+        foreach (array_reverse($tables) as $table) {
+            if ($target->getSchemaBuilder()->hasTable($table)) {
+                $target->table($table)->delete();
+            }
+        }
+
+        foreach ($tables as $table) {
+            if (!$target->getSchemaBuilder()->hasTable($table)) {
+                continue;
+            }
+
+            $rows = $sqlite->query('SELECT * FROM "'.$table.'"')->fetchAll();
+            $importCounts[$table] = count($rows);
+
+            if ($rows === []) {
+                continue;
+            }
+
+            foreach (array_chunk($rows, 200) as $chunk) {
+                $target->table($table)->insert($chunk);
+            }
+
+            $idInfo = $sqlite->query("PRAGMA table_info('$table')")->fetchAll();
+            $hasIntegerId = collect($idInfo)->contains(function (array $column): bool {
+                return ($column['name'] ?? null) === 'id'
+                    && (($column['pk'] ?? 0) === 1 || (int) ($column['pk'] ?? 0) === 1)
+                    && str_contains(strtolower((string) ($column['type'] ?? '')), 'int');
+            });
+
+            if (!$hasIntegerId) {
+                continue;
+            }
+
+            $sequenceRow = $target->selectOne('SELECT pg_get_serial_sequence(?, ?) AS sequence_name', [$table, 'id']);
+            $sequence = is_object($sequenceRow) ? ($sequenceRow->sequence_name ?? null) : null;
+
+            if (!is_string($sequence) || $sequence === '') {
+                continue;
+            }
+
+            $maxId = $target->table($table)->max('id');
+            $maxId = is_numeric($maxId) ? (int) $maxId : 0;
+            $target->unprepared(sprintf(
+                "SELECT setval('%s', %d, %s)",
+                str_replace("'", "''", $sequence),
+                max($maxId, 1),
+                $maxId > 0 ? 'true' : 'false',
+            ));
+        }
+    });
+
+    $rows = [];
+
+    foreach ($tables as $table) {
+        if (!array_key_exists($table, $importCounts)) {
+            continue;
+        }
+
+        $rows[] = [$table, (string) $importCounts[$table]];
+    }
+
+    $this->table(['Table', 'Imported rows'], $rows);
+    $this->components->info('SQLite import completed from '.$sourcePath.' into the active pgsql connection.');
+
+    return 0;
+})->purpose('Import SQLite rows into the active pgsql database connection');
 
 Artisan::command('relay:install {--force}', function (): int {
     $binaryPath = app(MediaMtxInstaller::class)->install((bool) $this->option('force'));
@@ -101,8 +230,12 @@ Artisan::command('camera-recordings:tick', function (): int {
     $recovered = $recordings->recoverStalePendingRecordings();
     $continuousRecorders = app(ContinuousRecordingSegmenterService::class);
     $continuousStopped = $continuousRecorders->stopUnmanagedRecorders();
+    $motionRecorders = app(MotionRecordingSegmenterService::class);
+    $motionStopped = $motionRecorders->stopUnmanagedRecorders();
     $continuousStarted = 0;
     $continuousImported = 0;
+    $motionStarted = 0;
+    $motionFinalized = 0;
     $queued = 0;
 
     Camera::query()
@@ -110,7 +243,7 @@ Artisan::command('camera-recordings:tick', function (): int {
         ->where('supports_rtsp', true)
         ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
         ->orderBy('id')
-        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, &$continuousStarted, &$continuousImported, $recordings, $continuousRecorders): void {
+        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, &$continuousStarted, &$continuousImported, &$motionStarted, &$motionFinalized, $recordings, $continuousRecorders): void {
             foreach ($cameras as $camera) {
                 if (!$camera->hasRecordingEnabled()) {
                     continue;
@@ -153,25 +286,14 @@ Artisan::command('camera-recordings:tick', function (): int {
                     continue;
                 }
 
-                if ($recordings->isMotionRecordingActive($camera) || $recordings->hasPendingMotionRecording($camera)) {
-                    continue;
+                $result = $recordings->syncMotionRecorder($camera);
+
+                if ($result['started']) {
+                    $motionStarted++;
                 }
 
-                $recording = CameraRecording::query()->firstOrCreate([
-                    'camera_id' => $camera->id,
-                    'scheduled_for' => $scheduledFor,
-                ], [
-                    'capture_mode' => $camera->recording_mode,
-                    'status' => CameraRecording::STATUS_QUEUED,
-                    'message' => 'Queued by scheduler.',
-                ]);
-
-                if (!$recording->wasRecentlyCreated) {
-                    continue;
-                }
-
-                if ($recordings->dispatchRecording($recording, 'Queued by scheduler for '.$scheduledFor->format('Y-m-d H:i').' UTC.')) {
-                    $queued++;
+                if ($result['finalized'] > 0) {
+                    $motionFinalized += $result['finalized'];
                 }
             }
         });
@@ -192,6 +314,18 @@ Artisan::command('camera-recordings:tick', function (): int {
 
     if ($continuousStopped > 0) {
         $message .= ' Stopped '.$continuousStopped.' unmanaged continuous recorder process'.($continuousStopped === 1 ? '' : 'es').'.';
+    }
+
+    if ($motionStarted > 0) {
+        $message .= ' Started '.$motionStarted.' motion recorder process'.($motionStarted === 1 ? '' : 'es').'.';
+    }
+
+    if ($motionFinalized > 0) {
+        $message .= ' Finalized '.$motionFinalized.' motion event'.($motionFinalized === 1 ? '' : 's').'.';
+    }
+
+    if ($motionStopped > 0) {
+        $message .= ' Stopped '.$motionStopped.' unmanaged motion recorder process'.($motionStopped === 1 ? '' : 'es').'.';
     }
 
     $this->components->info($message);

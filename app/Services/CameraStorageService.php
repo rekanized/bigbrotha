@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
+use Throwable;
 
 class CameraStorageService
 {
@@ -209,6 +210,97 @@ class CameraStorageService
     public function recordingExists(?string $recordingPath): bool
     {
         return $this->privateFileExists($recordingPath);
+    }
+
+    /**
+     * @return array{extension: string|null, mime_type: string|null, size: int|null}|null
+     */
+    public function recordingStreamMetadata(?string $recordingPath): ?array
+    {
+        $relativePath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($relativePath === null) {
+            return null;
+        }
+
+        $extension = strtolower((string) pathinfo($relativePath, PATHINFO_EXTENSION));
+
+        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+            $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
+
+            if ($absolutePath === null) {
+                return null;
+            }
+
+            $size = @filesize($absolutePath);
+
+            return [
+                'extension' => $extension !== '' ? $extension : null,
+                'mime_type' => $this->safeMimeType($absolutePath),
+                'size' => is_int($size) ? $size : null,
+            ];
+        }
+
+        $diskPath = $this->cameraDiskRelativePath($relativePath);
+
+        if (!$this->cameraDisk()->exists($diskPath)) {
+            return null;
+        }
+
+        $mimeType = null;
+        $size = null;
+
+        try {
+            $resolvedSize = $this->cameraDisk()->size($diskPath);
+            $size = is_numeric($resolvedSize) ? (int) $resolvedSize : null;
+        } catch (Throwable) {
+            $size = null;
+        }
+
+        try {
+            $resolvedMimeType = $this->cameraDisk()->mimeType($diskPath);
+            $mimeType = is_string($resolvedMimeType) && trim($resolvedMimeType) !== ''
+                ? trim($resolvedMimeType)
+                : null;
+        } catch (Throwable) {
+            $mimeType = null;
+        }
+
+        return [
+            'extension' => $extension !== '' ? $extension : null,
+            'mime_type' => $mimeType,
+            'size' => $size,
+        ];
+    }
+
+    /**
+     * @return resource|false
+     */
+    public function openRecordingReadStream(?string $recordingPath)
+    {
+        $relativePath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($relativePath === null) {
+            return false;
+        }
+
+        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+            $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
+
+            return $absolutePath !== null ? @fopen($absolutePath, 'rb') : false;
+        }
+
+        $diskPath = $this->cameraDiskRelativePath($relativePath);
+
+        if (!$this->cameraDisk()->exists($diskPath)) {
+            return false;
+        }
+
+        try {
+            return $this->cameraDisk()->readStream($diskPath);
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     public function privateFileExists(?string $path): bool
@@ -478,6 +570,17 @@ class CameraStorageService
         }
 
         return false;
+    }
+
+    private function safeMimeType(string $absolutePath): ?string
+    {
+        try {
+            $mimeType = File::mimeType($absolutePath);
+
+            return is_string($mimeType) && trim($mimeType) !== '' ? trim($mimeType) : null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function localWritablePath(string $privateRelativePath): string
@@ -768,7 +871,11 @@ class CameraStorageService
 
     private function ensureWritableDirectory(string $path): void
     {
-        File::ensureDirectoryExists($path, 0775, true);
+        clearstatcache(true, $path);
+
+        if (!is_dir($path) && !@mkdir($path, 0775, true) && !is_dir($path)) {
+            throw new RuntimeException('The camera storage directory is not writable: '.$path);
+        }
 
         $this->normalizeManagedDirectoryPermissions($path);
 

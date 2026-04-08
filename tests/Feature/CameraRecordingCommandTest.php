@@ -47,11 +47,12 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertFileExists(storage_path('app/private/'.$recording->relative_path));
 
         $reviewAssets = app(RecordingReviewAssetService::class);
+        $assetState = $reviewAssets->assetState($recording);
 
         $this->assertFileExists($reviewAssets->previewAbsolutePath($recording));
-        $this->assertFileExists($reviewAssets->thumbnailAbsolutePath($recording));
         $this->assertFileExists($reviewAssets->scrubSpriteAbsolutePath($recording));
-        $this->assertSame(RecordingReviewAssetService::STATUS_READY, $reviewAssets->assetState($recording)['status']);
+        $this->assertTrue((bool) ($assetState['thumbnail_available'] ?? false));
+        $this->assertSame(RecordingReviewAssetService::STATUS_READY, $assetState['status']);
 
         $camera->refresh();
 
@@ -323,7 +324,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertSame(13, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
     }
 
-    public function test_it_uses_the_default_recording_relay_path_when_motion_recording_profile_selection_is_automatic(): void
+    public function test_it_uses_the_direct_camera_path_by_default_when_motion_recording_profile_selection_is_automatic(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
@@ -331,6 +332,71 @@ class CameraRecordingCommandTest extends TestCase
         config()->set('recording.motion.pre_roll_seconds', 2);
         config()->set('recording.motion.analysis_seconds', 3);
         config()->set('recording.motion.post_trigger_seconds', 4);
+        config()->set('recording.motion.use_relay_source', false);
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        $inputLogPath = storage_path('app/private/test-binaries/ffmpeg-last-input.log');
+        File::delete($inputLogPath);
+
+        $camera = Camera::query()->create([
+            'name' => 'Gaming Room',
+            'local_ip' => '192.168.1.69',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'rtsp_profiles' => [
+                [
+                    'name' => 'mainStream',
+                    'uri' => 'rtsp://192.168.1.69:554/stream1',
+                ],
+                [
+                    'name' => 'subStream',
+                    'uri' => 'rtsp://192.168.1.69:554/stream2',
+                ],
+            ],
+            'recording_profile_index' => null,
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner-log-input')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertFileExists($inputLogPath);
+        $this->assertSame(
+            'rtsp://192.168.1.69:554/stream1',
+            trim((string) File::get($inputLogPath)),
+        );
+    }
+
+    public function test_it_uses_the_recording_relay_path_when_enabled_for_motion_recording(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.analysis_seconds', 3);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+        config()->set('recording.motion.use_relay_source', true);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
         config()->set('mediamtx.auth.reader_pass', 'relay-pass');
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
@@ -430,7 +496,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertSame(9, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
     }
 
-    public function test_it_ignores_motion_that_only_appears_inside_the_pre_roll_context(): void
+    public function test_it_records_the_first_detected_motion_event_even_when_it_occurs_immediately(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
@@ -466,7 +532,11 @@ class CameraRecordingCommandTest extends TestCase
 
         Artisan::call('camera-recordings:tick');
 
-        $this->assertDatabaseCount('camera_recordings', 0);
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertSame('capture-6', file_get_contents(storage_path('app/private/'.$recording->relative_path)));
+        $this->assertSame(8, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
     }
 
     public function test_it_does_not_queue_a_new_motion_recording_while_a_motion_event_is_active(): void
@@ -525,11 +595,15 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertTrue($recording->fresh()->isPending());
     }
 
-    public function test_it_allows_the_same_motion_recording_to_resume_when_it_already_owns_the_active_state(): void
+    public function test_it_promotes_a_preferred_motion_row_into_processing_when_motion_is_detected(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
         config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.post_trigger_seconds', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.post_trigger_seconds', 4);
 
         $camera = Camera::query()->create([
             'name' => 'Retry Bay',
@@ -562,29 +636,26 @@ class CameraRecordingCommandTest extends TestCase
             'message' => 'Retrying the same motion event.',
         ]);
 
-        Cache::put('camera-recordings:motion-event:camera:'.$camera->id, [
-            'recording_id' => $recording->id,
-            'expires_at' => now()->utc()->addSeconds(60)->toIso8601String(),
-        ], 60);
-
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
 
         app(CameraRecordingService::class)->processRecording($recording);
 
+        app(CameraRecordingService::class)->syncMotionRecorder($camera, $recording);
+
         $recording->refresh();
 
-        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
-        $this->assertNotNull($recording->relative_path);
-        $this->assertFileExists(storage_path('app/private/'.$recording->relative_path));
+        $this->assertSame(CameraRecording::STATUS_PROCESSING, $recording->status);
+        $this->assertNotNull($recording->started_at);
+        $this->assertNull($recording->relative_path);
     }
 
-    public function test_it_marks_the_segment_failed_when_capture_errors_out(): void
+    public function test_it_skips_creating_motion_rows_when_the_rolling_recorder_cannot_start(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
         config()->set('recording.motion.grid_height', 4);
 
-        Camera::query()->create([
+        $camera = Camera::query()->create([
             'name' => 'Driveway',
             'local_ip' => '192.168.1.72',
             'rtsp_port' => 554,
@@ -611,11 +682,7 @@ class CameraRecordingCommandTest extends TestCase
 
         Artisan::call('camera-recordings:tick');
 
-        $recording = CameraRecording::query()->firstOrFail();
-
-        $this->assertSame(CameraRecording::STATUS_FAILED, $recording->status);
-        $this->assertNull($recording->relative_path);
-        $this->assertStringContainsString('simulated capture failure', (string) $recording->message);
+        $this->assertDatabaseCount('camera_recordings', 0);
     }
 
     public function test_it_discards_a_stale_pending_motion_segment_instead_of_recovering_it(): void
@@ -674,6 +741,8 @@ class CameraRecordingCommandTest extends TestCase
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
         config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.pre_roll_seconds', 2);
+        config()->set('recording.motion.post_trigger_seconds', 4);
 
         $camera = Camera::query()->create([
             'name' => 'Back Gate',
@@ -718,7 +787,7 @@ class CameraRecordingCommandTest extends TestCase
         $expiredReviewAssetDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/expired-continuous');
         File::ensureDirectoryExists($expiredReviewAssetDirectory);
         File::put($expiredReviewAssetDirectory.'/preview.mp4', 'preview');
-        File::put($expiredReviewAssetDirectory.'/poster.jpg', 'poster');
+        File::put($expiredReviewAssetDirectory.'/scrub-sprite.jpg', 'sprite');
 
         CameraRecording::query()->create([
             'camera_id' => $camera->id,
@@ -803,9 +872,11 @@ class CameraRecordingCommandTest extends TestCase
             'message' => 'Previously recorded clip.',
         ]);
 
-        $reviewDirectory = dirname(app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, '.', true));
-        File::put($reviewDirectory.'/preview.mp4', 'preview');
-        File::put($reviewDirectory.'/poster.jpg', 'poster');
+        $reviewAssets = app(RecordingReviewAssetService::class);
+        $previewAbsolutePath = $reviewAssets->previewAbsolutePath($recording, true);
+        $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
+        File::put($previewAbsolutePath, 'preview');
+        File::put($scrubSpriteAbsolutePath, 'sprite');
 
         Artisan::call('camera-recordings:prune');
 
@@ -814,7 +885,8 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_FAILED, $recording->status);
         $this->assertNull($recording->file_size_bytes);
         $this->assertStringContainsString('missing from active storage', (string) $recording->message);
-        $this->assertDirectoryDoesNotExist($reviewDirectory);
+        $this->assertFileDoesNotExist($previewAbsolutePath);
+        $this->assertFileDoesNotExist($scrubSpriteAbsolutePath);
     }
 
     public function test_it_prunes_expired_segments_with_legacy_private_storage_path_formats(): void
@@ -919,8 +991,8 @@ class CameraRecordingCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-        $reviewDirectory = dirname($storage->recordingReviewAssetAbsolutePath($orphanRelativePath, '.', true));
-        File::put($reviewDirectory.'/preview.mp4', 'preview');
+        $orphanPreviewAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'preview.mp4', true);
+        File::put($orphanPreviewAbsolutePath, 'preview');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -933,7 +1005,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertFalse($orphanPaths->contains($trackedRelativePath));
         $this->assertFileExists($trackedAbsolutePath);
         $this->assertFileExists($orphanAbsolutePath);
-        $this->assertDirectoryExists($reviewDirectory);
+        $this->assertFileExists($orphanPreviewAbsolutePath);
     }
 
     public function test_it_uses_created_at_for_retention_cutoffs_instead_of_ended_at(): void
@@ -1015,7 +1087,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertDatabaseMissing('camera_recordings', [
             'relative_path' => $relativePath,
         ]);
-        $this->assertDirectoryDoesNotExist($reviewDirectory);
+        $this->assertFileDoesNotExist($reviewDirectory.'/preview.mp4');
     }
 
     public function test_it_purges_orphan_recording_files_and_review_assets_when_requested(): void
@@ -1055,8 +1127,8 @@ class CameraRecordingCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-        $reviewDirectory = dirname($storage->recordingReviewAssetAbsolutePath($orphanRelativePath, '.', true));
-        File::put($reviewDirectory.'/preview.mp4', 'preview');
+        $orphanPreviewAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'preview.mp4', true);
+        File::put($orphanPreviewAbsolutePath, 'preview');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -1069,7 +1141,7 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertFalse($orphanPaths->contains($trackedRelativePath));
         $this->assertFileExists($trackedAbsolutePath);
         $this->assertFileDoesNotExist($orphanAbsolutePath);
-        $this->assertDirectoryDoesNotExist($reviewDirectory);
+        $this->assertFileDoesNotExist($orphanPreviewAbsolutePath);
     }
 
     public function test_it_registers_the_recording_scheduler_commands(): void
@@ -1095,6 +1167,108 @@ class CameraRecordingCommandTest extends TestCase
     {
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
+
+        $rollingMotionScript = static fn (string $profile, bool $logInput = false): string => str_replace(
+            ['__PROFILE__', '__LOG_INPUT__'],
+            [$profile, $logInput ? '1' : '0'],
+            <<<'BASH'
+#!/usr/bin/env bash
+set -e
+profile="__PROFILE__"
+log_input="__LOG_INPUT__"
+
+find_input() {
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-i" ]]; then
+            printf '%s' "$argument"
+            return 0
+        fi
+        previous="$argument"
+    done
+
+    return 1
+}
+
+write_segments() {
+    php -r '
+[$pattern, $stamp, $profile] = array_slice($argv, 1);
+$base = DateTimeImmutable::createFromFormat("Ymd_His", $stamp, new DateTimeZone("UTC"));
+
+if (!$base instanceof DateTimeImmutable) {
+    $base = new DateTimeImmutable("now", new DateTimeZone("UTC"));
+}
+
+$series = [];
+
+for ($index = 0; $index < 20; $index++) {
+    $series[$index] = match ($profile) {
+        "quiet" => "quiet",
+        "preroll-only" => $index < 2 ? "motion" : "quiet",
+        default => in_array($index, [4, 5, 6], true) ? "motion" : "quiet",
+    };
+}
+
+foreach ($series as $index => $label) {
+    $timestamp = $base->modify("+{$index} seconds")->format("Ymd_His");
+    $path = str_replace("%Y%m%d_%H%M%S", $timestamp, $pattern);
+    @mkdir(dirname($path), 0777, true);
+    file_put_contents($path, $label."-".$index);
+}
+' -- "$1" "$2" "$3"
+}
+
+if [[ "$log_input" == "1" ]]; then
+    input_log="$(dirname "$0")/ffmpeg-last-input.log"
+    previous=""
+    for argument in "$@"; do
+        if [[ "$previous" == "-i" && "$argument" == rtsp://* ]]; then
+            mkdir -p "$(dirname "$input_log")"
+            printf '%s' "$argument" > "$input_log"
+            break
+        fi
+        previous="$argument"
+    done
+fi
+
+if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
+    input="$(find_input "$@" || true)"
+    contents=""
+
+    if [[ -n "$input" && -f "$input" ]]; then
+        contents="$(cat "$input")"
+    fi
+
+    if [[ "$contents" == motion* ]]; then
+        php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
+    else
+        php -r 'echo str_repeat(chr(0), 32);'
+    fi
+
+    exit 0
+fi
+
+if printf '%s\n' "$@" | grep -qx -- 'concat'; then
+    list_file="$(find_input "$@")"
+    output="${!#}"
+    count="$(grep -c '^file ' "$list_file" || true)"
+    mkdir -p "$(dirname "$output")"
+    printf 'capture-%s' "${count:-0}" > "$output"
+    exit 0
+fi
+
+if printf '%s\n' "$@" | grep -qx -- 'segment'; then
+    pattern="${!#}"
+    stamp="${FFMPEG_FAKE_NOW_UTC:-$(date -u +%Y%m%d_%H%M%S)}"
+    write_segments "$pattern" "$stamp" "$profile"
+    exit 0
+fi
+
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+printf '%s' 'recorded-segment' > "$output"
+BASH
+        );
 
         $script = match ($mode) {
             'reject-rw-timeout' => <<<'BASH'
@@ -1134,229 +1308,12 @@ output="${!#}"
 mkdir -p "$(dirname "$output")"
 printf '%s' 'recorded-segment' > "$output"
 BASH,
-            'motion-detected' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    php -r 'echo str_repeat(chr(0), 16).str_repeat(chr(255), 16);'
-    exit 0
-fi
-if printf '%s\n' "$@" | grep -qx -- 'concat'; then
-    list_file=""
-    previous=""
-    for argument in "$@"; do
-        if [[ "$previous" == "-i" ]]; then
-            list_file="$argument"
-            break
-        fi
-        previous="$argument"
-    done
-    output="${!#}"
-    mkdir -p "$(dirname "$output")"
-    : > "$output"
-    while IFS= read -r line; do
-        path="${line#file }"
-        path="${path#\'}"
-        path="${path%\'}"
-        cat "$path" >> "$output"
-    done < "$list_file"
-    exit 0
-fi
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
-            'motion-quiet' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    php -r 'echo str_repeat(chr(0), 32);'
-    exit 0
-fi
-if printf '%s\n' "$@" | grep -qx -- 'concat'; then
-    list_file=""
-    previous=""
-    for argument in "$@"; do
-        if [[ "$previous" == "-i" ]]; then
-            list_file="$argument"
-            break
-        fi
-        previous="$argument"
-    done
-    output="${!#}"
-    mkdir -p "$(dirname "$output")"
-    : > "$output"
-    while IFS= read -r line; do
-        path="${line#file }"
-        path="${path#\'}"
-        path="${path%\'}"
-        cat "$path" >> "$output"
-    done < "$list_file"
-    exit 0
-fi
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
-            'motion-corner' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
-    exit 0
-fi
-if printf '%s\n' "$@" | grep -qx -- 'concat'; then
-    list_file=""
-    previous=""
-    for argument in "$@"; do
-        if [[ "$previous" == "-i" ]]; then
-            list_file="$argument"
-            break
-        fi
-        previous="$argument"
-    done
-    output="${!#}"
-    mkdir -p "$(dirname "$output")"
-    : > "$output"
-    while IFS= read -r line; do
-        path="${line#file }"
-        path="${path#\'}"
-        path="${path%\'}"
-        cat "$path" >> "$output"
-    done < "$list_file"
-    exit 0
-fi
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
-            'motion-corner-log-input' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
-    exit 0
-fi
-input_log="$(dirname "$0")/ffmpeg-last-input.log"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-i" && "$argument" == rtsp://* ]]; then
-        mkdir -p "$(dirname "$input_log")"
-        printf '%s' "$argument" > "$input_log"
-        break
-    fi
-    previous="$argument"
-done
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
-            'motion-late' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    duration=""
-    previous=""
-    for argument in "$@"; do
-        if [[ "$previous" == "-t" ]]; then
-            duration="$argument"
-            break
-        fi
-        previous="$argument"
-    done
-
-    if [[ "$duration" == "7" ]]; then
-        php -r 'echo str_repeat(chr(0), 16).str_repeat(chr(0), 16).str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));'
-    else
-        php -r 'echo str_repeat(chr(0), 64);'
-    fi
-
-    exit 0
-fi
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
-            'motion-preroll-only' => <<<'BASH'
-#!/usr/bin/env bash
-set -e
-if printf '%s\n' "$@" | grep -qx -- 'rawvideo'; then
-    saw_offset="false"
-    previous=""
-    for argument in "$@"; do
-        if [[ "$previous" == "-ss" && "$argument" == "2" ]]; then
-            saw_offset="true"
-            break
-        fi
-        previous="$argument"
-    done
-
-    if [[ "$saw_offset" == "true" ]]; then
-        php -r 'echo str_repeat(chr(0), 64);'
-    else
-        php -r 'echo str_repeat(chr(0), 16).implode("", array_map(static fn ($value) => chr($value), [255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).str_repeat(chr(0), 32);'
-    fi
-
-    exit 0
-fi
-output="${!#}"
-mkdir -p "$(dirname "$output")"
-duration="capture-output"
-previous=""
-for argument in "$@"; do
-    if [[ "$previous" == "-t" ]]; then
-        duration="capture-$argument"
-        break
-    fi
-    previous="$argument"
-done
-printf '%s' "$duration" > "$output"
-BASH,
+            'motion-detected' => $rollingMotionScript('corner'),
+            'motion-quiet' => $rollingMotionScript('quiet'),
+            'motion-corner' => $rollingMotionScript('corner'),
+            'motion-corner-log-input' => $rollingMotionScript('corner', true),
+            'motion-late' => $rollingMotionScript('corner'),
+            'motion-preroll-only' => $rollingMotionScript('preroll-only'),
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash
 set -e

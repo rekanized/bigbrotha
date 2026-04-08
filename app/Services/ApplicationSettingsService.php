@@ -231,7 +231,7 @@ class ApplicationSettingsService
                 return Carbon::parse($trimmedValue)->utc();
             }
 
-            return Carbon::parse($trimmedValue, 'UTC')->utc();
+            return Carbon::parse($trimmedValue, $this->appTimezone())->utc();
         } catch (Throwable) {
             return null;
         }

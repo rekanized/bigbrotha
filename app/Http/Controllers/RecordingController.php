@@ -11,6 +11,7 @@ use App\Services\RecordingReviewAssetService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -111,17 +112,95 @@ class RecordingController extends Controller
         return view('recordings.timeline', $this->timelineViewData($request));
     }
 
+    public function timelineRailData(Request $request, Camera $camera): JsonResponse
+    {
+        abort_unless(
+            $camera->recordings()
+                ->where('status', CameraRecording::STATUS_RECORDED)
+                ->whereNotNull('relative_path')
+                ->exists(),
+            Response::HTTP_NOT_FOUND,
+        );
+
+        $dayStartMs = $this->requestMilliseconds($request->query('day_start_ms'));
+        $dayEndMs = $this->requestMilliseconds($request->query('day_end_ms'));
+
+        abort_unless($dayStartMs !== null && $dayEndMs !== null && $dayEndMs > ($dayStartMs + 999), Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        $windowStartMs = $this->requestMilliseconds($request->query('window_start_ms')) ?? $dayStartMs;
+        $windowEndMs = $this->requestMilliseconds($request->query('window_end_ms')) ?? $dayEndMs;
+        [$normalizedStartMs, $normalizedEndMs] = $this->normalizeTimelineWindowRange($dayStartMs, $dayEndMs, $windowStartMs, $windowEndMs);
+        $reviewWindowStart = $this->millisecondsToUtc($dayStartMs);
+        $reviewWindowEnd = $this->millisecondsToUtc($dayEndMs);
+        $windowStart = $this->millisecondsToUtc($normalizedStartMs);
+        $windowEnd = $this->millisecondsToUtc($normalizedEndMs);
+
+        $segments = $this->reviewRecordings(collect([(int) $camera->getKey()]), $windowStart, $windowEnd)
+            ->map(fn (CameraRecording $recording): array => $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd))
+            ->values()
+            ->all();
+
+        return response()->json([
+            'cameraId' => (int) $camera->getKey(),
+            'segments' => $segments,
+            'windowEndMs' => $normalizedEndMs,
+            'windowStartMs' => $normalizedStartMs,
+        ]);
+    }
+
+    public function timelineStageData(Request $request, Camera $camera): JsonResponse
+    {
+        abort_unless(
+            $camera->recordings()
+                ->where('status', CameraRecording::STATUS_RECORDED)
+                ->whereNotNull('relative_path')
+                ->exists(),
+            Response::HTTP_NOT_FOUND,
+        );
+
+        $dayStartMs = $this->requestMilliseconds($request->query('day_start_ms'));
+        $dayEndMs = $this->requestMilliseconds($request->query('day_end_ms'));
+        $focusMs = $this->requestMilliseconds($request->query('focus_ms'));
+
+        abort_unless(
+            $dayStartMs !== null
+                && $dayEndMs !== null
+                && $focusMs !== null
+                && $dayEndMs > ($dayStartMs + 999),
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+        );
+
+        $maximumFocusMs = max($dayStartMs, $dayEndMs - 1000);
+        $normalizedFocusMs = max($dayStartMs, min($maximumFocusMs, $focusMs));
+        $reviewWindowStart = $this->millisecondsToUtc($dayStartMs);
+        $reviewWindowEnd = $this->millisecondsToUtc($dayEndMs);
+        $focusAt = $this->millisecondsToUtc($normalizedFocusMs);
+
+        return response()->json([
+            'cameraId' => (int) $camera->getKey(),
+            'focusMs' => $normalizedFocusMs,
+            'segment' => $this->timelineStageSegmentPayload($camera, $focusAt, $reviewWindowStart, $reviewWindowEnd),
+        ]);
+    }
+
     public function show(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): View
     {
         $recording->loadMissing('camera');
         $durationSeconds = $this->durationSeconds($recording);
+        $playbackAvailable = $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path);
+        $browserPlaybackStrategy = $playbackAvailable
+            ? $recordings->browserPlaybackStrategy($recording)
+            : null;
 
         return view('recordings.show', [
             'recording' => $recording,
             'camera' => $recording->camera,
             'durationSeconds' => $durationSeconds,
             'displayTimezone' => $this->settings->appTimezone(),
-            'playbackAvailable' => $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path),
+            'playbackAvailable' => $playbackAvailable,
+            'browserPlaybackAvailable' => $playbackAvailable && $recordings->browserPlaybackAvailable($recording),
+            'playbackRequiresTranscode' => is_array($browserPlaybackStrategy)
+                && (($browserPlaybackStrategy['mode'] ?? CameraRecordingService::PLAYBACK_MODE_TRANSCODE) !== CameraRecordingService::PLAYBACK_MODE_DIRECT),
             'ffmpegAvailable' => $recordings->ffmpegBinary() !== null,
         ]);
     }
@@ -134,15 +213,15 @@ class RecordingController extends Controller
         return $recordings->playbackResponse($recording->loadMissing('camera'));
     }
 
-    public function reviewStream(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): Response
+    public function reviewStream(Request $request, CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): Response
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
         abort_unless($storage->recordingExists($recording->relative_path), Response::HTTP_NOT_FOUND);
 
-        return $recordings->bufferedPlaybackResponse($recording->loadMissing('camera'));
+        return $recordings->bufferedPlaybackResponse($recording->loadMissing('camera'), $request->header('Range'));
     }
 
-    public function previewStream(CameraRecording $recording, RecordingReviewAssetService $reviewAssets, CameraRecordingService $recordings): BinaryFileResponse|StreamedResponse
+    public function previewStream(CameraRecording $recording, RecordingReviewAssetService $reviewAssets): BinaryFileResponse|StreamedResponse|Response
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
@@ -150,16 +229,13 @@ class RecordingController extends Controller
         $absolutePath = $reviewAssets->previewAbsolutePath($recording);
 
         if (!$assetState['ready'] || $absolutePath === null || !is_file($absolutePath)) {
-            try {
-                $reviewAssets->generateForRecording($recording);
-                $absolutePath = $reviewAssets->previewAbsolutePath($recording);
-            } catch (\Throwable) {
-                return $recordings->playbackResponse($recording->loadMissing('camera'));
-            }
-        }
+            $reviewAssets->ensureQueued($recording);
 
-        if ($absolutePath === null || !is_file($absolutePath)) {
-            return $recordings->playbackResponse($recording->loadMissing('camera'));
+            return response('', Response::HTTP_CONFLICT, [
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                'Pragma' => 'no-cache',
+                'X-Review-Asset-Status' => RecordingReviewAssetService::STATUS_PENDING,
+            ]);
         }
 
         $response = response()->file($absolutePath, [
@@ -176,28 +252,16 @@ class RecordingController extends Controller
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
-        $assetState = $reviewAssets->assetState($recording);
-        $absolutePath = $reviewAssets->thumbnailAbsolutePath($recording);
+        $thumbnailSvg = $reviewAssets->thumbnailSvg($recording);
 
-        if (!$assetState['thumbnail_available'] || $absolutePath === null || !is_file($absolutePath)) {
-            try {
-                $reviewAssets->generateForRecording($recording);
-                $absolutePath = $reviewAssets->thumbnailAbsolutePath($recording);
-            } catch (\Throwable) {
-                $absolutePath = null;
-            }
-        }
-
-        if ($absolutePath !== null && is_file($absolutePath)) {
-            $response = response()->file($absolutePath, [
-                'Content-Type' => 'image/jpeg',
+        if ($thumbnailSvg !== null) {
+            return response($thumbnailSvg, Response::HTTP_OK, [
+                'Content-Type' => 'image/svg+xml; charset=UTF-8',
                 'Cache-Control' => 'private, max-age=300',
             ]);
-
-            $response->deleteFileAfterSend(app(CameraStorageService::class)->isTemporaryManagedPath($absolutePath));
-
-            return $response;
         }
+
+        $reviewAssets->ensureQueued($recording, true);
 
         return response($this->previewThumbnailPlaceholder($recording), Response::HTTP_OK, [
             'Content-Type' => 'image/svg+xml; charset=UTF-8',
@@ -214,12 +278,8 @@ class RecordingController extends Controller
         $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
 
         if (($assetState['scrub_status'] ?? null) !== RecordingReviewAssetService::STATUS_READY || !$assetState['scrub_sprite_available'] || $absolutePath === null || !is_file($absolutePath)) {
-            try {
-                $reviewAssets->generateForRecording($recording);
-                $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
-            } catch (\Throwable) {
-                $absolutePath = null;
-            }
+            $reviewAssets->ensureQueued($recording, true);
+            $absolutePath = null;
         }
 
         if ($absolutePath !== null && is_file($absolutePath)) {
@@ -265,7 +325,11 @@ class RecordingController extends Controller
     private function cameraOptions(): Collection
     {
         return Camera::query()
-            ->whereHas('recordings')
+            ->whereHas('recordings', function (Builder $query): void {
+                $query
+                    ->where('status', CameraRecording::STATUS_RECORDED)
+                    ->whereNotNull('relative_path');
+            })
             ->orderBy('name')
             ->get(['id', 'name', 'local_ip']);
     }
@@ -302,6 +366,11 @@ class RecordingController extends Controller
         $reviewTiles = $this->timelineReview->buildCameraSummaries($selectedCameras, $reviewRecordings, $focusAt, $reviewWindowStart, $reviewWindowEnd);
         $timelineHours = max(24, (int) ceil($this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd)));
         $activeCameraId = $this->resolveActiveCameraId($reviewTiles);
+        [$initialRailWindowStartMs, $initialRailWindowEndMs] = $this->initialRailWindow(
+            $reviewWindowStart->valueOf(),
+            $reviewWindowEnd->valueOf(),
+            $focusAt->valueOf(),
+        );
         $summaryQuery = CameraRecording::query()
             ->when($selectedCameraIds->isNotEmpty(), function (Builder $query) use ($selectedCameraIds): void {
                 $query->whereIn('camera_id', $selectedCameraIds->all());
@@ -321,9 +390,27 @@ class RecordingController extends Controller
                 'cameras' => $reviewTiles->count(),
             ],
             'timelineCameraOptions' => $timelineCameraOptions,
+            'timelineTicks' => $this->timelineTicks($reviewWindowStart, $reviewWindowEnd)->values()->all(),
             'reviewRangeLabel' => $this->settings->formatDateTime($reviewWindowStart, 'Y-m-d H:i')
                 .' - '.$this->settings->formatDateTime($reviewWindowEnd->copy()->subSecond(), 'Y-m-d H:i'),
             'reviewTiles' => $reviewTiles,
+            'initialCurrentSegment' => $this->initialCurrentSegment(
+                $reviewRecordings,
+                $activeCameraId,
+                $focusAt,
+                $reviewWindowStart,
+                $reviewWindowEnd,
+            ),
+            'initialRailSegments' => $this->initialRailSegments(
+                $reviewRecordings,
+                $activeCameraId,
+                $reviewWindowStart,
+                $reviewWindowEnd,
+                $initialRailWindowStartMs,
+                $initialRailWindowEndMs,
+            ),
+            'initialRailWindowEndMs' => $initialRailWindowEndMs,
+            'initialRailWindowStartMs' => $initialRailWindowStartMs,
             'selectedCameraIds' => $selectedCameraIds->all(),
             'dateRange' => [
                 'from' => $this->settings->toDisplayTimezone($reviewWindowStart)->format('Y-m-d'),
@@ -480,6 +567,105 @@ class RecordingController extends Controller
     }
 
     /**
+     * @return array{0: int, 1: int}
+     */
+    private function initialRailWindow(int $dayStartMs, int $dayEndMs, int $focusAtMs): array
+    {
+        $chunkDurationMs = 28_800_000;
+        $halfWindowMs = (int) floor($chunkDurationMs / 2);
+        $windowStartMs = max($dayStartMs, $focusAtMs - $halfWindowMs);
+        $windowEndMs = min($dayEndMs, $windowStartMs + $chunkDurationMs);
+
+        if (($windowEndMs - $windowStartMs) < $chunkDurationMs) {
+            $windowStartMs = max($dayStartMs, $windowEndMs - $chunkDurationMs);
+        }
+
+        return [$windowStartMs, max($windowStartMs + 1000, $windowEndMs)];
+    }
+
+    /**
+     * @param  Collection<int, CameraRecording>  $reviewRecordings
+     * @return array<string, mixed>|null
+     */
+    private function initialCurrentSegment(
+        Collection $reviewRecordings,
+        int|string|null $activeCameraId,
+        Carbon $focusAt,
+        Carbon $reviewWindowStart,
+        Carbon $reviewWindowEnd,
+    ): ?array {
+        $cameraId = is_numeric($activeCameraId) ? (int) $activeCameraId : 0;
+
+        if ($cameraId <= 0) {
+            return null;
+        }
+
+        $cameraRecordings = $reviewRecordings
+            ->filter(fn (mixed $recording): bool => $recording instanceof CameraRecording && (int) $recording->camera_id === $cameraId)
+            ->values();
+
+        $recording = $this->timelineReview->selectRecordingForFocus($cameraRecordings, $focusAt);
+
+        return $recording instanceof CameraRecording
+            ? $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd)
+            : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function timelineStageSegmentPayload(
+        Camera $camera,
+        Carbon $focusAt,
+        Carbon $reviewWindowStart,
+        Carbon $reviewWindowEnd,
+    ): ?array {
+        $cameraRecordings = $this->reviewRecordings(collect([(int) $camera->getKey()]), $reviewWindowStart, $reviewWindowEnd);
+        $recording = $this->timelineReview->selectRecordingForFocus($cameraRecordings, $focusAt);
+
+        return $recording instanceof CameraRecording
+            ? $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd)
+            : null;
+    }
+
+    /**
+     * @param  Collection<int, CameraRecording>  $reviewRecordings
+     * @return array<int, array<string, mixed>>
+     */
+    private function initialRailSegments(
+        Collection $reviewRecordings,
+        int|string|null $activeCameraId,
+        Carbon $reviewWindowStart,
+        Carbon $reviewWindowEnd,
+        int $windowStartMs,
+        int $windowEndMs,
+    ): array {
+        $cameraId = is_numeric($activeCameraId) ? (int) $activeCameraId : 0;
+
+        if ($cameraId <= 0) {
+            return [];
+        }
+
+        $windowStart = $this->millisecondsToUtc($windowStartMs);
+        $windowEnd = $this->millisecondsToUtc($windowEndMs);
+
+        return $reviewRecordings
+            ->filter(function (mixed $recording) use ($cameraId, $windowStart, $windowEnd): bool {
+                if (!$recording instanceof CameraRecording || (int) $recording->camera_id !== $cameraId) {
+                    return false;
+                }
+
+                [$recordingStart, $recordingEnd] = $this->timelineReview->recordingBounds($recording);
+
+                return $recordingStart->lessThan($windowEnd)
+                    && $recordingEnd->greaterThan($windowStart);
+            })
+            ->map(fn (CameraRecording $recording): array => $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd))
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  Collection<int, int>  $selectedCameraIds
      * @return Collection<int, CameraRecording>
      */
@@ -490,18 +676,37 @@ class RecordingController extends Controller
         }
 
         $query = CameraRecording::query()
-            ->with('camera')
+            ->select($this->timelineRecordingColumns())
             ->whereIn('camera_id', $selectedCameraIds->all())
-            ->where('status', CameraRecording::STATUS_RECORDED);
+            ->where('status', CameraRecording::STATUS_RECORDED)
+            ->whereNotNull('relative_path');
 
         $this->applyReviewWindow($query, $reviewWindowStart, $reviewWindowEnd);
 
         return $query
-            ->orderByRaw('COALESCE(started_at, scheduled_for) asc')
+            ->orderBy('camera_id')
+            ->orderBy('scheduled_for')
             ->orderBy('id')
-            ->get()
-            ->filter(fn (CameraRecording $recording): bool => app(CameraStorageService::class)->recordingExists($recording->relative_path))
-            ->values();
+            ->get();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function timelineRecordingColumns(): array
+    {
+        return [
+            'id',
+            'camera_id',
+            'capture_mode',
+            'status',
+            'scheduled_for',
+            'started_at',
+            'ended_at',
+            'relative_path',
+            'file_size_bytes',
+            'message',
+        ];
     }
 
     private function applyReviewWindow(Builder $query, Carbon $reviewWindowStart, Carbon $reviewWindowEnd): void
@@ -747,6 +952,27 @@ class RecordingController extends Controller
         }
 
         return round($zoomScale, 3);
+    }
+
+    private function requestMilliseconds(mixed $value): ?int
+    {
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function normalizeTimelineWindowRange(int $dayStartMs, int $dayEndMs, int $windowStartMs, int $windowEndMs): array
+    {
+        $normalizedStartMs = max($dayStartMs, min($dayEndMs, $windowStartMs));
+        $normalizedEndMs = max($normalizedStartMs + 1000, min($dayEndMs, $windowEndMs));
+
+        return [$normalizedStartMs, $normalizedEndMs];
+    }
+
+    private function millisecondsToUtc(int $value): Carbon
+    {
+        return Carbon::createFromTimestampUTC((int) floor($value / 1000));
     }
 
     private function durationSeconds(CameraRecording $recording): ?int

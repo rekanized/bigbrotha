@@ -16,8 +16,11 @@
         cameraId: null,
         loadedRanges: [],
         pendingKeys: new Set(),
+        queuedRequest: null,
         renderFrame: null,
         renderKey: '',
+        requestInFlight: false,
+        requestTimer: null,
         segments: [],
         thumbnailObserver: null,
         thumbnailObserverScope: null,
@@ -44,9 +47,6 @@
         lastPointerEventAt: 0,
         lastScrollbarPointerAt: 0,
         lastWheelZoomAt: 0,
-        observer: null,
-        observerPauseDepth: 0,
-        observerScope: null,
         resizeObservedElements: [],
         resizeObserver: null,
         resizeObserverScope: null,
@@ -59,10 +59,13 @@
         stage: defaultStageControllerState(),
         stagePrewarm: defaultStagePrewarmState(),
         stageAudioLastSyncAt: 0,
+        stageSegmentRequestController: null,
+        stageSegmentRequestId: 0,
+        stageSourceLoadTimer: null,
+        stageSourceRequestId: 0,
         pendingViewportRestore: false,
         viewportScrollTop: null,
         zoomScale: null,
-        zoomSyncTimer: null,
     };
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -88,6 +91,7 @@
         ? scope.dataset.displayTimezone
         : 'UTC';
     const focusFormatterCache = new Map();
+    const pendingStageReadyHandlers = new WeakMap();
 
     const focusFormatter = (scope = root()) => {
         const timezone = displayTimezone(scope);
@@ -149,6 +153,35 @@
     const timelineMaximumFocusMs = (scope) => Math.max(timelineStartMs(scope), timelineEndMs(scope) - 1000);
     const currentFocusMs = (scope) => clamp(readNumber(scope, 'focusMs', timelineStartMs(scope)), timelineStartMs(scope), timelineMaximumFocusMs(scope));
     const activeCameraId = (scope) => scope instanceof HTMLElement ? String(scope.dataset.activeCameraId || '') : '';
+    const cameraSwitches = (scope) => scope instanceof HTMLElement
+        ? Array.from(scope.querySelectorAll('[data-role="camera-switch"]')).filter((element) => element instanceof HTMLButtonElement)
+        : [];
+    const cameraSwitchForId = (scope, cameraId) => cameraSwitches(scope).find((element) => String(element.dataset.cameraId || '') === String(cameraId || '')) || null;
+    const activeCameraSwitch = (scope) => cameraSwitchForId(scope, activeCameraId(scope));
+    const timelineRailDataUrl = (scope, cameraId = null) => {
+        const explicitCameraId = cameraId === null ? activeCameraId(scope) : String(cameraId || '');
+        const switchButton = cameraSwitchForId(scope, explicitCameraId);
+
+        if (switchButton instanceof HTMLButtonElement && String(switchButton.dataset.railUrl || '').trim() !== '') {
+            return String(switchButton.dataset.railUrl || '').trim();
+        }
+
+        const host = timelineRail(scope);
+
+        return host instanceof HTMLElement ? String(host.dataset.railUrl || '').trim() : '';
+    };
+    const timelineStageDataUrl = (scope, cameraId = null) => {
+        const explicitCameraId = cameraId === null ? activeCameraId(scope) : String(cameraId || '');
+        const switchButton = cameraSwitchForId(scope, explicitCameraId);
+
+        if (switchButton instanceof HTMLButtonElement && String(switchButton.dataset.stageUrl || '').trim() !== '') {
+            return String(switchButton.dataset.stageUrl || '').trim();
+        }
+
+        const host = timelineRail(scope);
+
+        return host instanceof HTMLElement ? String(host.dataset.stageUrl || '').trim() : '';
+    };
     const railBaseHourHeightPx = (scope) => Math.max(1, readNumber(scope, 'railBaseHourHeightPx', 88));
     const railMinTrackHeightPx = (scope) => Math.max(1, readNumber(scope, 'railMinTrackHeightPx', 1800));
     const railChunkDurationMs = (scope) => Math.max(60000, readNumber(scope, 'railChunkDurationMs', 28800000));
@@ -484,6 +517,10 @@
         return nextState;
     };
 
+    const stageSourceNode = (video) => video instanceof HTMLVideoElement
+        ? video.querySelector('[data-role="video-source"]')
+        : null;
+
     const stagePreviewStreamUrl = (video) => video instanceof HTMLVideoElement
         ? String(video.dataset.previewStreamUrl || '').trim()
         : '';
@@ -508,11 +545,56 @@
         ? String(video.dataset.directStatusLabel || 'Direct stream').trim()
         : 'Direct stream';
 
+    const stageSourceCandidates = (video) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return [];
+        }
+
+        return [
+            stagePreviewStreamUrl(video),
+            stageReviewStreamUrl(video),
+            stageDirectStreamUrl(video),
+        ].filter((candidate, index, candidates) => candidate !== '' && candidates.indexOf(candidate) === index);
+    };
+
+    const nextStageFallbackUrl = (video) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return '';
+        }
+
+        const candidates = stageSourceCandidates(video);
+
+        if (candidates.length === 0) {
+            return '';
+        }
+
+        const sourceNode = stageSourceNode(video);
+        const currentSource = normalizeMediaUrl(
+            video.currentSrc
+            || (sourceNode instanceof HTMLSourceElement ? (sourceNode.getAttribute('src') || '') : '')
+            || video.getAttribute('src')
+            || '',
+        );
+
+        if (currentSource === '') {
+            return candidates[0] || '';
+        }
+
+        const currentIndex = candidates.findIndex((candidate) => normalizeMediaUrl(candidate) === currentSource);
+
+        if (currentIndex < 0) {
+            return candidates[0] || '';
+        }
+
+        return candidates.slice(currentIndex + 1).find((candidate) => normalizeMediaUrl(candidate) !== currentSource) || '';
+    };
+
     const desiredStageStreamUrl = (video) => {
         const previewUrl = stagePreviewStreamUrl(video);
+        const reviewUrl = stageReviewStreamUrl(video);
         const directUrl = stageDirectStreamUrl(video);
 
-        return previewUrl || directUrl || stageReviewStreamUrl(video);
+        return previewUrl || reviewUrl || directUrl;
     };
 
     const desiredStageAudioUrl = (video) => {
@@ -528,7 +610,13 @@
         }
 
         const normalizedPreviewUrl = normalizeMediaUrl(stagePreviewStreamUrl(video));
-        const normalizedCurrentSourceUrl = normalizeMediaUrl(video.currentSrc || video.getAttribute('src') || desiredStageStreamUrl(video));
+        const sourceNode = stageSourceNode(video);
+        const normalizedCurrentSourceUrl = normalizeMediaUrl(
+            video.currentSrc
+            || (sourceNode instanceof HTMLSourceElement ? (sourceNode.getAttribute('src') || '') : '')
+            || video.getAttribute('src')
+            || desiredStageStreamUrl(video),
+        );
 
         return normalizedPreviewUrl !== '' && normalizedCurrentSourceUrl === normalizedPreviewUrl;
     };
@@ -566,8 +654,14 @@
         }
 
         const assetStatus = scope.querySelector('[data-role="asset-status"]');
+        const sourceNode = stageSourceNode(video);
         const resolvedSourceUrl = sourceUrl
-            ?? (video instanceof HTMLVideoElement ? (video.currentSrc || video.getAttribute('src') || '') : '');
+            ?? (video instanceof HTMLVideoElement
+                ? (video.currentSrc
+                    || (sourceNode instanceof HTMLSourceElement ? (sourceNode.getAttribute('src') || '') : '')
+                    || video.getAttribute('src')
+                    || '')
+                : '');
 
         setText(assetStatus, stageAssetStatusLabelForUrl(video, resolvedSourceUrl));
     };
@@ -598,16 +692,118 @@
         video.dataset.pendingFocusMs = String(resolved);
     };
 
+    const detachPendingStageReadyHandler = (video) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        const handler = pendingStageReadyHandlers.get(video);
+
+        if (typeof handler === 'function') {
+            video.removeEventListener('loadeddata', handler);
+            pendingStageReadyHandlers.delete(video);
+        }
+    };
+
     const clearPendingStageSourceLoad = (video) => {
         if (!(video instanceof HTMLVideoElement)) {
             return;
         }
 
+        detachPendingStageReadyHandler(video);
         delete video.dataset.pendingSourceLoad;
         delete video.dataset.pendingFocusMs;
     };
 
     const stageSourceIsLoading = (video) => video instanceof HTMLVideoElement && video.dataset.pendingSourceLoad === 'true';
+
+    const clearStageSourceLoadWatchdog = () => {
+        if (state.stageSourceLoadTimer !== null) {
+            window.clearTimeout(state.stageSourceLoadTimer);
+            state.stageSourceLoadTimer = null;
+        }
+    };
+
+    const nextStageSourceRequestId = (video = null) => {
+        state.stageSourceRequestId += 1;
+
+        const requestId = String(state.stageSourceRequestId);
+
+        if (video instanceof HTMLVideoElement) {
+            video.dataset.sourceRequestId = requestId;
+        }
+
+        return requestId;
+    };
+
+    const loadStageVideoSource = (scope, video, sourceUrl, options = {}) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+            return false;
+        }
+
+        const normalizedSourceUrl = normalizeMediaUrl(sourceUrl);
+
+        if (normalizedSourceUrl === '') {
+            return false;
+        }
+
+        const shouldPlay = options.shouldPlay !== false;
+        const resumeAt = Number.isFinite(Number(options.resumeAt)) ? Number(options.resumeAt) : null;
+        const pendingFocusMs = pendingStageFocusMs(video, currentFocusMs(scope));
+        const requestId = nextStageSourceRequestId(video);
+        const handleSourceReady = () => {
+            if (String(video.dataset.sourceRequestId || '') !== requestId) {
+                return;
+            }
+
+            clearStageSourceLoadWatchdog();
+            clearPendingStageSourceLoad(video);
+            pendingStageReadyHandlers.delete(video);
+
+            if (resumeAt !== null) {
+                try {
+                    video.currentTime = Math.max(0, resumeAt);
+                } catch (error) {
+                }
+            } else {
+                seekStageVideoToFocus(scope, video, pendingFocusMs);
+            }
+
+            updateStageAssetStatus(scope, video, normalizedSourceUrl);
+
+            const resolvedPlayerState = ensureStageControllerState(scope, video);
+
+            if (shouldPlay && !resolvedPlayerState.isPlaying) {
+                state.stage = {
+                    ...resolvedPlayerState,
+                    initialized: true,
+                    isPlaying: true,
+                };
+            }
+
+            applyStageControllerStateToVideo(scope, video);
+        };
+
+        clearStageSourceLoadWatchdog();
+        detachPendingStageReadyHandler(video);
+        pendingStageReadyHandlers.set(video, handleSourceReady);
+        video.dataset.pendingSourceLoad = 'true';
+        video.addEventListener('loadeddata', handleSourceReady, { once: true });
+
+        const sourceNode = stageSourceNode(video);
+
+        if (sourceNode instanceof HTMLSourceElement) {
+            sourceNode.src = normalizedSourceUrl;
+            video.removeAttribute('src');
+        } else {
+            video.src = normalizedSourceUrl;
+        }
+
+        video.load();
+        updateStageAssetStatus(scope, video, normalizedSourceUrl);
+
+        return true;
+    };
 
     const resetStagePrewarm = () => {
         state.stagePrewarm.entries.forEach((entry) => {
@@ -720,44 +916,7 @@
         }
     };
 
-    const prewarmStageNeighbors = (scope, segment) => {
-        if (!(scope instanceof HTMLElement) || !(segment && typeof segment === 'object')) {
-            return;
-        }
-
-        readRailBootstrapData(scope);
-
-        const orderedSegments = state.rail.segments
-            .filter((candidate) => candidate && typeof candidate === 'object')
-            .slice()
-            .sort((left, right) => {
-                const leftStart = Number(left.startMs || 0);
-                const rightStart = Number(right.startMs || 0);
-
-                if (leftStart !== rightStart) {
-                    return leftStart - rightStart;
-                }
-
-                return Number(left.id || 0) - Number(right.id || 0);
-            });
-        const currentIndex = orderedSegments.findIndex((candidate) => Number(candidate.id || 0) === Number(segment.id || 0));
-
-        if (currentIndex < 0) {
-            return;
-        }
-
-        [orderedSegments[currentIndex - 1], orderedSegments[currentIndex + 1]].forEach((neighbor) => {
-            if (!(neighbor && typeof neighbor === 'object')) {
-                return;
-            }
-
-            const previewUrl = normalizeMediaUrl(String(neighbor.preferredStreamUrl || ''));
-
-            if (previewUrl !== '') {
-                prewarmStageUrl(scope, previewUrl);
-            }
-        });
-    };
+    const prewarmStageNeighbors = () => {};
 
     const seekStageVideoToFocus = (scope, video, focusMs = null) => {
         if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
@@ -890,41 +1049,21 @@
         }
 
         const normalizedTargetSourceUrl = normalizeMediaUrl(targetSourceUrl);
-        const normalizedCurrentSourceUrl = normalizeMediaUrl(video.currentSrc || video.getAttribute('src') || '');
+        const sourceNode = stageSourceNode(video);
+        const normalizedCurrentSourceUrl = normalizeMediaUrl(
+            video.currentSrc
+            || (sourceNode instanceof HTMLSourceElement ? (sourceNode.getAttribute('src') || '') : '')
+            || video.getAttribute('src')
+            || '',
+        );
 
         if (normalizedCurrentSourceUrl === normalizedTargetSourceUrl) {
-            clearPendingStageSourceLoad(video);
             updateStageAssetStatus(scope, video, targetSourceUrl);
 
             return false;
         }
 
-        const handleSourceLoaded = () => {
-            const nextFocusMs = pendingStageFocusMs(video, currentFocusMs(scope));
-
-            clearPendingStageSourceLoad(video);
-            seekStageVideoToFocus(scope, video, nextFocusMs);
-            updateStageAssetStatus(scope, video, targetSourceUrl);
-            const resolvedPlayerState = ensureStageControllerState(scope, video);
-
-            if (shouldPlay && !resolvedPlayerState.isPlaying) {
-                state.stage = {
-                    ...resolvedPlayerState,
-                    initialized: true,
-                    isPlaying: true,
-                };
-            }
-
-            applyStageControllerStateToVideo(scope, video);
-        };
-
-        video.dataset.pendingSourceLoad = 'true';
-        video.addEventListener('loadedmetadata', handleSourceLoaded, { once: true });
-        video.src = targetSourceUrl;
-        video.load();
-        updateStageAssetStatus(scope, video, targetSourceUrl);
-
-        return true;
+        return loadStageVideoSource(scope, video, targetSourceUrl, { shouldPlay });
     };
 
     const syncStageControllerFromVideo = (scope, video = stageVideo(scope)) => {
@@ -1095,7 +1234,7 @@
 
         if (!playerState.isMuted && playerState.isPlaying) {
             playVideo(audio, () => {
-                syncCompanionAudioTime(video, audio, true);
+                fallbackStageToMutedAutoplay(scope, video);
             });
         } else {
             try {
@@ -1103,6 +1242,26 @@
             } catch (error) {
             }
         }
+
+        return true;
+    };
+
+    const fallbackStageToMutedAutoplay = (scope, video = stageVideo(scope)) => {
+        if (!(scope instanceof HTMLElement) || !(video instanceof HTMLVideoElement)) {
+            return false;
+        }
+
+        const playerState = stageControllerSnapshot(scope, video);
+
+        if (!playerState.isPlaying || playerState.isMuted) {
+            return false;
+        }
+
+        setStageControllerState(scope, {
+            isMuted: true,
+            isPlaying: true,
+        });
+        applyStageControllerStateToVideo(scope, video);
 
         return true;
     };
@@ -1147,7 +1306,9 @@
         }
 
         playVideo(video, () => {
-            syncStageControllerFromVideo(scope, video);
+            if (!fallbackStageToMutedAutoplay(scope, video)) {
+                syncStageControllerFromVideo(scope, video);
+            }
         });
     };
 
@@ -1310,6 +1471,10 @@
             window.cancelAnimationFrame(state.rail.renderFrame);
         }
 
+        if (state.rail.requestTimer !== null) {
+            window.clearTimeout(state.rail.requestTimer);
+        }
+
         cleanupRailThumbnailObserver();
         state.rail = defaultRailState();
     };
@@ -1375,6 +1540,117 @@
         return cursorMs >= endMs;
     };
 
+    const flushRailWindowRequest = () => {
+        if (state.rail.requestInFlight || !(state.rail.queuedRequest && typeof state.rail.queuedRequest === 'object')) {
+            return;
+        }
+
+        const scope = root();
+        const host = scope instanceof HTMLElement ? timelineRail(scope) : null;
+        const railDataUrl = scope instanceof HTMLElement ? timelineRailDataUrl(scope, state.rail.queuedRequest.cameraId) : '';
+
+        if (!(scope instanceof HTMLElement) || !(host instanceof HTMLElement) || railDataUrl === '') {
+            state.rail.queuedRequest = null;
+
+            return;
+        }
+
+        const queuedRequest = state.rail.queuedRequest;
+        const cameraId = Number(queuedRequest.cameraId || 0);
+        const requestRange = normalizeRailRange(scope, queuedRequest.startMs, queuedRequest.endMs);
+        const requestKey = `${cameraId}:${requestRange.startMs}:${requestRange.endMs}`;
+
+        state.rail.queuedRequest = null;
+
+        if (!Number.isFinite(cameraId) || cameraId <= 0 || String(cameraId) !== String(host.dataset.cameraId || '')) {
+            return;
+        }
+
+        if (railRangeCovered(state.rail.loadedRanges, requestRange.startMs, requestRange.endMs) || state.rail.pendingKeys.has(requestKey)) {
+            if (state.rail.queuedRequest) {
+                state.rail.requestTimer = window.setTimeout(() => {
+                    state.rail.requestTimer = null;
+                    flushRailWindowRequest();
+                }, 0);
+            }
+
+            return;
+        }
+
+        state.rail.requestInFlight = true;
+        state.rail.pendingKeys.add(requestKey);
+
+        const requestUrl = new URL(railDataUrl, window.location.href);
+
+        requestUrl.searchParams.set('day_start_ms', String(timelineStartMs(scope)));
+        requestUrl.searchParams.set('day_end_ms', String(timelineEndMs(scope)));
+        requestUrl.searchParams.set('window_start_ms', String(requestRange.startMs));
+        requestUrl.searchParams.set('window_end_ms', String(requestRange.endMs));
+
+        window.fetch(requestUrl.toString(), {
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        })
+            .then((response) => response.ok ? response.json() : Promise.reject(response))
+            .then((payload) => {
+                const currentRoot = root();
+                const currentRail = currentRoot instanceof HTMLElement ? timelineRail(currentRoot) : null;
+
+                if (!(currentRoot instanceof HTMLElement) || !(currentRail instanceof HTMLElement)) {
+                    return;
+                }
+
+                if (String(payload?.cameraId || '') !== String(currentRail.dataset.cameraId || '')) {
+                    return;
+                }
+
+                storeRailSegments(Array.isArray(payload?.segments) ? payload.segments : []);
+                state.rail.loadedRanges = mergeRailRanges(state.rail.loadedRanges, normalizeRailRange(
+                    currentRoot,
+                    Number(payload?.windowStartMs || requestRange.startMs),
+                    Number(payload?.windowEndMs || requestRange.endMs),
+                ));
+                renderRailWindow(currentRoot, true);
+                updateCameraSwitchUi(currentRoot);
+                void syncStageSegmentToFocus(currentRoot, currentFocusMs(currentRoot), {
+                    fetchIfMissing: false,
+                });
+            })
+            .catch(() => {
+            })
+            .finally(() => {
+                state.rail.pendingKeys.delete(requestKey);
+                state.rail.requestInFlight = false;
+
+                if (state.rail.queuedRequest && state.rail.requestTimer === null) {
+                    state.rail.requestTimer = window.setTimeout(() => {
+                        state.rail.requestTimer = null;
+                        flushRailWindowRequest();
+                    }, 0);
+                }
+            });
+    };
+
+    const queueRailWindowRequest = (cameraId, requestRange) => {
+        state.rail.queuedRequest = {
+            cameraId,
+            endMs: requestRange.endMs,
+            startMs: requestRange.startMs,
+        };
+
+        if (state.rail.requestInFlight || state.rail.requestTimer !== null) {
+            return;
+        }
+
+        state.rail.requestTimer = window.setTimeout(() => {
+            state.rail.requestTimer = null;
+            flushRailWindowRequest();
+        }, 90);
+    };
+
     const railSegmentKey = (segment) => {
         const id = segment && segment.id !== undefined && segment.id !== null ? String(segment.id) : '';
 
@@ -1419,6 +1695,113 @@
         const host = timelineRail(scope);
 
         return host instanceof HTMLElement ? String(host.dataset.activeSegmentId || '') : '';
+    };
+
+    const updateCameraSwitchUi = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const resolvedActiveCameraId = activeCameraId(scope);
+
+        cameraSwitches(scope).forEach((button) => {
+            const isActive = String(button.dataset.cameraId || '') === resolvedActiveCameraId;
+
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+    };
+
+    const updateActiveRailDecorations = (scope) => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const resolvedActiveSegmentId = activeRailSegmentId(scope);
+
+        scope.querySelectorAll('[data-role="rail-segment"], [data-role="rail-thumbnail"]').forEach((element) => {
+            if (!(element instanceof HTMLElement)) {
+                return;
+            }
+
+            element.classList.toggle('is-active', resolvedActiveSegmentId !== '' && String(element.dataset.recordingId || '') === resolvedActiveSegmentId);
+        });
+    };
+
+    const setActiveRailSegmentId = (scope, segmentId) => {
+        const host = timelineRail(scope);
+
+        if (!(host instanceof HTMLElement)) {
+            return;
+        }
+
+        host.dataset.activeSegmentId = segmentId === null || segmentId === undefined ? '' : String(segmentId);
+        updateActiveRailDecorations(scope);
+    };
+
+    const stageFallbackMessage = (scope) => {
+        const button = activeCameraSwitch(scope);
+        const latestRecordingLabel = button instanceof HTMLButtonElement ? String(button.dataset.latestRecordingLabel || '').trim() : '';
+
+        return latestRecordingLabel !== ''
+            ? `Latest clip: ${latestRecordingLabel}`
+            : 'Choose a camera below or drag the scrub rail onto a saved event.';
+    };
+
+    const resetRailBootstrapPayload = (scope) => {
+        const host = timelineRail(scope);
+
+        if (!(host instanceof HTMLElement)) {
+            return;
+        }
+
+        const segmentsScript = host.querySelector('[data-role="rail-segments-json"]');
+
+        if (segmentsScript instanceof HTMLScriptElement) {
+            segmentsScript.textContent = '[]';
+        }
+    };
+
+    const switchActiveCamera = (scope, button) => {
+        if (!(scope instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
+            return;
+        }
+
+        const host = timelineRail(scope);
+        const nextCameraId = String(button.dataset.cameraId || '').trim();
+
+        if (!(host instanceof HTMLElement) || nextCameraId === '') {
+            return;
+        }
+
+        if (nextCameraId === activeCameraId(scope)) {
+            updateCameraSwitchUi(scope);
+
+            return;
+        }
+
+        state.activeCameraId = nextCameraId;
+        scope.dataset.activeCameraId = nextCameraId;
+        host.dataset.cameraId = nextCameraId;
+        host.dataset.cameraName = String(button.dataset.cameraName || 'Camera');
+        host.dataset.railUrl = String(button.dataset.railUrl || '');
+        host.dataset.stageUrl = String(button.dataset.stageUrl || '');
+        host.dataset.activeSegmentId = '';
+
+        resetStagePrewarm();
+        hideScrubPreview(scope);
+        resetRailBootstrapPayload(scope);
+        resetRailState();
+        readRailBootstrapData(scope);
+        updateCameraSwitchUi(scope);
+        renderRailWindow(scope, true);
+        void syncStageSegmentToFocus(scope, currentFocusMs(scope), {
+            fetchIfMissing: true,
+        });
+        syncStagePlaybackState(scope);
+        syncStageAudioState(scope);
+        updateStageVolumeUi(scope);
+        requestRailWindow(scope);
     };
 
     const ensureRailThumbnailObserver = (scope) => {
@@ -1554,14 +1937,20 @@
 
         if (cameraDidChange || state.rail.segments.length === 0) {
             const initialSegments = parseJsonScript(host.querySelector('[data-role="rail-segments-json"]'), []);
-            const initialRange = normalizeRailRange(
-                scope,
-                readNumber(host, 'initialWindowStartMs', timelineStartMs(scope)),
-                readNumber(host, 'initialWindowEndMs', timelineEndMs(scope)),
-            );
 
             storeRailSegments(initialSegments);
-            state.rail.loadedRanges = mergeRailRanges(cameraDidChange ? [] : state.rail.loadedRanges, initialRange);
+
+            if (initialSegments.length > 0) {
+                const initialRange = normalizeRailRange(
+                    scope,
+                    readNumber(host, 'initialWindowStartMs', timelineStartMs(scope)),
+                    readNumber(host, 'initialWindowEndMs', timelineEndMs(scope)),
+                );
+
+                state.rail.loadedRanges = mergeRailRanges(cameraDidChange ? [] : state.rail.loadedRanges, initialRange);
+            } else if (cameraDidChange) {
+                state.rail.loadedRanges = [];
+            }
         }
 
         return state.rail;
@@ -1792,31 +2181,25 @@
         }
 
         state.rail.renderKey = renderKey;
-        state.observerPauseDepth += 1;
+        const tickFragment = document.createDocumentFragment();
+        const segmentFragment = document.createDocumentFragment();
+        const thumbnailFragment = document.createDocumentFragment();
 
-        try {
-            const tickFragment = document.createDocumentFragment();
-            const segmentFragment = document.createDocumentFragment();
-            const thumbnailFragment = document.createDocumentFragment();
+        visibleTicks.forEach((tick) => {
+            tickFragment.appendChild(createRailTickElement(tick));
+        });
 
-            visibleTicks.forEach((tick) => {
-                tickFragment.appendChild(createRailTickElement(tick));
-            });
+        visibleSegments.forEach((segment) => {
+            segmentFragment.appendChild(createRailSegmentElement(scope, segment));
+        });
 
-            visibleSegments.forEach((segment) => {
-                segmentFragment.appendChild(createRailSegmentElement(scope, segment));
-            });
+        visibleThumbnailSegments.forEach((segment) => {
+            thumbnailFragment.appendChild(createRailThumbnailElement(scope, segment));
+        });
 
-            visibleThumbnailSegments.forEach((segment) => {
-                thumbnailFragment.appendChild(createRailThumbnailElement(scope, segment));
-            });
-
-            ticksLayer.replaceChildren(tickFragment);
-            segmentsLayer.replaceChildren(segmentFragment);
-            thumbnailsLayer.replaceChildren(thumbnailFragment);
-        } finally {
-            state.observerPauseDepth = Math.max(0, state.observerPauseDepth - 1);
-        }
+        ticksLayer.replaceChildren(tickFragment);
+        segmentsLayer.replaceChildren(segmentFragment);
+        thumbnailsLayer.replaceChildren(thumbnailFragment);
 
         observeRailThumbnails(scope);
         updateTimelineTickLabelVisibility(scope);
@@ -1846,20 +2229,144 @@
             return exact;
         }
 
-        const orderedSegments = state.rail.segments
-            .filter((segment) => segment && typeof segment === 'object')
-            .slice()
-            .sort((left, right) => left.startMs - right.startMs);
+        return null;
+    };
 
-        const latestPriorSegment = orderedSegments
-            .filter((segment) => Number(segment.startMs || 0) <= resolvedFocusMs)
-            .pop();
-
-        if (latestPriorSegment && typeof latestPriorSegment === 'object') {
-            return latestPriorSegment;
+    const abortPendingStageSegmentRequest = () => {
+        if (typeof AbortController !== 'undefined' && state.stageSegmentRequestController instanceof AbortController) {
+            state.stageSegmentRequestController.abort();
         }
 
-        return orderedSegments.find((segment) => Number(segment.startMs || 0) > resolvedFocusMs) || null;
+        state.stageSegmentRequestController = null;
+    };
+
+    const requestStageSegmentForFocus = (scope, focusMs) => {
+        if (!(scope instanceof HTMLElement)) {
+            return Promise.resolve(null);
+        }
+
+        const cameraId = String(activeCameraId(scope) || '');
+        const stageDataUrl = timelineStageDataUrl(scope, cameraId);
+
+        if (cameraId === '' || stageDataUrl === '') {
+            return Promise.resolve(null);
+        }
+
+        abortPendingStageSegmentRequest();
+        state.stageSegmentRequestId += 1;
+        const requestId = state.stageSegmentRequestId;
+        const controller = typeof AbortController !== 'undefined'
+            ? new AbortController()
+            : null;
+
+        state.stageSegmentRequestController = controller;
+
+        const requestUrl = new URL(stageDataUrl, window.location.href);
+        requestUrl.searchParams.set('day_start_ms', String(timelineStartMs(scope)));
+        requestUrl.searchParams.set('day_end_ms', String(timelineEndMs(scope)));
+        requestUrl.searchParams.set('focus_ms', String(Math.round(focusMs)));
+
+        return window.fetch(requestUrl.toString(), {
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            signal: controller?.signal,
+        })
+            .then((response) => response.ok ? response.json() : Promise.reject(response))
+            .then((payload) => {
+                const currentRoot = root();
+
+                if (!(currentRoot instanceof HTMLElement) || currentRoot !== scope || requestId !== state.stageSegmentRequestId) {
+                    return null;
+                }
+
+                if (String(payload?.cameraId || '') !== cameraId) {
+                    return null;
+                }
+
+                const segment = normalizeRailSegment(payload?.segment);
+
+                if (segment) {
+                    storeRailSegments([segment]);
+                    renderRailWindow(scope, true);
+                }
+
+                return segment;
+            })
+            .catch(() => null)
+            .finally(() => {
+                if (requestId === state.stageSegmentRequestId) {
+                    state.stageSegmentRequestController = null;
+                }
+            });
+    };
+
+    const syncStageSegmentToFocus = (scope, focusMs, options = {}) => {
+        if (!(scope instanceof HTMLElement)) {
+            return Promise.resolve(null);
+        }
+
+        const resolvedFocusMs = clamp(
+            Number(focusMs ?? currentFocusMs(scope)),
+            timelineStartMs(scope),
+            timelineMaximumFocusMs(scope),
+        );
+        const localSegment = segmentPayloadForFocus(scope, resolvedFocusMs);
+        const shouldFetch = options.fetchIfMissing !== false;
+        const shouldResumePlayback = options.resumePlayback === true;
+
+        abortPendingStageSegmentRequest();
+
+        if (localSegment) {
+            applyStageSegment(scope, localSegment, resolvedFocusMs);
+            seekStagePlaybackToFocus(scope, resolvedFocusMs);
+
+            return Promise.resolve(localSegment);
+        }
+
+        applyStageSegment(scope, null, resolvedFocusMs);
+
+        if (!shouldFetch) {
+            setStageControllerState(scope, {
+                isPlaying: false,
+            });
+
+            return Promise.resolve(null);
+        }
+
+        return requestStageSegmentForFocus(scope, resolvedFocusMs).then((segment) => {
+            const currentRoot = root();
+
+            if (!(currentRoot instanceof HTMLElement) || currentRoot !== scope) {
+                return segment;
+            }
+
+            if (Math.abs(currentFocusMs(scope) - resolvedFocusMs) > 1) {
+                return segment;
+            }
+
+            if (segment) {
+                if (shouldResumePlayback) {
+                    setStageControllerState(scope, {
+                        isPlaying: true,
+                    });
+                }
+
+                applyStageSegment(scope, segment, resolvedFocusMs);
+                seekStagePlaybackToFocus(scope, resolvedFocusMs);
+
+                return segment;
+            }
+
+            setStageControllerState(scope, {
+                isPlaying: false,
+            });
+            applyStageSegment(scope, null, resolvedFocusMs);
+
+            return null;
+        });
     };
 
     const updateStageText = (scope, role, value) => {
@@ -1875,12 +2382,15 @@
 
         const videoShell = scope.querySelector('[data-role="video-shell"]');
         const emptyState = scope.querySelector('[data-role="empty"]');
+        const emptyCopy = scope.querySelector('[data-role="empty-copy"]');
         const video = stageVideo(scope);
+        const audio = stageAudio(scope);
         const actions = scope.querySelector('.recording-review-focus__actions');
         const downloadLink = scope.querySelector('[data-role="download-link"]');
         const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
 
         updateStageText(scope, 'camera-label', cameraName);
+        setActiveRailSegmentId(scope, segment && typeof segment === 'object' ? (segment.id ?? null) : null);
 
         if (!(segment && typeof segment === 'object')) {
             if (videoShell instanceof HTMLElement) {
@@ -1901,7 +2411,16 @@
             updateStageText(scope, 'size-label', 'No file saved');
             updateStageText(scope, 'asset-status', 'No clip selected');
 
+            if (emptyCopy instanceof HTMLElement) {
+                setText(emptyCopy, stageFallbackMessage(scope));
+            }
+
             if (video instanceof HTMLVideoElement) {
+                const sourceNode = stageSourceNode(video);
+
+                clearStageSourceLoadWatchdog();
+                clearPendingStageSourceLoad(video);
+                nextStageSourceRequestId(video);
                 video.dataset.recordingId = '';
                 video.dataset.startMs = '';
                 video.dataset.endMs = '';
@@ -1913,6 +2432,12 @@
                 video.dataset.previewStatusLabel = 'Assets cached';
                 video.dataset.reviewStatusLabel = 'Playback stream';
                 video.dataset.directStatusLabel = 'Direct stream';
+                video.removeAttribute('poster');
+
+                if (sourceNode instanceof HTMLSourceElement) {
+                    sourceNode.removeAttribute('src');
+                }
+
                 video.removeAttribute('src');
 
                 try {
@@ -1921,6 +2446,25 @@
                 } catch (error) {
                 }
             }
+
+            if (audio instanceof HTMLAudioElement) {
+                audio.muted = true;
+                audio.volume = 0;
+
+                try {
+                    audio.pause();
+                } catch (error) {
+                }
+
+                audio.removeAttribute('src');
+
+                try {
+                    audio.load();
+                } catch (error) {
+                }
+            }
+
+            state.stageAudioLastSyncAt = 0;
 
             return;
         }
@@ -1957,22 +2501,25 @@
 
         setPendingStageFocusMs(video, Number(focusMs ?? currentFocusMs(scope)));
 
-        const previewUrl = String(segment.preferredStreamUrl || '');
-        const reviewUrl = String(segment.reviewStreamUrl || '');
         const directUrl = String(segment.streamUrl || '');
-        const previewStatusLabel = previewUrl !== '' ? 'Assets cached' : 'Direct stream';
 
         video.dataset.recordingId = String(segment.id || '');
         video.dataset.startMs = String(segment.startMs || '');
         video.dataset.endMs = String(segment.endMs || '');
         video.dataset.durationSeconds = String(segment.durationSeconds || '');
-        video.dataset.fallbackStreamUrl = directUrl;
-        video.dataset.previewStreamUrl = previewUrl;
-        video.dataset.reviewStreamUrl = reviewUrl;
+        video.dataset.fallbackStreamUrl = '';
+        video.dataset.previewStreamUrl = '';
+        video.dataset.reviewStreamUrl = '';
         video.dataset.directStreamUrl = directUrl;
-        video.dataset.previewStatusLabel = previewStatusLabel;
+        video.dataset.previewStatusLabel = 'Playback stream';
         video.dataset.reviewStatusLabel = 'Playback stream';
-        video.dataset.directStatusLabel = 'Direct stream';
+        video.dataset.directStatusLabel = 'Playback stream';
+
+        if (segment.thumbnailUrl) {
+            video.setAttribute('poster', String(segment.thumbnailUrl));
+        } else {
+            video.removeAttribute('poster');
+        }
 
         applyStageControllerStateToVideo(scope, video);
         prewarmStageNeighbors(scope, segment);
@@ -2000,10 +2547,9 @@
             return;
         }
 
-        const component = livewireComponent(scope);
         const host = timelineRail(scope);
 
-        if (!component || typeof component.call !== 'function' || !(host instanceof HTMLElement)) {
+        if (!(host instanceof HTMLElement)) {
             return;
         }
 
@@ -2035,40 +2581,7 @@
         }
 
         const requestRange = normalizeRailRange(scope, requestStartMs, requestEndMs);
-        const requestKey = `${cameraId}:${requestRange.startMs}:${requestRange.endMs}`;
-
-        if (state.rail.pendingKeys.has(requestKey)) {
-            return;
-        }
-
-        state.rail.pendingKeys.add(requestKey);
-
-        component.call('loadRailChunk', cameraId, requestRange.startMs, requestRange.endMs)
-            .then((payload) => {
-                const currentRoot = root();
-                const currentRail = currentRoot instanceof HTMLElement ? timelineRail(currentRoot) : null;
-
-                if (!(currentRoot instanceof HTMLElement) || !(currentRail instanceof HTMLElement)) {
-                    return;
-                }
-
-                if (String(payload?.cameraId || '') !== String(currentRail.dataset.cameraId || '')) {
-                    return;
-                }
-
-                storeRailSegments(Array.isArray(payload?.segments) ? payload.segments : []);
-                state.rail.loadedRanges = mergeRailRanges(state.rail.loadedRanges, normalizeRailRange(
-                    currentRoot,
-                    Number(payload?.windowStartMs || requestRange.startMs),
-                    Number(payload?.windowEndMs || requestRange.endMs),
-                ));
-                renderRailWindow(currentRoot, true);
-            })
-            .catch(() => {
-            })
-            .finally(() => {
-                state.rail.pendingKeys.delete(requestKey);
-            });
+        queueRailWindowRequest(cameraId, requestRange);
     };
 
     const segmentExactMatch = (segment, focusMs) => {
@@ -2425,14 +2938,10 @@
         const anchorOffsetY = clamp(event.clientY - rect.top, 0, viewport.clientHeight);
         const anchorMs = focusFromPointer(scope, event.clientY) ?? currentFocusMs(scope);
 
-        const zoomDidChange = applyZoomScale(scope, nextZoomScale, {
+        applyZoomScale(scope, nextZoomScale, {
             anchorMs,
             anchorOffsetY,
         });
-
-        if (zoomDidChange) {
-            syncZoomScaleWithServer(scope, nextZoomScale);
-        }
 
         event.preventDefault();
         event.stopPropagation();
@@ -2541,78 +3050,6 @@
         });
     };
 
-    const withObserverPaused = (callback) => {
-        const observedScope = state.observerScope;
-
-        if (!(observedScope instanceof HTMLElement) || !(state.observer instanceof MutationObserver)) {
-            callback();
-
-            return;
-        }
-
-        if (state.observerPauseDepth > 0) {
-            state.observerPauseDepth += 1;
-
-            try {
-                callback();
-            } finally {
-                state.observerPauseDepth = Math.max(0, state.observerPauseDepth - 1);
-            }
-
-            return;
-        }
-
-        state.observer.disconnect();
-        state.observerPauseDepth = 1;
-
-        try {
-            callback();
-        } finally {
-            state.observerPauseDepth = 0;
-            state.observer.observe(observedScope, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['data-active-camera-id'],
-            });
-        }
-    };
-
-    const observerRefreshSelectors = [
-        '[data-role="timeline-stage"]',
-        '[data-role="video"]',
-        '[data-role="video-shell"]',
-        '[data-role="empty"]',
-        '[data-role="download-link"]',
-        '[data-role="rail-viewport"]',
-        '[data-role="rail-track"]',
-        '[data-role="rail-segments"]',
-        '[data-role="rail-segment"]',
-        '[data-role="rail-thumbnail"]',
-        '[data-role="camera-switch"]',
-    ].join(', ');
-
-    const mutationNodeNeedsRefresh = (node) => {
-        if (!(node instanceof Element)) {
-            return false;
-        }
-
-        return node.matches(observerRefreshSelectors) || node.querySelector(observerRefreshSelectors) !== null;
-    };
-
-    const mutationsNeedRefresh = (mutations, scope) => mutations.some((mutation) => {
-        if (mutation.type === 'attributes') {
-            return mutation.target === scope && mutation.attributeName === 'data-active-camera-id';
-        }
-
-        if (mutation.type !== 'childList') {
-            return false;
-        }
-
-        return Array.from(mutation.addedNodes).some(mutationNodeNeedsRefresh)
-            || Array.from(mutation.removedNodes).some(mutationNodeNeedsRefresh);
-    });
-
     const refreshScope = (scope) => {
         if (!(scope instanceof HTMLElement)) {
             return;
@@ -2621,46 +3058,45 @@
         const nextActiveCameraId = activeCameraId(scope);
         const cameraDidChange = state.activeCameraId !== null && state.activeCameraId !== nextActiveCameraId;
 
-        withObserverPaused(() => {
-            if (cameraDidChange) {
-                state.pendingViewportRestore = false;
-                state.viewportScrollTop = null;
-                resetStagePrewarm();
-            }
+        if (cameraDidChange) {
+            state.pendingViewportRestore = false;
+            state.viewportScrollTop = null;
+            resetStagePrewarm();
+        }
 
-            bindRailViewport(scope);
-            bindResizeObserver(scope);
-            readRailBootstrapData(scope);
-            applyTimelineScale(scope);
-            applyStageSegment(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)), currentFocusMs(scope));
-            bindStageVideo(scope);
-            bindStageAudio(scope);
-            syncStagePlaybackState(scope);
-            syncStageAudioState(scope);
-            seekStagePlaybackToFocus(scope, currentFocusMs(scope));
-            updateStageVolumeUi(scope);
-            updateFocusCursor(scope, currentFocusMs(scope));
-            warmScrubSprites(scope);
-            prewarmStageNeighbors(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)));
-
-            if (cameraDidChange) {
-                centerViewportOnFocus(scope, currentFocusMs(scope));
-            }
-
-            if (state.scrubPreviewVisible) {
-                const previewFocusMs = clamp(
-                    Number(state.scrubPreviewFocusMs ?? currentFocusMs(scope)),
-                    timelineStartMs(scope),
-                    timelineMaximumFocusMs(scope),
-                );
-
-                showScrubPreview(scope, segmentForFocus(scope, previewFocusMs), previewFocusMs);
-            } else {
-                hideScrubPreview(scope);
-            }
-
-            state.activeCameraId = nextActiveCameraId;
+        bindRailViewport(scope);
+        bindResizeObserver(scope);
+        readRailBootstrapData(scope);
+        applyTimelineScale(scope);
+        void syncStageSegmentToFocus(scope, currentFocusMs(scope), {
+            fetchIfMissing: true,
         });
+        bindStageVideo(scope);
+        bindStageAudio(scope);
+        syncStagePlaybackState(scope);
+        syncStageAudioState(scope);
+        updateStageVolumeUi(scope);
+        updateFocusCursor(scope, currentFocusMs(scope));
+        warmScrubSprites(scope);
+        prewarmStageNeighbors(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)));
+
+        if (cameraDidChange) {
+            centerViewportOnFocus(scope, currentFocusMs(scope));
+        }
+
+        if (state.scrubPreviewVisible) {
+            const previewFocusMs = clamp(
+                Number(state.scrubPreviewFocusMs ?? currentFocusMs(scope)),
+                timelineStartMs(scope),
+                timelineMaximumFocusMs(scope),
+            );
+
+            showScrubPreview(scope, segmentForFocus(scope, previewFocusMs), previewFocusMs);
+        } else {
+            hideScrubPreview(scope);
+        }
+
+        state.activeCameraId = nextActiveCameraId;
     };
 
     const showScrubPreview = (scope, segment, focusMs) => {
@@ -2835,56 +3271,6 @@
         updateVisibleRange(scope);
     };
 
-    const livewireComponent = (scope) => {
-        if (!(scope instanceof HTMLElement) || !window.Livewire || typeof window.Livewire.find !== 'function') {
-            return null;
-        }
-
-        const componentRoot = scope.closest('[wire\\:id]');
-
-        if (!(componentRoot instanceof HTMLElement)) {
-            return null;
-        }
-
-        const componentId = componentRoot.getAttribute('wire:id');
-
-        return componentId ? window.Livewire.find(componentId) : null;
-    };
-
-    const cancelPendingZoomSync = () => {
-        if (state.zoomSyncTimer !== null) {
-            window.clearTimeout(state.zoomSyncTimer);
-            state.zoomSyncTimer = null;
-        }
-    };
-
-    const syncZoomScaleWithServer = (scope, zoomScale, immediate = false) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        const component = livewireComponent(scope);
-
-        if (!component || typeof component.call !== 'function') {
-            return;
-        }
-
-        const nextZoomScale = normalizedZoomScale(scope, zoomScale);
-
-        if (!immediate) {
-            cancelPendingZoomSync();
-            state.zoomSyncTimer = window.setTimeout(() => {
-                state.zoomSyncTimer = null;
-                syncZoomScaleWithServer(scope, nextZoomScale, true);
-            }, 120);
-
-            return;
-        }
-
-        cancelPendingZoomSync();
-        component.call('syncZoomScale', nextZoomScale);
-    };
-
     const railSegments = (scope) => {
         if (!(scope instanceof HTMLElement)) {
             return [];
@@ -2920,27 +3306,10 @@
 
     const commitFocus = (scope, focusMs) => {
         const viewport = railViewport(scope);
-        const component = livewireComponent(scope);
 
         if (viewport instanceof HTMLElement) {
             state.viewportScrollTop = viewport.scrollTop;
             state.pendingViewportRestore = true;
-        }
-
-        if (component && typeof component.call === 'function') {
-            cancelPendingZoomSync();
-            const request = component.call('selectFocus', Math.round(focusMs), normalizedZoomScale(scope));
-
-            if (request && typeof request.then === 'function') {
-                request.then(() => {
-                    const currentRoot = root();
-
-                    if (currentRoot instanceof HTMLElement) {
-                        seekStagePlaybackToFocus(currentRoot, focusMs);
-                    }
-                }).catch(() => {
-                });
-            }
         }
     };
 
@@ -2984,58 +3353,38 @@
         };
 
         const handleError = () => {
-            const fallbackUrl = video.dataset.fallbackStreamUrl || '';
+            const fallbackUrl = nextStageFallbackUrl(video);
 
-            if (fallbackUrl === '' || video.currentSrc === fallbackUrl) {
+            if (fallbackUrl === '') {
+                clearStageSourceLoadWatchdog();
+                clearPendingStageSourceLoad(video);
+
                 return;
             }
 
-            const resumeAt = Number(video.currentTime || 0);
-
-            video.dataset.pendingSourceLoad = 'true';
-            video.src = fallbackUrl;
-            video.load();
-
-            const handleFallbackLoaded = () => {
-                video.removeEventListener('loadedmetadata', handleFallbackLoaded);
-                clearPendingStageSourceLoad(video);
-
-                try {
-                    video.currentTime = resumeAt;
-                } catch (error) {
-                }
-
-                applyStageControllerStateToVideo(scope, video);
-            };
-
-            video.addEventListener('loadedmetadata', handleFallbackLoaded);
-
-            const assetStatus = scope.querySelector('[data-role="asset-status"]');
-            setText(assetStatus, 'Fallback stream');
+            loadStageVideoSource(scope, video, fallbackUrl, {
+                resumeAt: Number(video.currentTime || 0),
+                shouldPlay: stageControllerSnapshot(scope, video).isPlaying,
+            });
         };
 
         const handleEnded = () => {
-            const nextSegment = nextSegmentForVideo(scope, video);
-
-            if (!(nextSegment instanceof HTMLElement)) {
-                syncStageControllerFromVideo(scope, video);
-
-                return;
-            }
-
-            const playerState = stageControllerSnapshot(scope, video);
-
-            state.stage = {
-                ...playerState,
-                initialized: true,
-                isPlaying: true,
-            };
-
-            const nextFocus = readNumber(nextSegment, 'focusMs', readNumber(nextSegment, 'startMs', currentFocusMs(scope)));
+            const nextFocus = clamp(
+                readNumber(video, 'endMs', currentFocusMs(scope)),
+                timelineStartMs(scope),
+                timelineMaximumFocusMs(scope),
+            );
 
             hideScrubPreview(scope);
             updateLocalFocus(scope, nextFocus);
             centerViewportOnFocus(scope, nextFocus);
+            setStageControllerState(scope, {
+                isPlaying: true,
+            });
+            void syncStageSegmentToFocus(scope, nextFocus, {
+                fetchIfMissing: true,
+                resumePlayback: true,
+            });
             commitFocus(scope, nextFocus);
         };
 
@@ -3085,6 +3434,8 @@
 
         state.boundVideo = video;
         state.boundVideoCleanup = () => {
+            clearStageSourceLoadWatchdog();
+            clearPendingStageSourceLoad(video);
             video.removeEventListener('error', handleError);
             video.removeEventListener('ended', handleEnded);
             video.removeEventListener('play', handlePlay);
@@ -3093,7 +3444,7 @@
             video.removeEventListener('timeupdate', handleTimeUpdate);
             video.removeEventListener('seeked', handleSeeked);
 
-            // Livewire can replace the stage video node during mute state updates.
+            // Navigation or DOM replacement can leave an old media element detached.
             // Explicitly stop the old element so detached audio cannot continue playing.
             video.defaultMuted = true;
             video.muted = true;
@@ -3221,8 +3572,9 @@
         updateLocalFocus(scope, nextFocus);
         centerViewportOnFocus(scope, nextFocus, releaseOffsetY);
         hideScrubPreview(scope);
-        applyStageSegment(scope, segmentPayloadForFocus(scope, nextFocus), nextFocus);
-        seekStagePlaybackToFocus(scope, nextFocus);
+        void syncStageSegmentToFocus(scope, nextFocus, {
+            fetchIfMissing: true,
+        });
         state.drag = null;
         commitFocus(scope, nextFocus);
     };
@@ -3256,6 +3608,7 @@
         const thumbnail = event.target.closest('[data-role="rail-thumbnail"]');
         const playbackToggle = event.target.closest('[data-role="playback-toggle"]');
         const audioToggle = event.target.closest('[data-role="audio-toggle"]');
+        const cameraSwitch = event.target.closest('[data-role="camera-switch"]');
 
         if (playbackToggle instanceof HTMLButtonElement) {
             event.preventDefault();
@@ -3267,6 +3620,13 @@
         if (audioToggle instanceof HTMLButtonElement) {
             event.preventDefault();
             toggleStageAudio(scope);
+
+            return;
+        }
+
+        if (cameraSwitch instanceof HTMLButtonElement) {
+            event.preventDefault();
+            switchActiveCamera(scope, cameraSwitch);
 
             return;
         }
@@ -3284,14 +3644,10 @@
                     ? currentZoomScale(scope) / zoomStepFactor(scope)
                     : minimumZoomScale(scope);
 
-            const zoomDidChange = applyZoomScale(scope, nextZoomScale, {
+            applyZoomScale(scope, nextZoomScale, {
                 anchorMs: focusFromViewportOffset(scope, anchorOffsetY) ?? currentFocusMs(scope),
                 anchorOffsetY,
             });
-
-            if (zoomDidChange) {
-                syncZoomScaleWithServer(scope, nextZoomScale);
-            }
 
             event.preventDefault();
 
@@ -3318,40 +3674,12 @@
 
             updateLocalFocus(scope, nextFocus);
             hideScrubPreview(scope);
-            applyStageSegment(scope, segmentPayloadForFocus(scope, nextFocus), nextFocus);
-            seekStagePlaybackToFocus(scope, nextFocus);
+            void syncStageSegmentToFocus(scope, nextFocus, {
+                fetchIfMissing: true,
+            });
             commitFocus(scope, nextFocus);
             event.preventDefault();
         }
-    };
-
-    const startObserver = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        state.observerScope = scope;
-
-        state.observer = new MutationObserver((mutations) => {
-            const currentRoot = root();
-
-            if (!(currentRoot instanceof HTMLElement) || state.observerPauseDepth > 0 || state.drag) {
-                return;
-            }
-
-            if (!mutationsNeedRefresh(mutations, currentRoot)) {
-                return;
-            }
-
-            refreshScope(currentRoot);
-        });
-
-        state.observer.observe(scope, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['data-active-camera-id'],
-        });
     };
 
     const destroy = () => {
@@ -3361,13 +3689,7 @@
         cleanupViewportBinding();
         cleanupResizeObserver();
 
-        if (state.observer) {
-            state.observer.disconnect();
-            state.observer = null;
-        }
-
-        state.observerScope = null;
-
+        abortPendingStageSegmentRequest();
         cleanupAudioBinding();
         cleanupVideoBinding();
         resetRailState();
@@ -3379,11 +3701,12 @@
         state.activeCameraId = null;
         state.scrubPreviewFocusMs = null;
         state.scrubPreviewVisible = false;
+        state.stageSegmentRequestId = 0;
         state.viewportScrollTop = null;
         state.zoomScale = null;
         state.stage = defaultStageControllerState();
         resetStagePrewarm();
-        cancelPendingZoomSync();
+        clearStageSourceLoadWatchdog();
     };
 
     const bootstrap = () => {
@@ -3400,7 +3723,6 @@
         bindRailViewport(scope);
         applyTimelineScale(scope);
         centerViewportOnFocus(scope, currentFocusMs(scope));
-        startObserver(scope);
         refreshScope(scope);
 
         document.addEventListener('pointerdown', handlePointerDown);
