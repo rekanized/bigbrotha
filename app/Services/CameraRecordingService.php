@@ -1427,9 +1427,12 @@ class CameraRecordingService
     {
         try {
             File::ensureDirectoryExists($directory);
+            @chmod($directory, 02775);
         } catch (Throwable) {
             return false;
         }
+
+        clearstatcache(true, $directory);
 
         return is_dir($directory) && is_writable($directory);
     }
@@ -1438,7 +1441,13 @@ class CameraRecordingService
     {
         $bufferedPath = tempnam($directory, $prefix);
 
-        return $bufferedPath === false ? null : $bufferedPath;
+        if ($bufferedPath === false) {
+            return null;
+        }
+
+        @chmod($bufferedPath, 0664);
+
+        return $bufferedPath;
     }
 
     /**

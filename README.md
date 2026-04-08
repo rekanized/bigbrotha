@@ -64,17 +64,13 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 
 Production deployments should set these values explicitly:
 
+- `APP_URL`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
-- `MEDIAMTX_WEBRTC_PUBLIC_URL`
-- `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`
-- `MEDIAMTX_AUTH_CALLBACK_URL`
-- `MEDIAMTX_AUTH_CALLBACK_SECRET`
-- `MEDIAMTX_AUTH_TOKEN_SECRET`
-- `MEDIAMTX_PUBLISHER_USER`
-- `MEDIAMTX_PUBLISHER_PASS`
-- `CAMERA_RECORDING_QUEUE`
+
+MediaMTX now derives its default public WebRTC URL from `APP_URL` as `APP_URL + /__webrtc`, derives the auth callback URL from the same app origin, and derives relay secrets plus internal publisher credentials from `APP_KEY`. Only set `MEDIAMTX_WEBRTC_PUBLIC_URL`, `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`, `MEDIAMTX_WEBRTC_ALLOW_ORIGINS`, `MEDIAMTX_AUTH_CALLBACK_URL`, `MEDIAMTX_AUTH_CALLBACK_SECRET`, or `MEDIAMTX_AUTH_TOKEN_SECRET` when a deployment needs a non-default relay topology or explicit secret override.
+Most MediaMTX runtime knobs now live directly in `config/mediamtx.php`, not in `.env`.
 
 After changing relay or auth-related environment values, run:
 
@@ -92,7 +88,7 @@ Use this short checklist during deployment:
 
 1. Install PHP 8.3, Composer, a database, cron, and a user-level or system-level process manager.
 2. Run `composer install --no-dev --optimize-autoloader`.
-3. Commit the Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries in `bin/`, or point `FFMPEG_BINARIES` and `FFPROBE_BINARIES` at alternate absolute paths if a deployment needs an override. Then create `.env`, set database, Google auth, ffmpeg, MediaMTX, and recording worker values, and run `php artisan key:generate` if the app key is still empty.
+3. Commit the Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries in `bin/`. By default Laravel resolves those binaries and the FFmpeg temp directory from the project root dynamically through `config/ffmpeg.php`, so `.env` only needs `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` if a deployment wants an explicit override. Then create `.env`, set database, Google auth, `APP_URL`, and recording worker values, and run `php artisan key:generate` if the app key is still empty. MediaMTX will derive its same-host relay defaults from `APP_URL` and `APP_KEY`; only add MediaMTX env overrides if the relay is published on a different origin, prefix, or credential set.
 4. Run `php artisan migrate --force`.
 5. Run `composer relay:install` and `php artisan relay:sync`.
 6. Run `composer recordings:worker:install` so Laravel writes and enables the recordings worker systemd unit.
@@ -120,7 +116,7 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 ```bash
 php artisan test
 php artisan test tests/Feature/CameraFleetManagerTest.php
-php artisan test tests/Feature/CameraRecordingCommandTest.php
+php artisan test tests/Feature/CameraRecordingCommandTest.php tests/Feature/CameraRecordingMotionCommandTest.php tests/Feature/CameraRecordingMaintenanceCommandTest.php
 php artisan test tests/Feature/RtspStreamDiagnosticsServiceTest.php
 php artisan camera-fleet:refresh-previews
 php artisan camera-recordings:install-worker-service

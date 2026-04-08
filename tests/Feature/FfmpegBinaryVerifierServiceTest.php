@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Services\FfmpegBinaryVerifierService;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
+use RuntimeException;
 use Tests\TestCase;
 
 class FfmpegBinaryVerifierServiceTest extends TestCase
@@ -74,7 +76,7 @@ class FfmpegBinaryVerifierServiceTest extends TestCase
         $ffmpegBinary = $directory.'/ffmpeg';
         $ffprobeBinary = $directory.'/ffprobe';
 
-        File::put($ffmpegBinary, "#!/bin/sh\nkill -SEGV $$\n");
+        File::put($ffmpegBinary, "#!/bin/sh\necho 'ffmpeg version 7.1-static'\n");
         File::put($ffprobeBinary, "#!/bin/sh\necho 'ffprobe version 7.1-static'\n");
 
         chmod($ffmpegBinary, 0755);
@@ -82,6 +84,18 @@ class FfmpegBinaryVerifierServiceTest extends TestCase
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
         config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
+
+        $invocationCount = 0;
+
+        Process::fake(function () use (&$invocationCount) {
+            $invocationCount++;
+
+            if ($invocationCount === 1) {
+                throw new RuntimeException('The process has been signaled with signal "11".');
+            }
+
+            return Process::result("ffprobe version 7.1-static\n");
+        });
 
         $snapshot = app(FfmpegBinaryVerifierService::class)->verify();
 
@@ -95,5 +109,7 @@ class FfmpegBinaryVerifierServiceTest extends TestCase
         $this->assertSame($ffprobeBinary, $snapshot['ffprobe']['resolved']);
         $this->assertTrue($snapshot['ffprobe']['executable']);
         $this->assertTrue($snapshot['ffprobe']['successful']);
+
+        Process::assertRanTimes(fn () => true, 1);
     }
 }

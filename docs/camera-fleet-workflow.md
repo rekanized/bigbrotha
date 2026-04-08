@@ -239,7 +239,7 @@ When the operator UI is published behind Nginx on a host like `monitor.scholline
 
 1. Laravel serves the main application from the normal web root.
 2. Nginx proxies MediaMTX HTTP player and WHEP requests under a public prefix such as `/__webrtc/`.
-3. MediaMTX advertises that public prefix through `MEDIAMTX_WEBRTC_PUBLIC_URL` and `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`.
+3. MediaMTX advertises that public prefix from `APP_URL` by default, and `MEDIAMTX_WEBRTC_PUBLIC_URL` plus `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS` remain available when the relay needs explicit overrides.
 4. the proxy should preserve the prefixed WHEP session URLs with `X-Forwarded-Prefix` and `proxy_redirect`, otherwise WHEP `PATCH` and `DELETE` calls will fall back to unprefixed session URLs and fail.
 5. ICE transport still needs direct host or firewall exposure on the configured WebRTC ports.
 6. the MediaMTX auth callback URL and internal publisher credentials must be in sync with Laravel config before secure playback can work.

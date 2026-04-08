@@ -1,63 +1,98 @@
 <?php
 
+$optionalEnvString = static function (string $key): ?string {
+    $value = env($key);
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $value = trim($value);
+
+    return $value !== '' ? $value : null;
+};
+
+$optionalEnvCsv = static function (string $key): ?array {
+    $value = env($key);
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $value = trim($value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    return array_values(array_filter(array_map('trim', explode(',', $value))));
+};
+
 $defaultInstallRoot = storage_path('app/private/mediamtx');
-$defaultVersion = env('MEDIAMTX_VERSION', '1.17.1');
+$defaultVersion = '1.17.1';
 $defaultInstallDirectory = $defaultInstallRoot.'/releases/'.$defaultVersion;
-$configuredWebRtcPublicUrl = trim((string) env('MEDIAMTX_WEBRTC_PUBLIC_URL', ''));
-$defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl): string {
-    $sourceUrl = $configuredWebRtcPublicUrl !== '' ? $configuredWebRtcPublicUrl : (string) env('APP_URL', 'http://localhost');
+$defaultAppUrl = trim((string) env('APP_URL', 'http://localhost'));
+$defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://localhost';
+$defaultWebRtcPublicUrl = rtrim($defaultAppUrl, '/').'/__webrtc';
+$configuredWebRtcPublicUrl = $optionalEnvString('MEDIAMTX_WEBRTC_PUBLIC_URL') ?? $defaultWebRtcPublicUrl;
+$defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl, $defaultAppUrl): string {
+    $sourceUrl = $configuredWebRtcPublicUrl !== '' ? $configuredWebRtcPublicUrl : $defaultAppUrl;
     $scheme = parse_url($sourceUrl, PHP_URL_SCHEME) ?? 'http';
     $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'localhost';
     $port = parse_url($sourceUrl, PHP_URL_PORT);
 
     return $scheme.'://'.$host.($port !== null ? ':'.$port : '');
 })();
-$configuredAuthCallbackUrl = trim((string) env('MEDIAMTX_AUTH_CALLBACK_URL', ''));
-$defaultAuthCallbackUrl = ($configuredAuthCallbackUrl !== '' ? $configuredAuthCallbackUrl : $defaultCallbackOrigin.'/relay/auth/mediamtx');
+$defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'localhost';
+$configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
+$defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
+$appKey = trim((string) env('APP_KEY', ''));
+$defaultTokenSecret = $appKey !== '' ? $appKey : hash('sha256', $defaultAppUrl.'|mediamtx-token-secret');
+$configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $defaultTokenSecret;
 
 return [
     'version' => $defaultVersion,
 
-    'auto_start' => filter_var(env('MEDIAMTX_AUTO_START', true), FILTER_VALIDATE_BOOL),
+    'auto_start' => true,
 
-    'download_base_url' => env('MEDIAMTX_DOWNLOAD_BASE_URL', 'https://github.com/bluenviron/mediamtx/releases/download'),
+    'download_base_url' => 'https://github.com/bluenviron/mediamtx/releases/download',
 
-    'install_root' => env('MEDIAMTX_INSTALL_ROOT', $defaultInstallRoot),
+    'install_root' => $defaultInstallRoot,
 
-    'install_directory' => env('MEDIAMTX_INSTALL_DIRECTORY', $defaultInstallDirectory),
+    'install_directory' => $defaultInstallDirectory,
 
-    'binary_path' => env('MEDIAMTX_BINARY', $defaultInstallDirectory.'/mediamtx'),
+    'binary_path' => $defaultInstallDirectory.'/mediamtx',
 
-    'config_path' => env('MEDIAMTX_CONFIG_PATH', $defaultInstallRoot.'/mediamtx.yml'),
+    'config_path' => $defaultInstallRoot.'/mediamtx.yml',
 
-    'pid_path' => env('MEDIAMTX_PID_PATH', $defaultInstallRoot.'/mediamtx.pid'),
+    'pid_path' => $defaultInstallRoot.'/mediamtx.pid',
 
-    'log_path' => env('MEDIAMTX_LOG_PATH', storage_path('logs/mediamtx.log')),
+    'log_path' => storage_path('logs/mediamtx.log'),
 
-    'download_timeout' => max(30, (int) env('MEDIAMTX_DOWNLOAD_TIMEOUT', 180)),
+    'download_timeout' => 180,
 
     'rtsp' => [
-        'listen_address' => env('MEDIAMTX_RTSP_ADDRESS', ':8554'),
-        'internal_base_url' => env('MEDIAMTX_RTSP_INTERNAL_URL', 'rtsp://127.0.0.1:8554'),
+        'listen_address' => ':8554',
+        'internal_base_url' => 'rtsp://127.0.0.1:8554',
         'transports' => ['tcp'],
     ],
 
     'api' => [
         'enabled' => true,
-        'address' => env('MEDIAMTX_API_ADDRESS', ':9997'),
-        'base_url' => env('MEDIAMTX_API_URL', 'http://127.0.0.1:9997'),
+        'address' => ':9997',
+        'base_url' => 'http://127.0.0.1:9997',
     ],
 
     'webrtc' => [
         'enabled' => true,
-        'address' => env('MEDIAMTX_WEBRTC_ADDRESS', ':8889'),
-        'internal_base_url' => env('MEDIAMTX_WEBRTC_INTERNAL_URL', 'http://127.0.0.1:8889'),
-        'public_base_url' => env('MEDIAMTX_WEBRTC_PUBLIC_URL'),
-        'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
-        'allow_origins' => array_values(array_filter(array_map('trim', explode(',', (string) env('MEDIAMTX_WEBRTC_ALLOW_ORIGINS', '*'))))),
-        'local_udp_address' => env('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS', ':8189'),
-        'local_tcp_address' => env('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS', ''),
-        'additional_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS', ''))))),
+        'address' => ':8889',
+        'internal_base_url' => 'http://127.0.0.1:8889',
+        'public_base_url' => $configuredWebRtcPublicUrl,
+        'port' => 8889,
+        'allow_origins' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ALLOW_ORIGINS') ?? [$defaultCallbackOrigin],
+        'local_udp_address' => ':8189',
+        'local_tcp_address' => ':8189',
+        'additional_hosts' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS') ?? [$defaultAdditionalHost],
         'iframe_query' => http_build_query([
             'controls' => 'false',
             'muted' => 'true',
@@ -68,29 +103,29 @@ return [
     ],
 
     'auth' => [
-        'enabled' => filter_var(env('MEDIAMTX_AUTH_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'enabled' => true,
         'callback_url' => $defaultAuthCallbackUrl,
-        'callback_secret' => env('MEDIAMTX_AUTH_CALLBACK_SECRET', hash('sha256', (string) env('APP_KEY', 'mediamtx-auth-callback'))),
-        'token_secret' => env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY')),
-        'token_ttl' => max(30, (int) env('MEDIAMTX_AUTH_TOKEN_TTL', 180)),
-        'reader_user' => env('MEDIAMTX_READER_USER', 'internal-reader'),
-        'reader_pass' => env('MEDIAMTX_READER_PASS', substr(hash('sha256', (string) env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY', 'mediamtx-reader'))), 0, 32)),
-        'publisher_user' => env('MEDIAMTX_PUBLISHER_USER', 'publisher'),
-        'publisher_pass' => env('MEDIAMTX_PUBLISHER_PASS', substr(hash('sha256', (string) env('MEDIAMTX_AUTH_TOKEN_SECRET', env('APP_KEY', 'mediamtx-publisher'))), 0, 32)),
+        'callback_secret' => $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_SECRET') ?? hash('sha256', ($appKey !== '' ? $appKey : $defaultAuthCallbackUrl).'|mediamtx-auth-callback'),
+        'token_secret' => $configuredTokenSecret,
+        'token_ttl' => 180,
+        'reader_user' => 'internal-reader',
+        'reader_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-reader'), 0, 32),
+        'publisher_user' => 'publisher',
+        'publisher_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-publisher'), 0, 32),
     ],
 
     'transcode' => [
-        'preset' => env('MEDIAMTX_TRANSCODE_PRESET', 'ultrafast'),
-        'video_bitrate' => env('MEDIAMTX_TRANSCODE_VIDEO_BITRATE', '1200k'),
-        'video_crf' => max(16, (int) env('MEDIAMTX_TRANSCODE_VIDEO_CRF', 23)),
-        'video_maxrate' => env('MEDIAMTX_TRANSCODE_VIDEO_MAXRATE', '1800k'),
-        'video_bufsize' => env('MEDIAMTX_TRANSCODE_VIDEO_BUFSIZE', '1800k'),
-        'audio_codec' => env('MEDIAMTX_TRANSCODE_AUDIO_CODEC', 'libopus'),
-        'audio_bitrate' => env('MEDIAMTX_TRANSCODE_AUDIO_BITRATE', '96k'),
-        'audio_channels' => max(1, (int) env('MEDIAMTX_TRANSCODE_AUDIO_CHANNELS', 1)),
-        'audio_sample_rate' => max(8000, (int) env('MEDIAMTX_TRANSCODE_AUDIO_SAMPLE_RATE', 48000)),
-        'gop' => max(15, (int) env('MEDIAMTX_TRANSCODE_GOP', 30)),
-        'start_timeout' => env('MEDIAMTX_RUN_ON_DEMAND_START_TIMEOUT', '20s'),
-        'close_after' => env('MEDIAMTX_RUN_ON_DEMAND_CLOSE_AFTER', '30s'),
+        'preset' => 'ultrafast',
+        'video_bitrate' => '1200k',
+        'video_crf' => 23,
+        'video_maxrate' => '1800k',
+        'video_bufsize' => '1800k',
+        'audio_codec' => 'libopus',
+        'audio_bitrate' => '96k',
+        'audio_channels' => 1,
+        'audio_sample_rate' => 48000,
+        'gop' => 30,
+        'start_timeout' => '20s',
+        'close_after' => '30s',
     ],
 ];

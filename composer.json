@@ -40,7 +40,8 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
-            "@relay:install"
+            "@relay:install",
+            "@relay:sync"
         ],
         "dev": [
             "@php artisan serve"

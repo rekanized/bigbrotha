@@ -41,15 +41,6 @@ Minimum values to review:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
-- `FFMPEG_BINARIES`
-- `FFPROBE_BINARIES`
-- `MEDIAMTX_WEBRTC_PUBLIC_URL`
-- `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`
-- `MEDIAMTX_AUTH_CALLBACK_URL`
-- `MEDIAMTX_AUTH_CALLBACK_SECRET`
-- `MEDIAMTX_AUTH_TOKEN_SECRET`
-- `MEDIAMTX_PUBLISHER_USER`
-- `MEDIAMTX_PUBLISHER_PASS`
 - `CAMERA_RECORDING_ENSURE_WORKER=true`
 
 If the correct CLI binary is not just `php`, also set:
@@ -58,7 +49,11 @@ If the correct CLI binary is not just `php`, also set:
 
 That ensures the generated recordings worker service uses the right interpreter.
 
-The default `.env.example` points those media variables at `/var/www/bigbrothas/bin/ffmpeg` and `/var/www/bigbrothas/bin/ffprobe`. Keep those values when the repository or Docker image includes the bundled binaries, or replace them with host-specific absolute paths before production startup.
+The default FFmpeg runtime values now live in `config/ffmpeg.php`. Without any FFmpeg-related `.env` entries, Laravel resolves the bundled binaries from `base_path('bin')` and the temp workspace from `storage_path(...)`. Only add `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` when a host needs to override those defaults.
+
+The default MediaMTX runtime values now live in `config/mediamtx.php`. Without any MediaMTX-specific `.env` entries, Laravel derives the public WebRTC base URL from `APP_URL` as `APP_URL + /__webrtc`, derives the auth callback URL from the app origin, and derives relay secrets plus internal publisher credentials from `APP_KEY`. Only add MediaMTX env values when a host needs a different public relay URL, additional ICE hosts, or explicit secret overrides. If a deployment needs different relay ports, paths, install locations, or transcode settings, edit `config/mediamtx.php` directly.
+
+If the host uses SMB or NAS-backed camera storage through the admin settings page, point that setting at the dedicated camera-storage directory itself, not its parent. For example, prefer `//fileserver/share/cameras` or `//fileserver/share/Applications/bigbrothas/cameras` over a parent path like `//fileserver/share/Applications/bigbrothas`.
 
 ## 3. Prepare The Database
 
@@ -131,7 +126,7 @@ php artisan relay:status
 php artisan camera-recordings:ensure-worker
 systemctl --user --no-pager --full status bigbrothas-recordings-queue.service
 php artisan schedule:run
-php artisan test tests/Feature/RecordingWorkerCommandTest.php tests/Feature/CameraRecordingCommandTest.php
+php artisan test tests/Feature/RecordingWorkerCommandTest.php tests/Feature/CameraRecordingCommandTest.php tests/Feature/CameraRecordingMotionCommandTest.php tests/Feature/CameraRecordingMaintenanceCommandTest.php
 ```
 
 What you want to see:

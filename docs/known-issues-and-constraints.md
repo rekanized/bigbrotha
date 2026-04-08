@@ -41,7 +41,7 @@ Current design assumptions:
 - MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.
-- The internal ffmpeg publisher used by MediaMTX `runOnDemand` needs its own RTSP credentials through `MEDIAMTX_PUBLISHER_USER` and `MEDIAMTX_PUBLISHER_PASS`.
+- The internal ffmpeg publisher used by MediaMTX `runOnDemand` uses credentials from `config/mediamtx.php`, derived from `APP_KEY` by default unless explicitly overridden.
 
 ## Relay Process Detection
 
@@ -88,7 +88,8 @@ The admin settings page at `/admin/settings` can now route the logical camera st
 Current constraints:
 
 - only the `storage/app/private/cameras` tree is rerouted; other private-storage paths remain local.
-- the configured path must include at least a host and share, for example `//fileserver/share/cameras` or `smb://fileserver/share/cameras`.
+- the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrothas/cameras`.
+- do not point the admin SMB path at the parent directory above `cameras`; the logical `cameras/...` tree is expected to live entirely under that dedicated NAS directory.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
 - when SMB mode is enabled, ffmpeg still writes to local staging paths during capture and review-asset generation; Laravel uploads the finished files to the active SMB disk after each local write completes.
@@ -102,12 +103,9 @@ If the file is missing, corrupt, or contains invalid bytes, the route returns a 
 
 ## Media Binary Assumptions
 
-The default application expectation is:
+The default application expectation is that `config/ffmpeg.php` resolves the bundled binaries from `base_path('bin/ffmpeg')` and `base_path('bin/ffprobe')`.
 
-- `FFMPEG_BINARIES=/var/www/bigbrothas/bin/ffmpeg`
-- `FFPROBE_BINARIES=/var/www/bigbrothas/bin/ffprobe`
-
-If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that `config/ffmpeg.php` still resolves the intended paths.
+If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
 
 ## Recording Worker Requirements
 
@@ -127,6 +125,16 @@ Current expectations:
 - continuous recording timestamps are now anchored to the imported segment filename timestamp and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
 - the recorder writes direct-to-disk ffmpeg copy segments; PHP should orchestrate jobs, not stream payload bytes.
 - if older crashes, tests, or manual row cleanup leave files behind without matching `camera_recordings` rows, use `php artisan camera-recordings:orphans` to audit them and `php artisan camera-recordings:orphans --purge` to remove the orphan files plus matching `_review` assets.
+
+## Shared Storage Permissions
+
+This host runs web traffic as `www-data` while scheduler and queue commands may run as the deploy user.
+
+Current expectations:
+
+- shared Laravel runtime paths such as `storage/logs` and `storage/app/private/ffmpeg-temp` must remain group-writable across both users.
+- if `storage/logs/laravel.log` becomes owner-only, `php artisan schedule:run` can fail in an earlier scheduled task before `camera-recordings:tick` runs, which stalls new recordings even when the queue workers are healthy.
+- if review playback or review-asset generation reports `Permission denied` in `storage/app/private/ffmpeg-temp`, inspect directory modes under that tree before changing recorder logic.
 
 ## Operator Timezone Setting
 
@@ -231,10 +239,9 @@ Recommended setup:
 
 1. proxy the MediaMTX HTTP player and WHEP handshake through Nginx on the same HTTPS origin, for example `/__webrtc/`.
 2. expose MediaMTX ICE transport on `8189/udp` and ideally `8189/tcp` to the public internet or upstream load balancer.
-3. set `MEDIAMTX_WEBRTC_PUBLIC_URL=https://monitor.schollinetz.com/__webrtc`.
-4. set `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS=monitor.schollinetz.com`.
-5. set `MEDIAMTX_AUTH_CALLBACK_URL` to the Laravel validation route, typically `https://monitor.schollinetz.com/relay/auth/mediamtx`.
-6. set `MEDIAMTX_AUTH_CALLBACK_SECRET` so only MediaMTX can call that validation route.
+3. set `APP_URL=https://monitor.schollinetz.com` so Laravel derives the default relay URL `https://monitor.schollinetz.com/__webrtc` and callback URL `https://monitor.schollinetz.com/relay/auth/mediamtx`.
+4. add `MEDIAMTX_WEBRTC_PUBLIC_URL`, `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`, or `MEDIAMTX_AUTH_CALLBACK_URL` only if the relay is published on a different origin or prefix than the app itself.
+5. add `MEDIAMTX_AUTH_CALLBACK_SECRET` only if you need an explicit callback secret instead of the default derived from `APP_KEY`.
 7. set `TRUSTED_PROXIES` to your Nginx proxy IPs or `*` if you fully trust the proxy layer.
 
 Example Nginx HTTP location for the player and WebRTC handshake:
@@ -281,7 +288,7 @@ If you cannot expose `8189` at all, WebRTC will usually require a TURN server in
 
 If the iframe URL is under `/__webrtc/...` but the browser console shows `PATCH` or `DELETE` requests failing on `/camera-*-live/whep/...` without the `/__webrtc` prefix, the reverse proxy is not preserving the WebRTC prefix on WHEP session URLs. Check the `/__webrtc/` proxy block, especially `X-Forwarded-Prefix`, before changing Laravel code.
 
-If MediaMTX starts the camera path but the log shows `method ANNOUNCE failed: 401 Unauthorized`, the local ffmpeg publisher credentials are not aligned with the Laravel auth callback. Check `MEDIAMTX_PUBLISHER_USER`, `MEDIAMTX_PUBLISHER_PASS`, clear Laravel config, and re-sync the relay config before debugging WebRTC itself.
+If MediaMTX starts the camera path but the log shows `method ANNOUNCE failed: 401 Unauthorized`, the local ffmpeg publisher credentials are not aligned with the Laravel auth callback. Check the derived publisher credentials in `config/mediamtx.php`, clear Laravel config, and re-sync the relay config before debugging WebRTC itself.
 
 ## High-Value Tests
 
@@ -294,6 +301,8 @@ When changing this platform, the most relevant tests are:
 - `tests/Feature/RtspStreamDiagnosticsServiceTest.php`
 - `tests/Feature/CameraFleetManagerTest.php`
 - `tests/Feature/CameraRecordingCommandTest.php`
+- `tests/Feature/CameraRecordingMotionCommandTest.php`
+- `tests/Feature/CameraRecordingMaintenanceCommandTest.php`
 - `tests/Feature/LiveWallStreamTest.php`
 - `tests/Feature/Relay/MediaMtxAuthCallbackTest.php`
 - `tests/Feature/Relay/MediaMtxProcessServiceTest.php`

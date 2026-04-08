@@ -19,11 +19,17 @@ abstract class TestCase extends BaseTestCase
         File::deleteDirectory($this->testStoragePath);
         File::ensureDirectoryExists($this->testStoragePath.'/app/private');
         File::ensureDirectoryExists($this->testStoragePath.'/app/public');
+        File::ensureDirectoryExists($this->testStoragePath.'/app/private/continuous-recorders');
+        File::ensureDirectoryExists($this->testStoragePath.'/app/private/motion-recorders');
+        File::ensureDirectoryExists($this->testStoragePath.'/app/private/ffmpeg-temp');
 
         $this->app->useStoragePath($this->testStoragePath);
 
         config()->set('filesystems.disks.local.root', $this->testStoragePath.'/app/private');
         config()->set('filesystems.disks.public.root', $this->testStoragePath.'/app/public');
+        config()->set('recording.continuous.runtime_dir', $this->testStoragePath.'/app/private/continuous-recorders');
+        config()->set('recording.motion.runtime_dir', $this->testStoragePath.'/app/private/motion-recorders');
+        config()->set('ffmpeg.temporary_directory', $this->testStoragePath.'/app/private/ffmpeg-temp');
     }
 
     protected function tearDown(): void

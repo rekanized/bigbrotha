@@ -164,7 +164,7 @@ MediaMTX currently uses one HTTP auth callback for two different trust models:
 	- authenticated by Laravel-issued short-lived signed tokens.
 	- expected action/protocol pair is `read` and `webrtc`.
 - internal ffmpeg publisher:
-	- authenticated by dedicated internal credentials configured through `MEDIAMTX_PUBLISHER_USER` and `MEDIAMTX_PUBLISHER_PASS`.
+	- authenticated by dedicated internal relay credentials defined in `config/mediamtx.php` and derived from `APP_KEY` by default.
 	- expected action/protocol pair is `publish` and `rtsp`.
 	- expected source IP is loopback only.
 
@@ -220,7 +220,7 @@ Relevant behavior:
 
 - `App\Http\Middleware\TrustReverseProxyHeaders` trusts configured `X-Forwarded-*` headers through `TRUSTED_PROXIES`.
 - `App\Http\Middleware\RestrictWebsiteIp` evaluates the client IP after proxy normalization and is driven by `WEBSITE_ALLOWED_IPS`.
-- MediaMTX player traffic is expected to be published behind a proxied path such as `/__webrtc/` through `MEDIAMTX_WEBRTC_PUBLIC_URL`.
+- MediaMTX player traffic defaults to a proxied path such as `/__webrtc/` derived from `APP_URL`, and `MEDIAMTX_WEBRTC_PUBLIC_URL` remains available as an override for non-default relay publishing.
 - the reverse proxy must preserve the `/__webrtc` prefix on WHEP session URLs, typically with `X-Forwarded-Prefix` and `proxy_redirect` rules that rewrite upstream `Location` headers back under `/__webrtc/`.
 - Media traffic still requires direct ICE reachability on the configured WebRTC transport ports, typically `8189/udp` and optionally `8189/tcp`.
 
@@ -246,7 +246,7 @@ Camera storage routing notes:
 
 - the logical `cameras/...` tree still uses the relative paths above inside database rows and review-asset manifests.
 - when admin settings leave network storage disabled, `filesystems.camera_private` points at the local `storage/app/private/cameras` directory.
-- when admin settings enable a valid SMB path, `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter and camera-tree reads or writes are routed there instead.
+- when admin settings enable a valid SMB path, that SMB path should already resolve to the dedicated `cameras` directory on the NAS, and `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter so camera-tree reads or writes are routed there instead.
 - ffmpeg capture, continuous segment muxing, and review-asset generation still use local filesystem paths while processing, then `App\Services\CameraStorageService` finalizes those staged files onto the active camera storage disk.
 - streamed previews, downloads, and playback build temporary local cache files on demand when the active camera storage disk is remote.
 

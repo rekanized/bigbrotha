@@ -81,7 +81,15 @@
                         <div class="wall-monitor-tile__feed">
                             @if (is_array($selectedProfile) && is_string($sessionUrl) && $sessionUrl !== '')
                                 <div class="wall-monitor-tile__stream wall-tile__stream">
-                                    <div class="webrtc-player" data-webrtc-player data-session-url="{{ $sessionUrl }}" data-player-label="{{ $camera->name }}">
+                                    <div
+                                        class="webrtc-player"
+                                        data-webrtc-player
+                                        data-session-url="{{ $sessionUrl }}"
+                                        data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
+                                        data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
+                                        data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
+                                        data-player-label="{{ $camera->name }}"
+                                    >
                                         <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>
                                         <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
                                         <div class="wall-monitor-tile__overlay">

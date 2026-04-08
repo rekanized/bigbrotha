@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'queue' => env('CAMERA_RECORDING_QUEUE', 'recordings'),
+    'queue' => 'recordings',
 
     'segment_seconds' => max(15, (int) env('CAMERA_RECORDING_SEGMENT_SECONDS', 60)),
 
@@ -26,7 +26,7 @@ return [
         'ps_binary' => env('CAMERA_RECORDING_WORKER_PS_BINARY', '/usr/bin/ps'),
         'shell_binary' => env('CAMERA_RECORDING_WORKER_SHELL_BINARY', '/bin/sh'),
         'php_binary' => env('CAMERA_RECORDING_WORKER_PHP_BINARY', PHP_BINARY),
-        'queue' => env('CAMERA_RECORDING_WORKER_QUEUE', env('CAMERA_RECORDING_QUEUE', 'recordings').',default'),
+        'queue' => env('CAMERA_RECORDING_WORKER_QUEUE', 'recordings,default'),
         'max_jobs' => max(1, (int) env('CAMERA_RECORDING_WORKER_MAX_JOBS', 50)),
         'max_time' => max(60, (int) env('CAMERA_RECORDING_WORKER_MAX_TIME', 3600)),
         'memory' => max(64, (int) env('CAMERA_RECORDING_WORKER_MEMORY', 256)),
@@ -60,7 +60,7 @@ return [
     ],
 
     'review_assets' => [
-        'queue' => env('CAMERA_REVIEW_ASSET_QUEUE', env('CAMERA_RECORDING_QUEUE', 'recordings')),
+        'queue' => env('CAMERA_REVIEW_ASSET_QUEUE', 'recordings'),
         'job_timeout_seconds' => max(180, (int) env('CAMERA_REVIEW_ASSET_JOB_TIMEOUT_SECONDS', 240)),
         'lock_seconds' => max(60, (int) env('CAMERA_REVIEW_ASSET_LOCK_SECONDS', 120)),
         'scheduler_enabled' => filter_var(env('CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED', true), FILTER_VALIDATE_BOOL),

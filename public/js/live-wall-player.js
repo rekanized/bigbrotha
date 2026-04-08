@@ -18,6 +18,8 @@
         },
         masterVolume: 1,
         players: [],
+        readerScriptPromise: null,
+        readerScriptUrl: '',
     };
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
@@ -198,10 +200,11 @@
     class BigBrothasWhepPlayer {
         constructor(root) {
             this.root = root;
-            this.bootstrapUrl = root.dataset.sessionUrl || '';
-            this.bootstrapReaderUrl = root.dataset.readerUrl || '';
-            this.bootstrapWhepUrl = root.dataset.whepUrl || '';
-            this.bootstrapAccessToken = root.dataset.accessToken || '';
+            const bootstrapContainer = root.closest('[data-reader-url], [data-whep-url], [data-access-token]');
+            this.bootstrapUrl = root.dataset.sessionUrl || bootstrapContainer?.dataset.sessionUrl || '';
+            this.bootstrapReaderUrl = root.dataset.readerUrl || bootstrapContainer?.dataset.readerUrl || '';
+            this.bootstrapWhepUrl = root.dataset.whepUrl || bootstrapContainer?.dataset.whepUrl || '';
+            this.bootstrapAccessToken = root.dataset.accessToken || bootstrapContainer?.dataset.accessToken || '';
             this.label = root.dataset.playerLabel || 'camera';
             this.video = root.querySelector('[data-role="video"]');
             this.message = root.querySelector('[data-role="message"]');
@@ -495,10 +498,17 @@
                 return;
             }
 
-            const existing = document.querySelector(`script[data-mediamtx-reader="${readerUrl}"]`);
+            if (state.readerScriptPromise instanceof Promise) {
+                await state.readerScriptPromise;
+
+                return;
+            }
+
+            const existing = document.querySelector('[data-mediamtx-reader]');
 
             if (existing) {
-                await new Promise((resolve, reject) => {
+                state.readerScriptUrl = existing.dataset.mediamtxReader || readerUrl;
+                state.readerScriptPromise = new Promise((resolve, reject) => {
                     if (existing.dataset.loaded === 'true') {
                         resolve();
 
@@ -507,12 +517,20 @@
 
                     existing.addEventListener('load', () => resolve(), { once: true });
                     existing.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
+                }).catch((error) => {
+                    state.readerScriptPromise = null;
+                    state.readerScriptUrl = '';
+
+                    throw error;
                 });
+
+                await state.readerScriptPromise;
 
                 return;
             }
 
-            await new Promise((resolve, reject) => {
+            state.readerScriptUrl = readerUrl;
+            state.readerScriptPromise = new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = readerUrl;
                 script.defer = true;
@@ -523,7 +541,14 @@
                 }, { once: true });
                 script.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
                 document.head.appendChild(script);
+            }).catch((error) => {
+                state.readerScriptPromise = null;
+                state.readerScriptUrl = '';
+
+                throw error;
             });
+
+            await state.readerScriptPromise;
         }
 
         setMessage(message) {
@@ -538,7 +563,7 @@
             }
 
             if (response.status === 503) {
-                return 'The shared media relay is not running right now.';
+                return 'The shared media relay is unavailable right now.';
             }
 
             const body = (await response.text()).trim();

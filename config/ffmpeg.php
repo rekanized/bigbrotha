@@ -2,11 +2,12 @@
 
 $defaultFfmpegBinary = base_path('bin/ffmpeg');
 $defaultFfprobeBinary = base_path('bin/ffprobe');
+$defaultTemporaryDirectory = storage_path('app/private/ffmpeg-temp');
 
 return [
     'timeout' => (int) env('FFMPEG_TIMEOUT', 3600),
 
-    'temporary_directory' => env('FFMPEG_TEMPORARY_DIRECTORY', storage_path('app/private/ffmpeg-temp')),
+    'temporary_directory' => env('FFMPEG_TEMPORARY_DIRECTORY', $defaultTemporaryDirectory),
 
     'ffmpeg' => [
         'binaries' => array_values(array_filter([
@@ -25,8 +26,8 @@ return [
 
     'streaming' => [
         'rw_timeout' => max(1000000, (int) env('FFMPEG_STREAM_RW_TIMEOUT', 10000000)),
-        'input_probe_size' => max(1024, (int) env('FFMPEG_STREAM_PROBE_SIZE', 32768)),
-        'input_analyze_duration' => max(0, (int) env('FFMPEG_STREAM_ANALYZE_DURATION', 0)),
+        'input_probe_size' => max(1024, (int) env('FFMPEG_STREAM_PROBE_SIZE', 131072)),
+        'input_analyze_duration' => max(0, (int) env('FFMPEG_STREAM_ANALYZE_DURATION', 1000000)),
         'wall_fps' => max(1, (int) env('FFMPEG_LIVE_WALL_FPS', 4)),
         'wall_mjpeg_quality' => min(31, max(2, (int) env('FFMPEG_LIVE_WALL_MJPEG_QUALITY', 7))),
         'relay_fragment_duration' => max(100000, (int) env('FFMPEG_LIVE_RELAY_FRAGMENT_DURATION', 500000)),

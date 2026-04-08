@@ -80,9 +80,14 @@ class LiveWallStreamTest extends TestCase
             ->assertSee('data-role="master-volume-slider"', false)
             ->assertSee('data-role="master-volume-value"', false)
             ->assertDontSee('data-role="volume-slider"', false)
-                ->assertSee('data-live-wall-grid', false)
+            ->assertSee('data-live-wall-grid', false)
             ->assertSee('data-navigate-once', false)
             ->assertSee(route('wall-tiles.index'), false);
+
+        $this->assertMatchesRegularExpression(
+            '/<div\s+class="webrtc-player"[^>]*data-webrtc-player[^>]*data-session-url="'.preg_quote(route('live-wall.session', ['camera' => $camera]), '/').'"[^>]*data-reader-url="'.preg_quote('http://relay.example:8889/camera-'.$camera->id.'-live/reader.js', '/').'"[^>]*data-whep-url="'.preg_quote('http://relay.example:8889/camera-'.$camera->id.'-live/whep', '/').'"[^>]*data-access-token="[^"]+"/s',
+            $response->getContent(),
+        );
     }
 
     public function test_live_wall_only_renders_cameras_assigned_to_the_selected_wall(): void
