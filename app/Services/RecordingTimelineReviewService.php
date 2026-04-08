@@ -139,6 +139,10 @@ class RecordingTimelineReviewService
         $durationSeconds = is_numeric($timelineAssets['duration_seconds'] ?? null)
             ? max(1, (int) $timelineAssets['duration_seconds'])
             : ($this->durationSeconds($recording) ?? max(1, $recordingStart->diffInSeconds($recordingEnd)));
+        $thumbnailFrameIndex = $this->thumbnailFrameIndex($durationSeconds, $scrubSprite);
+        $scrubSpriteUrl = is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available'])
+            ? route('recordings.preview-sprite', ['recording' => $recording])
+            : null;
 
         return [
             'id' => $recording->getKey(),
@@ -160,8 +164,11 @@ class RecordingTimelineReviewService
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $timelineAssets['status'] ?? RecordingReviewAssetService::STATUS_MISSING,
             'streamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
-            'thumbnailUrl' => $this->reviewAssets->thumbnailDataUrl($recording),
-            'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
+            'thumbnailUrl' => $recording->relative_path ? route('recordings.preview-thumbnail', ['recording' => $recording]) : null,
+            'thumbnailFallbackUrl' => asset('img/recording-preview-missing.svg'),
+            'thumbnailSpriteUrl' => $scrubSpriteUrl,
+            'thumbnailFrameIndex' => $thumbnailFrameIndex,
+            'scrubSpriteUrl' => $scrubSpriteUrl,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
             'scrubFrameIntervalMs' => is_array($scrubSprite) ? ((int) ($scrubSprite['frame_interval_seconds'] ?? 0) * 1000) : 0,
             'scrubFrameWidth' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_width'] ?? 0) : 0,
@@ -257,5 +264,33 @@ class RecordingTimelineReviewService
         }
 
         return max(0, $recording->started_at->diffInSeconds($recording->ended_at));
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $scrubSprite
+     */
+    private function thumbnailFrameIndex(int $durationSeconds, ?array $scrubSprite): int
+    {
+        if (!is_array($scrubSprite)) {
+            return 0;
+        }
+
+        $frameCount = max(0, (int) ($scrubSprite['frame_count'] ?? 0));
+
+        if ($frameCount < 1) {
+            return 0;
+        }
+
+        $frameIntervalSeconds = max(1, (int) ($scrubSprite['frame_interval_seconds'] ?? 1));
+        $columns = max(1, (int) ($scrubSprite['columns'] ?? 1));
+        $rows = max(1, (int) ($scrubSprite['rows'] ?? 1));
+        $frameCapacity = max(1, $columns * $rows);
+        $thumbnailOffsetSeconds = max(0, (int) floor($durationSeconds / 2));
+
+        return min(
+            $frameCount - 1,
+            $frameCapacity - 1,
+            (int) floor($thumbnailOffsetSeconds / $frameIntervalSeconds),
+        );
     }
 }

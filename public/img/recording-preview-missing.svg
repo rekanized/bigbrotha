@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Recording preview missing">
+  <defs>
+    <linearGradient id="recording-preview-missing-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+  </defs>
+  <rect width="320" height="180" rx="18" fill="url(#recording-preview-missing-gradient)" />
+  <rect x="16" y="16" width="288" height="148" rx="14" fill="none" stroke="#38bdf8" stroke-opacity="0.24" />
+  <path d="M112 60h96c6.627 0 12 5.373 12 12v36c0 6.627-5.373 12-12 12h-96c-6.627 0-12-5.373-12-12V72c0-6.627 5.373-12 12-12Z" fill="#0b1220" fill-opacity="0.55" stroke="#7dd3fc" stroke-opacity="0.24" />
+  <path d="m136 98 18-18 12 12 18-18 20 24" fill="none" stroke="#7dd3fc" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
+  <circle cx="194" cy="82" r="7" fill="#7dd3fc" opacity="0.85" />
+  <text x="160" y="138" text-anchor="middle" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="13" font-weight="700">Preview Missing</text>
+  <text x="160" y="156" text-anchor="middle" fill="#94a3b8" font-family="Arial, sans-serif" font-size="10">Sprite not ready for this recording</text>
+</svg>

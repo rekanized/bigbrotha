@@ -218,14 +218,21 @@
                             data-role="rail-thumbnail"
                             data-recording-id="{{ $segment['id'] ?? '' }}"
                             data-focus-ms="{{ $segmentFocusMs }}"
-                            data-thumbnail-url="{{ $segment['thumbnailUrl'] ?? '' }}"
+                            data-thumbnail-url="{{ $segment['thumbnailFallbackUrl'] ?? '' }}"
+                            data-thumbnail-sprite-url="{{ $segment['thumbnailSpriteUrl'] ?? '' }}"
+                            data-thumbnail-frame-index="{{ $segment['thumbnailFrameIndex'] ?? 0 }}"
+                            data-scrub-frame-count="{{ $segment['scrubFrameCount'] ?? 0 }}"
+                            data-scrub-frame-width="{{ $segment['scrubFrameWidth'] ?? 0 }}"
+                            data-scrub-frame-height="{{ $segment['scrubFrameHeight'] ?? 0 }}"
+                            data-scrub-columns="{{ $segment['scrubColumns'] ?? 0 }}"
+                            data-scrub-rows="{{ $segment['scrubRows'] ?? 0 }}"
                             data-thumbnail-alt="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Segment preview').' preview' }}"
                             aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' preview thumbnail' }}"
                             title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip') }}"
                             style="top: {{ $thumbnailTopPx }}px;"
                         >
                             <span class="recording-review-focus__rail-thumbnail-frame" data-role="rail-thumbnail-frame">
-                                <img src="{{ $segment['thumbnailUrl'] ?? '' }}" alt="{{ $tile['cameraName'] ?? 'Camera' }} {{ $segment['timeLabel'] ?? 'Segment preview' }} preview" loading="lazy" decoding="async">
+                                <span class="recording-review-focus__rail-thumbnail-sprite" data-role="rail-thumbnail-sprite" aria-hidden="true"></span>
                             </span>
                         </button>
                     @endforeach

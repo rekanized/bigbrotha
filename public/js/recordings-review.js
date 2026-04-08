@@ -1664,6 +1664,21 @@
 
         const startMs = Number(segment.startMs || 0);
         const endMs = Math.max(startMs + 1000, Number(segment.endMs || startMs + 1000));
+        const scrubFrameCount = Math.max(0, Number(segment.scrubFrameCount || 0));
+        const scrubFrameWidth = Math.max(0, Number(segment.scrubFrameWidth || 0));
+        const scrubFrameHeight = Math.max(0, Number(segment.scrubFrameHeight || 0));
+        const scrubColumns = Math.max(1, Number(segment.scrubColumns || 0) || 1);
+        const scrubRows = Math.max(
+            1,
+            Number(segment.scrubRows || 0) || Math.ceil(Math.max(1, scrubFrameCount) / Math.max(1, scrubColumns)),
+        );
+        const scrubFrameCapacity = Math.max(1, scrubColumns * scrubRows);
+        const thumbnailFrameIndex = clamp(
+            Number(segment.thumbnailFrameIndex || 0),
+            0,
+            Math.max(0, Math.min(Math.max(0, scrubFrameCount - 1), scrubFrameCapacity - 1)),
+        );
+        const scrubSpriteUrl = typeof segment.scrubSpriteUrl === 'string' ? segment.scrubSpriteUrl.trim() : '';
 
         return {
             ...segment,
@@ -1671,6 +1686,19 @@
             focusMs: Number(segment.focusMs || startMs),
             id: segment.id ?? null,
             startMs,
+            scrubColumns,
+            scrubFrameCount,
+            scrubFrameHeight,
+            scrubFrameIntervalMs: Math.max(0, Number(segment.scrubFrameIntervalMs || 0)),
+            scrubFrameWidth,
+            scrubRows,
+            scrubSpriteUrl,
+            thumbnailFrameIndex,
+            thumbnailSpriteUrl: typeof segment.thumbnailSpriteUrl === 'string' && segment.thumbnailSpriteUrl.trim() !== ''
+                ? segment.thumbnailSpriteUrl.trim()
+                : scrubSpriteUrl,
+            thumbnailFallbackUrl: typeof segment.thumbnailFallbackUrl === 'string' ? segment.thumbnailFallbackUrl.trim() : '',
+            thumbnailUrl: typeof segment.thumbnailUrl === 'string' ? segment.thumbnailUrl.trim() : '',
         };
     };
 
@@ -1849,17 +1877,44 @@
         return state.rail.thumbnailObserver;
     };
 
-    const hydrateRailThumbnail = (thumbnail) => {
-        if (!(thumbnail instanceof HTMLElement)) {
-            return;
+    const ensureRailThumbnailSpriteLayer = (frame) => {
+        if (!(frame instanceof HTMLElement)) {
+            return null;
         }
 
-        const frame = thumbnail.querySelector('[data-role="rail-thumbnail-frame"]');
-        const thumbnailUrl = String(thumbnail.dataset.thumbnailUrl || '').trim();
-        const thumbnailAlt = String(thumbnail.dataset.thumbnailAlt || '').trim();
+        const existing = frame.querySelector('[data-role="rail-thumbnail-sprite"]');
 
-        if (!(frame instanceof HTMLElement) || thumbnailUrl === '' || frame.querySelector('img')) {
-            return;
+        if (existing instanceof HTMLElement) {
+            return existing;
+        }
+
+        const sprite = document.createElement('span');
+
+        sprite.className = 'recording-review-focus__rail-thumbnail-sprite';
+        sprite.dataset.role = 'rail-thumbnail-sprite';
+        sprite.setAttribute('aria-hidden', 'true');
+        frame.appendChild(sprite);
+
+        return sprite;
+    };
+
+    const ensureRailThumbnailFallbackImage = (frame, thumbnailUrl, thumbnailAlt) => {
+        if (!(frame instanceof HTMLElement) || thumbnailUrl === '') {
+            return null;
+        }
+
+        const existing = frame.querySelector('img');
+
+        if (existing instanceof HTMLImageElement) {
+            if (existing.alt !== thumbnailAlt) {
+                existing.alt = thumbnailAlt;
+            }
+
+            if (existing.src !== thumbnailUrl) {
+                existing.src = thumbnailUrl;
+            }
+
+            return existing;
         }
 
         const image = document.createElement('img');
@@ -1869,6 +1924,95 @@
         image.loading = 'lazy';
         image.src = thumbnailUrl;
         frame.appendChild(image);
+
+        return image;
+    };
+
+    const removeRailThumbnailFallbackImage = (frame) => {
+        if (!(frame instanceof HTMLElement)) {
+            return;
+        }
+
+        frame.querySelectorAll('img').forEach((image) => {
+            image.remove();
+        });
+    };
+
+    const hydrateRailThumbnail = (thumbnail) => {
+        if (!(thumbnail instanceof HTMLElement)) {
+            return;
+        }
+
+        const frame = thumbnail.querySelector('[data-role="rail-thumbnail-frame"]');
+        const thumbnailUrl = String(thumbnail.dataset.thumbnailUrl || '').trim();
+        const thumbnailAlt = String(thumbnail.dataset.thumbnailAlt || '').trim();
+        const thumbnailSpriteUrl = String(thumbnail.dataset.thumbnailSpriteUrl || '').trim();
+        const thumbnailFrameIndex = readNumber(thumbnail, 'thumbnailFrameIndex', 0);
+        const scrubFrameCount = Math.max(0, readNumber(thumbnail, 'scrubFrameCount', 0));
+        const scrubColumns = Math.max(1, readNumber(thumbnail, 'scrubColumns', 1));
+        const scrubRows = Math.max(1, readNumber(thumbnail, 'scrubRows', 1));
+
+        if (!(frame instanceof HTMLElement)) {
+            return;
+        }
+
+        if (thumbnailSpriteUrl === '' || scrubFrameCount < 1) {
+            ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
+            frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'empty';
+
+            return;
+        }
+
+        const spriteLayer = ensureRailThumbnailSpriteLayer(frame);
+
+        if (!(spriteLayer instanceof HTMLElement)) {
+            ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
+            frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'empty';
+
+            return;
+        }
+
+        const frameKey = `${thumbnailSpriteUrl}:${thumbnailFrameIndex}`;
+        const renderSprite = () => {
+            if (!thumbnail.isConnected) {
+                return;
+            }
+
+            removeRailThumbnailFallbackImage(frame);
+            applySpriteFrameBackground(
+                spriteLayer,
+                thumbnailSpriteUrl,
+                thumbnailFrameIndex,
+                scrubFrameCount,
+                scrubColumns,
+                scrubRows,
+                frameKey,
+            );
+            spriteLayer.classList.add('is-ready');
+            frame.dataset.renderState = 'ready';
+        };
+
+        if (state.scrubSpriteCache.has(thumbnailSpriteUrl)) {
+            renderSprite();
+
+            return;
+        }
+
+        spriteLayer.classList.remove('is-ready');
+        clearSpriteFrameBackground(spriteLayer);
+        removeRailThumbnailFallbackImage(frame);
+        frame.dataset.renderState = thumbnailUrl !== '' ? 'loading' : 'empty';
+
+        void preloadScrubSprite(thumbnailSpriteUrl).then((loaded) => {
+            if (!loaded) {
+                ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
+                frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'error';
+
+                return;
+            }
+
+            renderSprite();
+        });
     };
 
     const observeRailThumbnails = (scope) => {
@@ -2111,6 +2255,7 @@
     const createRailThumbnailElement = (scope, segment) => {
         const button = document.createElement('button');
         const frame = document.createElement('span');
+        const sprite = document.createElement('span');
         const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
         const activeSegment = activeRailSegmentId(scope);
         const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
@@ -2120,7 +2265,14 @@
         button.dataset.role = 'rail-thumbnail';
         button.dataset.recordingId = String(segment.id ?? '');
         button.dataset.focusMs = String(segment.startMs || 0);
-        button.dataset.thumbnailUrl = String(segment.thumbnailUrl || '');
+        button.dataset.thumbnailUrl = String(segment.thumbnailFallbackUrl || '');
+        button.dataset.thumbnailSpriteUrl = String(segment.thumbnailSpriteUrl || '');
+        button.dataset.thumbnailFrameIndex = String(segment.thumbnailFrameIndex || 0);
+        button.dataset.scrubFrameCount = String(segment.scrubFrameCount || 0);
+        button.dataset.scrubFrameWidth = String(segment.scrubFrameWidth || 0);
+        button.dataset.scrubFrameHeight = String(segment.scrubFrameHeight || 0);
+        button.dataset.scrubColumns = String(segment.scrubColumns || 0);
+        button.dataset.scrubRows = String(segment.scrubRows || 0);
         button.dataset.thumbnailAlt = `${cameraName} ${segment.timeLabel || 'Segment preview'} preview`;
         button.style.top = `${Number(segment.thumbnailTopPx || 0)}px`;
         button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail`);
@@ -2128,6 +2280,13 @@
 
         frame.className = 'recording-review-focus__rail-thumbnail-frame';
         frame.dataset.role = 'rail-thumbnail-frame';
+        frame.dataset.renderState = 'idle';
+
+        sprite.className = 'recording-review-focus__rail-thumbnail-sprite';
+        sprite.dataset.role = 'rail-thumbnail-sprite';
+        sprite.setAttribute('aria-hidden', 'true');
+
+        frame.appendChild(sprite);
 
         button.appendChild(frame);
 
@@ -2643,16 +2802,64 @@
         frame.dataset.activeLayerIndex = String(nextIndex);
     };
 
-    const applyScrubPreviewLayerFrame = (layer, spriteUrl, columns, rows, frameWidth, frameHeight, offsetX, offsetY, frameKey) => {
+    const spriteFrameCapacity = (columns, rows) => Math.max(1, Math.max(1, columns) * Math.max(1, rows));
+
+    const normalizeSpriteFrameIndex = (frameIndex, frameCount, columns, rows) => clamp(
+        Number(frameIndex || 0),
+        0,
+        Math.max(0, Math.min(Math.max(0, Number(frameCount || 0) - 1), spriteFrameCapacity(columns, rows) - 1)),
+    );
+
+    const spriteFrameCell = (frameIndex, frameCount, columns, rows) => {
+        const normalizedColumns = Math.max(1, Number(columns || 1));
+        const normalizedRows = Math.max(1, Number(rows || 1));
+        const normalizedFrameIndex = normalizeSpriteFrameIndex(frameIndex, frameCount, normalizedColumns, normalizedRows);
+
+        return {
+            column: normalizedFrameIndex % normalizedColumns,
+            frameIndex: normalizedFrameIndex,
+            row: Math.min(normalizedRows - 1, Math.floor(normalizedFrameIndex / normalizedColumns)),
+        };
+    };
+
+    const spriteBackgroundAxisPosition = (cellIndex, cellCount) => cellCount <= 1
+        ? '0%'
+        : `${(cellIndex / (cellCount - 1)) * 100}%`;
+
+    const clearSpriteFrameBackground = (layer) => {
         if (!(layer instanceof HTMLElement)) {
             return;
         }
 
+        layer.style.backgroundImage = '';
+        layer.style.backgroundPosition = '';
+        layer.style.backgroundSize = '';
+        delete layer.dataset.frameIndex;
+        delete layer.dataset.frameKey;
+        delete layer.dataset.spriteUrl;
+    };
+
+    const applySpriteFrameBackground = (layer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey) => {
+        if (!(layer instanceof HTMLElement) || spriteUrl === '') {
+            clearSpriteFrameBackground(layer);
+
+            return;
+        }
+
+        const normalizedColumns = Math.max(1, Number(columns || 1));
+        const normalizedRows = Math.max(1, Number(rows || 1));
+        const cell = spriteFrameCell(frameIndex, frameCount, normalizedColumns, normalizedRows);
+
         layer.style.backgroundImage = `url("${spriteUrl}")`;
-        layer.style.backgroundSize = `${columns * frameWidth}px ${rows * frameHeight}px`;
-        layer.style.backgroundPosition = `-${offsetX}px -${offsetY}px`;
+        layer.style.backgroundSize = `${normalizedColumns * 100}% ${normalizedRows * 100}%`;
+        layer.style.backgroundPosition = `${spriteBackgroundAxisPosition(cell.column, normalizedColumns)} ${spriteBackgroundAxisPosition(cell.row, normalizedRows)}`;
+        layer.dataset.frameIndex = String(cell.frameIndex);
         layer.dataset.spriteUrl = spriteUrl;
         layer.dataset.frameKey = frameKey;
+    };
+
+    const applyScrubPreviewLayerFrame = (layer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey) => {
+        applySpriteFrameBackground(layer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey);
     };
 
     const preloadScrubSprite = (spriteUrl) => {
@@ -3130,8 +3337,6 @@
         const endMs = Math.max(startMs, readNumber(segment, 'endMs', startMs));
         const offsetMs = clamp(focusMs - startMs, 0, Math.max(0, endMs - startMs));
         const frameIndex = Math.min(frameCount - 1, Math.max(0, Math.floor(offsetMs / frameIntervalMs)));
-        const offsetX = (frameIndex % columns) * frameWidth;
-        const offsetY = Math.floor(frameIndex / columns) * frameHeight;
 
         const frameKey = `${spriteUrl}:${frameIndex}`;
 
@@ -3171,7 +3376,7 @@
             }
 
             if ((latestActiveLayer.dataset.spriteUrl || '') === spriteUrl) {
-                applyScrubPreviewLayerFrame(latestActiveLayer, spriteUrl, columns, rows, frameWidth, frameHeight, offsetX, offsetY, frameKey);
+                applyScrubPreviewLayerFrame(latestActiveLayer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey);
                 latestPreview.removeAttribute('hidden');
 
                 return;
@@ -3182,13 +3387,13 @@
                 : latestActiveIndex;
             const nextLayer = latestLayers[nextLayerIndex] || latestActiveLayer;
 
-            applyScrubPreviewLayerFrame(nextLayer, spriteUrl, columns, rows, frameWidth, frameHeight, offsetX, offsetY, frameKey);
+            applyScrubPreviewLayerFrame(nextLayer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey);
             setActiveScrubPreviewLayer(latestFrame, latestLayers.indexOf(nextLayer));
             latestPreview.removeAttribute('hidden');
         };
 
         if (activeSpriteUrl === spriteUrl) {
-            applyScrubPreviewLayerFrame(activeLayer, spriteUrl, columns, rows, frameWidth, frameHeight, offsetX, offsetY, frameKey);
+            applyScrubPreviewLayerFrame(activeLayer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey);
             preview.removeAttribute('hidden');
         } else if (state.scrubSpriteCache.has(spriteUrl)) {
             renderLoadedSprite();
@@ -3709,6 +3914,32 @@
         clearStageSourceLoadWatchdog();
     };
 
+    const previewDiagnostics = (scope = root()) => {
+        if (!(scope instanceof HTMLElement)) {
+            return null;
+        }
+
+        readRailBootstrapData(scope);
+
+        const segments = Array.isArray(state.rail.segments) ? state.rail.segments : [];
+
+        return {
+            activeCameraId: activeCameraId(scope),
+            focusMs: currentFocusMs(scope),
+            scrubPreviewVisible: state.scrubPreviewVisible,
+            segmentCount: segments.length,
+            segmentsMissingSprite: segments
+                .filter((segment) => String(segment.scrubSpriteUrl || '') === '' || Number(segment.scrubFrameCount || 0) < 1)
+                .map((segment) => ({
+                    endMs: Number(segment.endMs || 0),
+                    id: segment.id ?? null,
+                    startMs: Number(segment.startMs || 0),
+                    thumbnailUrl: String(segment.thumbnailUrl || ''),
+                })),
+            segmentsWithSprite: segments.filter((segment) => String(segment.scrubSpriteUrl || '') !== '' && Number(segment.scrubFrameCount || 0) > 0).length,
+        };
+    };
+
     const bootstrap = () => {
         destroy();
 
@@ -3749,6 +3980,7 @@
     window.BigBrothasRecordingReviewModule = {
         bootstrap,
         destroy,
+        inspectPreviewState: () => previewDiagnostics(root()),
     };
 
     document.addEventListener('livewire:navigated', bootstrap);
