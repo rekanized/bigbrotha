@@ -805,6 +805,7 @@ body.page-dashboard .recording-browser__pager {
 
 body.page-dashboard .recording-player__video {
     min-height: min(64vh, 640px);
+    object-fit: fill;
     background: #111827;
 }
 
@@ -1277,12 +1278,17 @@ body.page-recording-review .recording-review-focus__viewer {
 }
 
 body.page-recording-review .recording-review-tile__video-shell {
+    position: relative;
     background: #000;
 }
 
 body.page-recording-review .recording-review-tile__video,
 body.page-recording-review .recording-review-focus__video {
-    object-fit: contain;
+    position: absolute;
+    inset: 0;
+    min-width: 100%;
+    min-height: 100%;
+    object-fit: fill;
     background: #000;
 }
 

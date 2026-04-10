@@ -1927,7 +1927,13 @@ body.live-wall-focus-mode {
     aspect-ratio: auto;
 }
 
-.live-wall-grid--monitor .webrtc-player__video,
+.live-wall-grid--monitor .webrtc-player__video {
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    background: #000000;
+}
+
 .live-wall-grid--monitor .wall-tile__stream-image {
     width: 100%;
     height: 100%;
@@ -1951,11 +1957,14 @@ body.live-wall-focus-mode {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: fill;
     background: hsl(220 37% 9%);
 }
 
-.live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .webrtc-player__video,
+.live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .webrtc-player__video {
+    object-fit: fill;
+}
+
 .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-tile__stream-image {
     object-fit: contain;
 }
@@ -2079,6 +2088,7 @@ body.live-wall-focus-mode {
     width: 100%;
     min-height: min(72vh, 720px);
     aspect-ratio: 16 / 9;
+    object-fit: fill;
     background: hsl(220 37% 9%);
 }
 
@@ -2324,7 +2334,7 @@ body.live-wall-focus-mode {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: fill;
     background: #000;
 }
 
