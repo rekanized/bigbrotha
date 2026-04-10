@@ -11,6 +11,7 @@ use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
+use Illuminate\Contracts\Filesystem\Filesystem as FilesystemContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -209,6 +210,81 @@ class AdminSettingsTest extends TestCase
         $this->assertDatabaseHas('jobs', [
             'queue' => 'default',
         ]);
+    }
+
+    public function test_admin_job_queue_component_can_delete_a_failed_job(): void
+    {
+        config()->set('queue.default', 'database');
+
+        $failedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '5212f1eb-5f04-4da7-9dad-3aa8b0f6d123',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: delete test',
+            'failed_at' => now(),
+        ]);
+
+        $remainingFailedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '21a79864-f27d-4432-b7c4-6b6e58d79c55',
+            'connection' => 'database',
+            'queue' => 'recordings',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\ProcessCameraRecordingJob',
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: keep me',
+            'failed_at' => now()->subSecond(),
+        ]);
+
+        Livewire::test(AdminJobQueue::class)
+            ->call('deleteFailedJob', $failedJobId)
+            ->assertSet('statusTone', 'good')
+            ->assertSet('statusMessage', 'Deleted the selected failed job.');
+
+        $this->assertDatabaseMissing('failed_jobs', [
+            'id' => $failedJobId,
+        ]);
+
+        $this->assertDatabaseHas('failed_jobs', [
+            'id' => $remainingFailedJobId,
+        ]);
+    }
+
+    public function test_admin_job_queue_component_can_clear_all_failed_jobs(): void
+    {
+        config()->set('queue.default', 'database');
+
+        DB::table('failed_jobs')->insert([
+            [
+                'uuid' => 'ab8a8ccf-c0d4-45ef-a2f1-bbf90352f111',
+                'connection' => 'database',
+                'queue' => 'default',
+                'payload' => json_encode([
+                    'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                ], JSON_THROW_ON_ERROR),
+                'exception' => 'RuntimeException: clear test 1',
+                'failed_at' => now(),
+            ],
+            [
+                'uuid' => '028f32d2-4269-4f31-9bb7-24d590c49888',
+                'connection' => 'database',
+                'queue' => 'recordings',
+                'payload' => json_encode([
+                    'displayName' => 'App\\Jobs\\ProcessCameraRecordingJob',
+                ], JSON_THROW_ON_ERROR),
+                'exception' => 'RuntimeException: clear test 2',
+                'failed_at' => now()->subSecond(),
+            ],
+        ]);
+
+        Livewire::test(AdminJobQueue::class)
+            ->call('clearFailedJobs')
+            ->assertSet('statusTone', 'good')
+            ->assertSet('statusMessage', 'Deleted 2 failed job records.');
+
+        $this->assertDatabaseCount('failed_jobs', 0);
     }
 
     public function test_admin_job_queue_component_warns_when_worker_demand_reaches_the_cap(): void
@@ -611,5 +687,305 @@ class AdminSettingsTest extends TestCase
         $this->assertTrue($storage->recordingExists($relativePath));
         $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/2026/04/07/finalize-check.mkv'));
         $this->assertFileDoesNotExist($absolutePath);
+    }
+
+    public function test_camera_storage_keeps_the_staged_network_file_when_post_upload_verification_fails(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Finalize Lane',
+            'local_ip' => '192.168.1.212',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream3',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/07/finalize-verify-check.mkv';
+        $absolutePath = $storage->writableAbsolutePath($relativePath);
+
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'segment');
+
+        $storage->shouldReceive('verifyCameraDiskWrite')
+            ->once()
+            ->andThrow(new \RuntimeException('Unable to verify the uploaded file on the active camera storage disk.'));
+
+        try {
+            $storage->finalizeStagedWrite($relativePath, $absolutePath);
+            $this->fail('Expected post-upload verification to fail.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Unable to verify the uploaded file', $exception->getMessage());
+        }
+
+        $this->assertFileExists($absolutePath);
+        $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/2026/04/07/finalize-verify-check.mkv'));
+    }
+
+    public function test_camera_storage_upload_verification_reports_target_paths(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $localPath = storage_path('app/private/ffmpeg-temp/camera-network-staging/cameras/7/recordings/2026/04/10/retry-check.mkv');
+        File::ensureDirectoryExists(dirname($localPath));
+        File::put($localPath, 'segment');
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('7/recordings/2026/04/10/retry-check.mkv')
+            ->andReturn(false);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('7/recordings/2026/04/10/retry-check.mkv')
+            ->andThrow(new \RuntimeException('adapter miss'));
+        $disk->shouldReceive('files')
+            ->once()
+            ->with('7/recordings/2026/04/10')
+            ->andReturn([]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('7/recordings/2026/04/10/retry-check.mkv')
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_MISSING);
+
+        $method = new \ReflectionMethod($storage, 'verifyCameraDiskWrite');
+        $method->setAccessible(true);
+
+        try {
+            $method->invoke($storage, '7/recordings/2026/04/10/retry-check.mkv', $localPath);
+            $this->fail('Expected upload verification to fail.');
+        } catch (\Throwable $exception) {
+            $message = ($exception->getPrevious() ?? $exception)->getMessage();
+
+            $this->assertStringContainsString('The uploaded file is not visible on the active camera storage disk yet.', $message);
+            $this->assertStringContainsString('relative_path=cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
+            $this->assertStringContainsString('disk_path=7/recordings/2026/04/10/retry-check.mkv', $message);
+            $this->assertStringContainsString('smb_target_path=Applications/bigbrotha/7/recordings/2026/04/10/retry-check.mkv', $message);
+            $this->assertStringContainsString('local_path='.str_replace('\\', '/', $localPath), $message);
+            $this->assertStringContainsString('availability=missing', $message);
+        }
+    }
+
+    public function test_camera_storage_network_availability_uses_metadata_when_exists_returns_false(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('99/recordings/2026/04/07/metadata-check.mkv')
+            ->andReturn(false);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('99/recordings/2026/04/07/metadata-check.mkv')
+            ->andReturn(8192);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')->never();
+
+        $this->assertSame(
+            CameraStorageService::RECORDING_AVAILABILITY_PRESENT,
+            $storage->recordingAvailability('cameras/99/recordings/2026/04/07/metadata-check.mkv'),
+        );
+    }
+
+    public function test_camera_storage_network_availability_reports_missing_when_parent_listing_does_not_contain_the_file(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('99/recordings/2026/04/07/missing-check.mkv')
+            ->andReturn(false);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('99/recordings/2026/04/07/missing-check.mkv')
+            ->andThrow(new \RuntimeException('not found'));
+        $disk->shouldReceive('files')
+            ->once()
+            ->with('99/recordings/2026/04/07')
+            ->andReturn(['99/recordings/2026/04/07/other-file.mkv']);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('99/recordings/2026/04/07/missing-check.mkv')
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_MISSING);
+
+        $this->assertSame(
+            CameraStorageService::RECORDING_AVAILABILITY_MISSING,
+            $storage->recordingAvailability('cameras/99/recordings/2026/04/07/missing-check.mkv'),
+        );
+    }
+
+    public function test_camera_storage_network_availability_reports_unreachable_when_all_network_checks_fail(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('99/recordings/2026/04/07/unreachable-check.mkv')
+            ->andThrow(new \RuntimeException('network down'));
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('99/recordings/2026/04/07/unreachable-check.mkv')
+            ->andThrow(new \RuntimeException('network down'));
+        $disk->shouldReceive('files')
+            ->once()
+            ->with('99/recordings/2026/04/07')
+            ->andThrow(new \RuntimeException('network down'));
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('99/recordings/2026/04/07/unreachable-check.mkv')
+            ->andReturn(null);
+
+        $this->assertSame(
+            CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE,
+            $storage->recordingAvailability('cameras/99/recordings/2026/04/07/unreachable-check.mkv'),
+        );
+    }
+
+    public function test_camera_storage_network_availability_uses_smbclient_fallback_when_the_adapter_under_reports_the_file(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('99/recordings/2026/04/07/smbclient-fallback.mkv')
+            ->andReturn(false);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('99/recordings/2026/04/07/smbclient-fallback.mkv')
+            ->andThrow(new \RuntimeException('adapter miss'));
+        $disk->shouldReceive('files')
+            ->once()
+            ->with('99/recordings/2026/04/07')
+            ->andReturn([]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('99/recordings/2026/04/07/smbclient-fallback.mkv')
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_PRESENT);
+
+        $this->assertSame(
+            CameraStorageService::RECORDING_AVAILABILITY_PRESENT,
+            $storage->recordingAvailability('cameras/99/recordings/2026/04/07/smbclient-fallback.mkv'),
+        );
+    }
+
+    public function test_camera_storage_can_resolve_a_network_recording_when_smbclient_confirms_the_file(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $stream = fopen('php://temp', 'rb+');
+        fwrite($stream, 'segment-data');
+        rewind($stream);
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('99/recordings/2026/04/07/read-fallback.mkv')
+            ->andReturn(false);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('99/recordings/2026/04/07/read-fallback.mkv')
+            ->andThrow(new \RuntimeException('adapter miss'));
+        $disk->shouldReceive('files')
+            ->once()
+            ->with('99/recordings/2026/04/07')
+            ->andReturn([]);
+        $disk->shouldReceive('readStream')
+            ->once()
+            ->with('99/recordings/2026/04/07/read-fallback.mkv')
+            ->andReturn($stream);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('99/recordings/2026/04/07/read-fallback.mkv')
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_PRESENT);
+
+        $resolvedPath = $storage->resolveRecordingAbsolutePath('cameras/99/recordings/2026/04/07/read-fallback.mkv');
+
+        $this->assertNotNull($resolvedPath);
+        $this->assertSame('segment-data', file_get_contents($resolvedPath));
+        $this->assertStringEndsWith('.mkv', $resolvedPath);
+
+        $storage->deleteTemporaryFile($resolvedPath);
     }
 }

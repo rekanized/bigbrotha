@@ -147,14 +147,18 @@
             <div class="panel-heading panel-heading--compact">
                 <div>
                     <h3 class="panel-title">Failed jobs</h3>
-                    <p class="panel-copy">Recent failures are shown here so an admin can retry them without leaving the dashboard.</p>
+                    <p class="panel-copy">Recent failures are shown here so an admin can retry or delete them without leaving the dashboard.</p>
                 </div>
+
+                @if ($failedJobTotal > 0)
+                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="clearFailedJobs" wire:loading.attr="disabled" wire:target="clearFailedJobs">Delete all</button>
+                @endif
             </div>
 
             @if ($failedJobs === [])
                 <div class="empty-state empty-state--compact">
                     <strong>No failed jobs.</strong>
-                    <p>Retry actions appear here only when the failed jobs table contains recent entries.</p>
+                    <p>Retry and delete actions appear here only when the failed jobs table contains recent entries.</p>
                 </div>
             @else
                 <div class="data-table queue-monitor__table queue-monitor__table--failed">
@@ -162,7 +166,7 @@
                         <span>Queue</span>
                         <span>Job</span>
                         <span>Failed at</span>
-                        <span>Action</span>
+                        <span>Actions</span>
                     </div>
 
                     @foreach ($failedJobs as $job)
@@ -176,7 +180,10 @@
                             </div>
                             <div>{{ $job['failed_at_label'] }}</div>
                             <div>
-                                <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">Retry</button>
+                                <div class="queue-monitor__action-stack">
+                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">Retry</button>
+                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="deleteFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="deleteFailedJob({{ $job['id'] }})">Delete</button>
+                                </div>
                             </div>
                         </div>
                     @endforeach

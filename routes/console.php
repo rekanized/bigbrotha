@@ -15,6 +15,7 @@ use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
@@ -368,20 +369,42 @@ Artisan::command('camera-recordings:install-worker-service {--no-start} {--grace
     return 1;
 })->purpose('Install and optionally start the recordings worker user systemd unit');
 
-Artisan::command('camera-recordings:prune', function (): int {
-    $recordings = app(CameraRecordingService::class);
-    $reconciled = $recordings->reconcileMissingRecordedFiles();
-    $deleted = $recordings->pruneExpiredRecordings();
+Artisan::command('camera-recordings:prune {--camera_id=}', function (): int {
+    $lock = Cache::lock('camera-recordings:prune-command', max(900, (int) config('recording.prune_lock_seconds', 3600)));
 
-    $message = 'Pruned '.$deleted.' expired recording segment'.($deleted === 1 ? '' : 's').'.';
+    if (!$lock->get()) {
+        $this->components->warn('camera-recordings:prune is already running. Skipping this invocation.');
 
-    if ($reconciled > 0) {
-        $message .= ' Reconciled '.$reconciled.' recorded row'.($reconciled === 1 ? '' : 's').' whose segment file was already missing.';
+        return 0;
     }
 
-    $this->components->info($message);
+    $recordings = app(CameraRecordingService::class);
+    $cameraId = $this->option('camera_id') !== null ? (int) $this->option('camera_id') : null;
 
-    return 0;
+    try {
+        $this->components->info('Starting missing-recording recovery pass...');
+        $recovered = $recordings->recoverPreviouslyMissingRecordedFiles($cameraId);
+        $this->components->info('Starting recorded-row reconciliation pass...');
+        $reconciled = $recordings->reconcileMissingRecordedFiles($cameraId);
+        $this->components->info('Starting expired recording prune pass...');
+        $deleted = $recordings->pruneExpiredRecordings($cameraId);
+
+        $message = 'Pruned '.$deleted.' expired recording segment'.($deleted === 1 ? '' : 's').'.';
+
+        if ($recovered > 0) {
+            $message .= ' Recovered '.$recovered.' previously reconciled recording row'.($recovered === 1 ? '' : 's').' after storage became reachable again.';
+        }
+
+        if ($reconciled > 0) {
+            $message .= ' Reconciled '.$reconciled.' recorded row'.($reconciled === 1 ? '' : 's').' whose segment file was already missing.';
+        }
+
+        $this->components->info($message);
+
+        return 0;
+    } finally {
+        rescue(static fn () => $lock->release(), report: false);
+    }
 })->purpose('Delete expired camera recording segments based on per-camera retention policies');
 
 Artisan::command('camera-recordings:prune-audit {--camera_id=}', function (): int {
@@ -677,10 +700,7 @@ Schedule::command('camera-recordings:ensure-worker')
     ->withoutOverlapping();
 
 if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
-    Schedule::command('camera-recordings:build-review-assets', [
-        '--missing' => true,
-        '--limit' => (string) config('recording.review_assets.scheduler_limit', 4),
-    ])
+    Schedule::command('camera-recordings:build-review-assets --missing --limit='.(string) config('recording.review_assets.scheduler_limit', 4))
         ->everyMinute()
         ->withoutOverlapping();
 }

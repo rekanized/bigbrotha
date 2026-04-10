@@ -386,13 +386,19 @@
 
 .queue-monitor__failed-head,
 .queue-monitor__failed-row {
-    grid-template-columns: minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(100px, 0.7fr);
+    grid-template-columns: minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(216px, 1fr);
 }
 
 .queue-monitor__summary-row,
 .queue-monitor__jobs-row,
 .queue-monitor__failed-row {
     align-items: start;
+}
+
+.queue-monitor__action-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .queue-monitor__action-button {

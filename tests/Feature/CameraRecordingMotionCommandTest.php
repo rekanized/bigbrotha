@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Services\CameraRecordingService;
+use App\Services\MotionRecordingSegmenterService;
+use App\Services\RecordingMotionDetectorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -592,5 +594,332 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertDatabaseMissing('camera_recordings', [
             'id' => $recording->id,
         ]);
+    }
+
+    public function test_it_discards_an_unreadable_buffered_motion_segment_and_continues_processing(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Yard',
+            'local_ip' => '192.168.1.74',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream5',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        $segmentDirectory = storage_path('app/private/motion-recorders/camera-'.$camera->id.'/segments');
+        File::ensureDirectoryExists($segmentDirectory);
+
+        $corruptPath = $segmentDirectory.'/20260410_113344-buffer.mkv';
+        $healthyPath = $segmentDirectory.'/20260410_113345-buffer.mkv';
+
+        File::put($corruptPath, 'not-a-real-mkv');
+        File::put($healthyPath, 'healthy-placeholder');
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')
+            ->once()
+            ->andReturn([
+                'started' => false,
+                'running' => false,
+                'pid' => null,
+            ]);
+        $segmenter->shouldReceive('closedSegmentsSince')
+            ->once()
+            ->andReturn([
+                [
+                    'path' => $corruptPath,
+                    'started_at' => now()->utc()->setDate(2026, 4, 10)->setTime(11, 33, 44),
+                    'ended_at' => now()->utc()->setDate(2026, 4, 10)->setTime(11, 33, 45),
+                ],
+                [
+                    'path' => $healthyPath,
+                    'started_at' => now()->utc()->setDate(2026, 4, 10)->setTime(11, 33, 45),
+                    'ended_at' => now()->utc()->setDate(2026, 4, 10)->setTime(11, 33, 46),
+                ],
+            ]);
+        $segmenter->shouldReceive('pruneSegments')
+            ->once()
+            ->andReturn(1);
+
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        $detector->shouldReceive('detectClip')
+            ->once()
+            ->with($camera, $corruptPath)
+            ->andThrow(new \RuntimeException('Unable to evaluate motion for this camera. [matroska,webm @ 0x1] EBML header parsing failed Error opening input: Invalid data found when processing input Error opening input file '.$corruptPath));
+        $detector->shouldReceive('detectClip')
+            ->once()
+            ->with($camera, $healthyPath)
+            ->andReturn([
+                'detected' => false,
+                'activity_ratio' => 0.0,
+                'changed_pixels' => 0,
+                'selected_pixels' => 4,
+                'frame_count' => 3,
+            ]);
+
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+
+        $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $this->assertSame([
+            'started' => false,
+            'finalized' => 0,
+            'running' => false,
+        ], $result);
+        $this->assertFileDoesNotExist($corruptPath);
+        $this->assertFileExists($healthyPath);
+    }
+
+    public function test_it_prunes_old_motion_buffer_segments_after_a_retryable_staged_clip_exists(): void
+    {
+        $now = \Illuminate\Support\Carbon::create(2026, 4, 10, 19, 5, 0, 'UTC');
+
+        $this->travelTo($now);
+
+        try {
+            config()->set('recording.motion.idle_buffer_seconds', 180);
+
+            $camera = Camera::query()->create([
+                'name' => 'Loading Dock',
+                'local_ip' => '192.168.1.84',
+                'rtsp_port' => 554,
+                'rtsp_path' => '/stream12',
+                'supports_onvif' => false,
+                'supports_rtsp' => true,
+                'is_enabled' => true,
+                'recording_mode' => Camera::RECORDING_MODE_MOTION,
+                'recording_retention_days' => 1,
+                'motion_sensitivity' => 25,
+            ]);
+
+            $scheduledFor = \Illuminate\Support\Carbon::create(2026, 4, 10, 15, 21, 53, 'UTC');
+            $eventStartedAt = $scheduledFor->copy();
+            $finalizeAfter = $scheduledFor->copy()->addSeconds(40);
+            $coveredUntil = $scheduledFor->copy()->addSeconds(44);
+
+            $recording = CameraRecording::query()->create([
+                'camera_id' => $camera->id,
+                'capture_mode' => Camera::RECORDING_MODE_MOTION,
+                'status' => CameraRecording::STATUS_PROCESSING,
+                'scheduled_for' => $scheduledFor,
+                'started_at' => $eventStartedAt,
+                'message' => 'Unable to verify the uploaded file on the active camera storage disk.',
+            ]);
+
+            \App\Models\CameraMotionState::query()->create([
+                'camera_id' => $camera->id,
+                'active_recording_id' => $recording->id,
+                'event_started_at' => $eventStartedAt,
+                'last_motion_at' => $scheduledFor->copy()->addSeconds(20),
+                'finalize_after' => $finalizeAfter,
+            ]);
+
+            $storage = app(\App\Services\CameraStorageService::class);
+            $fileName = $scheduledFor->format('Ymd_His').'-motion.'.config('recording.extension', 'mkv');
+            $absolutePath = $storage->recordingAbsolutePath($camera, $scheduledFor, $fileName);
+            $relativePath = $storage->recordingRelativePathFromAbsolute($absolutePath);
+
+            File::ensureDirectoryExists(dirname($absolutePath));
+            File::put($absolutePath, 'stitched-motion-event');
+            File::put($absolutePath.'.motion-ready.json', json_encode([
+                'window_start' => $eventStartedAt->toIso8601String(),
+                'window_end' => $finalizeAfter->toIso8601String(),
+                'covered_until' => $coveredUntil->toIso8601String(),
+                'generated_at' => $now->toIso8601String(),
+            ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+
+            $storage = \Mockery::mock(\App\Services\CameraStorageService::class, [app(\App\Services\ApplicationSettingsService::class)])
+                ->makePartial();
+            $storage->shouldReceive('finalizeStagedWrite')
+                ->once()
+                ->with($relativePath, $absolutePath)
+                ->andThrow(new \RuntimeException('Unable to verify the uploaded file on the active camera storage disk.'));
+            $this->app->instance(\App\Services\CameraStorageService::class, $storage);
+
+            $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+            $segmenter->shouldReceive('syncCamera')
+                ->once()
+                ->andReturn([
+                    'started' => false,
+                    'running' => false,
+                    'pid' => null,
+                ]);
+            $segmenter->shouldReceive('closedSegmentsSince')
+                ->once()
+                ->andReturn([]);
+            $segmenter->shouldReceive('segmentsForWindow')->never();
+            $segmenter->shouldReceive('pruneSegments')
+                ->once()
+                ->with(
+                    \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                    \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof \Illuminate\Support\Carbon
+                        && $keepFrom->equalTo($now->copy()->subSeconds(180))),
+                    false,
+                )
+                ->andReturn(0);
+            $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+            $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+            $this->assertSame([
+                'started' => false,
+                'finalized' => 0,
+                'running' => false,
+            ], $result);
+            $this->assertFileExists($absolutePath);
+            $this->assertFileExists($absolutePath.'.motion-ready.json');
+            $this->assertDatabaseHas('camera_motion_states', [
+                'camera_id' => $camera->id,
+                'active_recording_id' => $recording->id,
+            ]);
+        } finally {
+            $this->travelBack();
+        }
+    }
+
+    public function test_it_rolls_an_active_motion_event_into_a_new_clip_once_it_reaches_the_stitch_limit(): void
+    {
+        config()->set('recording.motion.pre_roll_seconds', 8);
+        config()->set('recording.motion.post_trigger_seconds', 20);
+        config()->set('recording.motion.max_stitched_seconds', 180);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.75',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream6',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+        ]);
+
+        $eventStartedAt = \Illuminate\Support\Carbon::create(2026, 4, 10, 15, 0, 0, 'UTC')->startOfSecond();
+        $rolloverStartedAt = $eventStartedAt->copy()->addSeconds(180);
+        $previousSegment = [
+            'path' => storage_path('app/private/motion-recorders/camera-'.$camera->id.'/segments/20260410_145956-buffer.mkv'),
+            'started_at' => $rolloverStartedAt->copy()->subSeconds(4),
+            'ended_at' => $rolloverStartedAt->copy(),
+        ];
+        $currentSegment = [
+            'path' => storage_path('app/private/motion-recorders/camera-'.$camera->id.'/segments/20260410_150300-buffer.mkv'),
+            'started_at' => $rolloverStartedAt->copy(),
+            'ended_at' => $rolloverStartedAt->copy()->addSeconds(4),
+        ];
+
+        $activeRecording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_PROCESSING,
+            'scheduled_for' => $eventStartedAt,
+            'started_at' => $eventStartedAt,
+            'message' => 'Motion is still active in the rolling segment buffer.',
+        ]);
+
+        \App\Models\CameraMotionState::query()->create([
+            'camera_id' => $camera->id,
+            'active_recording_id' => $activeRecording->id,
+            'event_started_at' => $eventStartedAt,
+            'last_motion_at' => $rolloverStartedAt->copy()->subSeconds(4),
+            'finalize_after' => $rolloverStartedAt->copy()->addSeconds(20),
+        ]);
+
+        $storage = app(\App\Services\CameraStorageService::class);
+        $stagedPath = $storage->recordingAbsolutePath(
+            $camera,
+            $eventStartedAt,
+            $eventStartedAt->format('Ymd_His').'-motion.'.config('recording.extension', 'mkv'),
+        );
+        $relativePath = $storage->recordingRelativePathFromAbsolute($stagedPath);
+
+        File::ensureDirectoryExists(dirname($previousSegment['path']));
+        File::put($previousSegment['path'], 'motion-44');
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')
+            ->once()
+            ->andReturn([
+                'started' => false,
+                'running' => false,
+                'pid' => null,
+            ]);
+        $segmenter->shouldReceive('closedSegmentsSince')
+            ->once()
+            ->andReturn([$currentSegment]);
+        $segmenter->shouldReceive('segmentsForWindow')
+            ->twice()
+            ->with(\Mockery::type(Camera::class), \Mockery::type(\Illuminate\Support\Carbon::class), \Mockery::type(\Illuminate\Support\Carbon::class), false)
+            ->andReturn([$previousSegment], []);
+        $segmenter->shouldReceive('pruneSegments')
+            ->once()
+            ->with(
+                \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof \Illuminate\Support\Carbon
+                    && $keepFrom->equalTo($rolloverStartedAt)),
+                false,
+            )
+            ->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        $detector->shouldReceive('detectClip')
+            ->once()
+            ->with($camera, $currentSegment['path'])
+            ->andReturn([
+                'detected' => true,
+                'activity_ratio' => 0.42,
+                'changed_pixels' => 10,
+                'selected_pixels' => 16,
+                'frame_count' => 3,
+            ]);
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+
+        $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $activeRecording->refresh();
+        $replacementRecording = CameraRecording::query()
+            ->where('camera_id', $camera->id)
+            ->whereKeyNot($activeRecording->id)
+            ->sole();
+        $motionState = \App\Models\CameraMotionState::query()->where('camera_id', $camera->id)->firstOrFail();
+
+        $this->assertSame([
+            'started' => true,
+            'finalized' => 1,
+            'running' => false,
+        ], $result);
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $activeRecording->status);
+        $this->assertSame($relativePath, $activeRecording->relative_path);
+        $this->assertTrue($activeRecording->ended_at?->equalTo($rolloverStartedAt));
+        $this->assertSame('capture-1', file_get_contents($stagedPath));
+        $this->assertSame(CameraRecording::STATUS_PROCESSING, $replacementRecording->status);
+        $this->assertTrue($replacementRecording->started_at?->equalTo($rolloverStartedAt));
+        $this->assertNull($replacementRecording->relative_path);
+        $this->assertSame($replacementRecording->id, $motionState->active_recording_id);
+        $this->assertTrue($motionState->event_started_at?->equalTo($rolloverStartedAt));
+        $this->assertTrue($motionState->finalize_after?->equalTo($currentSegment['ended_at']->copy()->addSeconds(20)));
+
+        Queue::assertPushed(\App\Jobs\GenerateRecordingReviewAssetsJob::class, function (\App\Jobs\GenerateRecordingReviewAssetsJob $job) use ($activeRecording): bool {
+            return $job->recordingId === $activeRecording->id;
+        });
     }
 }

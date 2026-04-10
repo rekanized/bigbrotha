@@ -717,6 +717,14 @@
 
     const stageSourceIsLoading = (video) => video instanceof HTMLVideoElement && video.dataset.pendingSourceLoad === 'true';
 
+    const setStageVideoLoadVisibility = (video, isVisible) => {
+        if (!(video instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        video.style.visibility = isVisible ? 'visible' : 'hidden';
+    };
+
     const clearStageSourceLoadWatchdog = () => {
         if (state.stageSourceLoadTimer !== null) {
             window.clearTimeout(state.stageSourceLoadTimer);
@@ -769,6 +777,7 @@
                 seekStageVideoToFocus(scope, video, pendingFocusMs);
             }
 
+            setStageVideoLoadVisibility(video, true);
             updateStageAssetStatus(scope, video, normalizedSourceUrl);
 
             const resolvedPlayerState = ensureStageControllerState(scope, video);
@@ -789,6 +798,7 @@
         pendingStageReadyHandlers.set(video, handleSourceReady);
         video.dataset.pendingSourceLoad = 'true';
         video.addEventListener('loadeddata', handleSourceReady, { once: true });
+        setStageVideoLoadVisibility(video, false);
 
         const sourceNode = stageSourceNode(video);
 
@@ -1694,9 +1704,7 @@
             scrubRows,
             scrubSpriteUrl,
             thumbnailFrameIndex,
-            thumbnailSpriteUrl: typeof segment.thumbnailSpriteUrl === 'string' && segment.thumbnailSpriteUrl.trim() !== ''
-                ? segment.thumbnailSpriteUrl.trim()
-                : scrubSpriteUrl,
+            thumbnailSpriteUrl: typeof segment.thumbnailSpriteUrl === 'string' ? segment.thumbnailSpriteUrl.trim() : '',
             thumbnailFallbackUrl: typeof segment.thumbnailFallbackUrl === 'string' ? segment.thumbnailFallbackUrl.trim() : '',
             thumbnailUrl: typeof segment.thumbnailUrl === 'string' ? segment.thumbnailUrl.trim() : '',
         };
@@ -2592,6 +2600,7 @@
                 video.dataset.reviewStatusLabel = 'Playback stream';
                 video.dataset.directStatusLabel = 'Direct stream';
                 video.removeAttribute('poster');
+                setStageVideoLoadVisibility(video, true);
 
                 if (sourceNode instanceof HTMLSourceElement) {
                     sourceNode.removeAttribute('src');
@@ -2673,12 +2682,8 @@
         video.dataset.previewStatusLabel = 'Playback stream';
         video.dataset.reviewStatusLabel = 'Playback stream';
         video.dataset.directStatusLabel = 'Playback stream';
-
-        if (segment.thumbnailUrl) {
-            video.setAttribute('poster', String(segment.thumbnailUrl));
-        } else {
-            video.removeAttribute('poster');
-        }
+        video.removeAttribute('poster');
+        setStageVideoLoadVisibility(video, true);
 
         applyStageControllerStateToVideo(scope, video);
         prewarmStageNeighbors(scope, segment);
@@ -3284,7 +3289,6 @@
         syncStageAudioState(scope);
         updateStageVolumeUi(scope);
         updateFocusCursor(scope, currentFocusMs(scope));
-        warmScrubSprites(scope);
         prewarmStageNeighbors(scope, segmentPayloadForFocus(scope, currentFocusMs(scope)));
 
         if (cameraDidChange) {

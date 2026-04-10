@@ -188,9 +188,6 @@ class RecordingController extends Controller
         $recording->loadMissing('camera');
         $durationSeconds = $this->durationSeconds($recording);
         $playbackAvailable = $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path);
-        $browserPlaybackStrategy = $playbackAvailable
-            ? $recordings->browserPlaybackStrategy($recording)
-            : null;
 
         return view('recordings.show', [
             'recording' => $recording,
@@ -198,9 +195,6 @@ class RecordingController extends Controller
             'durationSeconds' => $durationSeconds,
             'displayTimezone' => $this->settings->appTimezone(),
             'playbackAvailable' => $playbackAvailable,
-            'browserPlaybackAvailable' => $playbackAvailable && $recordings->browserPlaybackAvailable($recording),
-            'playbackRequiresTranscode' => is_array($browserPlaybackStrategy)
-                && (($browserPlaybackStrategy['mode'] ?? CameraRecordingService::PLAYBACK_MODE_TRANSCODE) !== CameraRecordingService::PLAYBACK_MODE_DIRECT),
             'ffmpegAvailable' => $recordings->ffmpegBinary() !== null,
         ]);
     }
@@ -274,10 +268,9 @@ class RecordingController extends Controller
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
 
-        $assetState = $reviewAssets->assetState($recording);
         $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
 
-        if (($assetState['scrub_status'] ?? null) !== RecordingReviewAssetService::STATUS_READY || !$assetState['scrub_sprite_available'] || $absolutePath === null || !is_file($absolutePath)) {
+        if ($absolutePath === null || !is_file($absolutePath)) {
             $reviewAssets->ensureQueued($recording, true);
             $absolutePath = null;
         }

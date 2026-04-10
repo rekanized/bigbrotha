@@ -2,15 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\Feature\Concerns\BuildsFakeRecordingFfmpegBinary;
 use Tests\TestCase;
 
@@ -79,6 +83,13 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         File::put($expiredReviewAssetDirectory.'/preview.mp4', 'preview');
         File::put($expiredReviewAssetDirectory.'/scrub-sprite.jpg', 'sprite');
 
+        $expiredLocalSpritePath = app(CameraStorageService::class)->recordingLocalReviewSpriteAbsolutePath(
+            'cameras/'.$camera->id.'/recordings/2026/04/01/expired-continuous.mkv',
+            'scrub-sprite.jpg',
+            true,
+        );
+        File::put($expiredLocalSpritePath, 'local-sprite');
+
         CameraRecording::query()->create([
             'camera_id' => $camera->id,
             'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
@@ -100,6 +111,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
             'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/01/expired-continuous.mkv',
         ]);
         $this->assertDirectoryDoesNotExist($expiredReviewAssetDirectory);
+        $this->assertFileDoesNotExist($expiredLocalSpritePath);
     }
 
     public function test_it_prunes_expired_terminal_motion_rows_without_saved_files(): void
@@ -177,6 +189,100 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertStringContainsString('missing from active storage', (string) $recording->message);
         $this->assertFileDoesNotExist($previewAbsolutePath);
         $this->assertFileDoesNotExist($scrubSpriteAbsolutePath);
+    }
+
+    public function test_it_does_not_mark_recorded_rows_failed_when_storage_cannot_confirm_the_file_state(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Archive Gate',
+            'local_ip' => '192.168.1.178',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream8',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'started_at' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'ended_at' => now()->utc()->subMinutes(14)->startOfMinute(),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/transient-storage-check.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Previously recorded clip.',
+        ]);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+        $previewAbsolutePath = $reviewAssets->previewAbsolutePath($recording, true);
+        $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
+        File::put($previewAbsolutePath, 'preview');
+        File::put($scrubSpriteAbsolutePath, 'sprite');
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('recordingAvailability')
+            ->with($recording->relative_path)
+            ->once()
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE);
+        $this->app->instance(CameraStorageService::class, $storage);
+
+        Artisan::call('camera-recordings:prune');
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertSame(4096, $recording->file_size_bytes);
+        $this->assertSame('Previously recorded clip.', $recording->message);
+        $this->assertFileExists($previewAbsolutePath);
+        $this->assertFileExists($scrubSpriteAbsolutePath);
+    }
+
+    public function test_it_recovers_previously_reconciled_recordings_when_the_file_is_available_again(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Archive Gate',
+            'local_ip' => '192.168.1.179',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream8',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/07/recovered-archive-gate.mkv';
+        $absolutePath = storage_path('app/private/'.$relativePath);
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recovered');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_FAILED,
+            'scheduled_for' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'started_at' => now()->utc()->subMinutes(15)->startOfMinute(),
+            'ended_at' => now()->utc()->subMinutes(14)->startOfMinute(),
+            'relative_path' => $relativePath,
+            'file_size_bytes' => null,
+            'message' => 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertSame(filesize($absolutePath), $recording->file_size_bytes);
+        $this->assertSame('Recovered the recorded segment after storage became reachable again.', $recording->message);
+
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($recording): bool {
+            return $job->recordingId === $recording->getKey();
+        });
     }
 
     public function test_it_prunes_expired_segments_with_legacy_private_storage_path_formats(): void
@@ -453,9 +559,105 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertNotNull($reviewBackfillEvent);
         $this->assertSame('* * * * *', $reviewBackfillEvent->expression);
         $this->assertStringContainsString('--missing', (string) $reviewBackfillEvent->command);
+        $this->assertStringNotContainsString("--missing='1'", (string) $reviewBackfillEvent->command);
         $this->assertNotNull($tickEvent);
         $this->assertSame('* * * * *', $tickEvent->expression);
         $this->assertNotNull($pruneEvent);
         $this->assertSame('0 * * * *', $pruneEvent->expression);
+    }
+
+    public function test_it_skips_overlapping_prune_invocations_when_the_lock_is_already_held(): void
+    {
+        $lock = Cache::lock('camera-recordings:prune-command', 3600);
+        $this->assertTrue($lock->get());
+
+        try {
+            $exitCode = Artisan::call('camera-recordings:prune');
+
+            $this->assertSame(0, $exitCode);
+            $this->assertStringContainsString('already running', Artisan::output());
+        } finally {
+            rescue(static fn () => $lock->release(), report: false);
+        }
+    }
+
+    public function test_it_reports_prune_phase_progress_in_command_output(): void
+    {
+        $output = new BufferedOutput();
+        $exitCode = Artisan::call('camera-recordings:prune', [], $output);
+        $buffer = $output->fetch();
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Starting missing-recording recovery pass...', $buffer);
+        $this->assertStringContainsString('Starting recorded-row reconciliation pass...', $buffer);
+        $this->assertStringContainsString('Starting expired recording prune pass...', $buffer);
+        $this->assertStringContainsString('Pruned 0 expired recording segments.', $buffer);
+    }
+
+    public function test_it_can_scope_the_prune_command_to_a_single_camera(): void
+    {
+        $cameraOne = Camera::query()->create([
+            'name' => 'Scoped Recovery One',
+            'local_ip' => '192.168.1.181',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $cameraTwo = Camera::query()->create([
+            'name' => 'Scoped Recovery Two',
+            'local_ip' => '192.168.1.182',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 7,
+        ]);
+
+        $cameraOnePath = 'cameras/'.$cameraOne->id.'/recordings/2026/04/07/scoped-recovery-one.mkv';
+        $cameraTwoPath = 'cameras/'.$cameraTwo->id.'/recordings/2026/04/07/scoped-recovery-two.mkv';
+
+        File::ensureDirectoryExists(dirname(storage_path('app/private/'.$cameraOnePath)));
+        File::put(storage_path('app/private/'.$cameraOnePath), 'camera-one');
+        File::ensureDirectoryExists(dirname(storage_path('app/private/'.$cameraTwoPath)));
+        File::put(storage_path('app/private/'.$cameraTwoPath), 'camera-two');
+
+        $cameraOneRecording = CameraRecording::query()->create([
+            'camera_id' => $cameraOne->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_FAILED,
+            'scheduled_for' => now()->utc()->subMinutes(20)->startOfMinute(),
+            'started_at' => now()->utc()->subMinutes(20)->startOfMinute(),
+            'ended_at' => now()->utc()->subMinutes(19)->startOfMinute(),
+            'relative_path' => $cameraOnePath,
+            'file_size_bytes' => null,
+            'message' => 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+        ]);
+
+        $cameraTwoRecording = CameraRecording::query()->create([
+            'camera_id' => $cameraTwo->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_FAILED,
+            'scheduled_for' => now()->utc()->subMinutes(18)->startOfMinute(),
+            'started_at' => now()->utc()->subMinutes(18)->startOfMinute(),
+            'ended_at' => now()->utc()->subMinutes(17)->startOfMinute(),
+            'relative_path' => $cameraTwoPath,
+            'file_size_bytes' => null,
+            'message' => 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+        ]);
+
+        Artisan::call('camera-recordings:prune', ['--camera_id' => $cameraOne->id]);
+
+        $cameraOneRecording->refresh();
+        $cameraTwoRecording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $cameraOneRecording->status);
+        $this->assertSame(CameraRecording::STATUS_FAILED, $cameraTwoRecording->status);
     }
 }

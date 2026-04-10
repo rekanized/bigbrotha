@@ -110,6 +110,70 @@ class AdminJobQueue extends Component
         $this->loadSnapshot(app(RecordingWorkerService::class));
     }
 
+    public function deleteFailedJob(int $failedJobId): void
+    {
+        $this->statusMessage = null;
+
+        if (!$this->failedJobsTableAvailable) {
+            $this->statusTone = 'warn';
+            $this->statusMessage = 'The failed jobs table is not available on this environment.';
+
+            return;
+        }
+
+        try {
+            $deletedCount = DB::table('failed_jobs')->where('id', $failedJobId)->delete();
+
+            if ($deletedCount === 0) {
+                $this->statusTone = 'warn';
+                $this->statusMessage = 'That failed job no longer exists. The panel has been refreshed.';
+                $this->loadSnapshot(app(RecordingWorkerService::class));
+
+                return;
+            }
+
+            $this->statusTone = 'good';
+            $this->statusMessage = 'Deleted the selected failed job.';
+        } catch (Throwable $exception) {
+            $this->statusTone = 'alert';
+            $this->statusMessage = 'Unable to delete the selected failed job: '.$exception->getMessage();
+        }
+
+        $this->loadSnapshot(app(RecordingWorkerService::class));
+    }
+
+    public function clearFailedJobs(): void
+    {
+        $this->statusMessage = null;
+
+        if (!$this->failedJobsTableAvailable) {
+            $this->statusTone = 'warn';
+            $this->statusMessage = 'The failed jobs table is not available on this environment.';
+
+            return;
+        }
+
+        try {
+            $deletedCount = DB::table('failed_jobs')->delete();
+
+            if ($deletedCount === 0) {
+                $this->statusTone = 'warn';
+                $this->statusMessage = 'There were no failed jobs left to delete. The panel has been refreshed.';
+                $this->loadSnapshot(app(RecordingWorkerService::class));
+
+                return;
+            }
+
+            $this->statusTone = 'good';
+            $this->statusMessage = 'Deleted '.$deletedCount.' failed job record'.($deletedCount === 1 ? '' : 's').'.';
+        } catch (Throwable $exception) {
+            $this->statusTone = 'alert';
+            $this->statusMessage = 'Unable to clear failed jobs: '.$exception->getMessage();
+        }
+
+        $this->loadSnapshot(app(RecordingWorkerService::class));
+    }
+
     public function render(): View
     {
         return view('livewire.admin.admin-job-queue');

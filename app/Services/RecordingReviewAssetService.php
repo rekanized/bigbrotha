@@ -128,6 +128,10 @@ class RecordingReviewAssetService
             return $this->timelinePlaybackMetadataCache[$cacheKey];
         }
 
+        if ($this->shouldSkipTimelineManifestLookup($recording)) {
+            return $this->timelinePlaybackMetadataCache[$cacheKey] = $this->networkTimelinePlaybackMetadata($recording);
+        }
+
         $manifest = $this->manifest($recording);
         $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
         $manifestStatus = $versionCurrent && is_string($manifest['status'] ?? null)
@@ -185,6 +189,55 @@ class RecordingReviewAssetService
                 'available' => $scrubSpriteAvailable,
             ],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function networkTimelinePlaybackMetadata(CameraRecording $recording): array
+    {
+        $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
+        $scrubFrameCount = $this->scrubFrameCount($recording);
+        $scrubFrameIntervalSeconds = $this->scrubFrameIntervalSeconds();
+        $scrubFrameWidth = $this->scrubFrameWidth();
+        $scrubFrameHeight = $this->scrubFrameHeight();
+        $scrubColumns = $this->scrubColumns();
+        $scrubRows = (int) ceil(max(1, $scrubFrameCount) / max(1, $scrubColumns));
+        $scrubSpriteAvailable = $scrubSpriteRelativePath !== null
+            && $scrubFrameCount > 0
+            && (!$this->storage->reviewSpritesStoredLocally() || $this->storage->privateFileExists($scrubSpriteRelativePath));
+
+        return [
+            'status' => self::STATUS_MISSING,
+            'ready' => false,
+            'preview_available' => false,
+            'thumbnail_available' => $scrubSpriteAvailable,
+            'scrub_status' => $scrubSpriteAvailable ? self::STATUS_READY : self::STATUS_MISSING,
+            'scrub_sprite_available' => $scrubSpriteAvailable,
+            'duration_seconds' => $this->recordingDurationSeconds($recording),
+            'scrub' => [
+                'relative_path' => $scrubSpriteRelativePath,
+                'frame_count' => $scrubFrameCount,
+                'frame_interval_seconds' => $scrubFrameIntervalSeconds,
+                'frame_width' => $scrubFrameWidth,
+                'frame_height' => $scrubFrameHeight,
+                'columns' => $scrubColumns,
+                'rows' => $scrubRows,
+                'available' => $scrubSpriteAvailable,
+            ],
+        ];
+    }
+
+    private function shouldSkipTimelineManifestLookup(CameraRecording $recording): bool
+    {
+        $relativePath = $this->storage->normalizePrivateStorageRelativePath($recording->relative_path);
+
+        if ($relativePath === null) {
+            return false;
+        }
+
+        return $this->storage->usingNetworkStorage()
+            && str_starts_with(ltrim($relativePath, '/'), 'cameras/');
     }
 
     /**
@@ -276,7 +329,7 @@ class RecordingReviewAssetService
         $absoluteRecordingPath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
 
         if ($absoluteRecordingPath === null) {
-            throw new RuntimeException('The saved recording segment is not available on disk.');
+            throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));
         }
 
         $version = $this->assetVersion($recording);
@@ -419,6 +472,10 @@ class RecordingReviewAssetService
 
     public function scrubSpriteAbsolutePath(CameraRecording $recording, bool $ensureDirectory = false): ?string
     {
+        if ($this->storage->reviewSpritesStoredLocally()) {
+            return $this->storage->recordingLocalReviewSpriteAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', $ensureDirectory);
+        }
+
         return $this->storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', $ensureDirectory);
     }
 
@@ -531,6 +588,10 @@ class RecordingReviewAssetService
 
     private function scrubSpriteRelativePath(CameraRecording $recording): ?string
     {
+        if ($this->storage->reviewSpritesStoredLocally()) {
+            return $this->storage->recordingLocalReviewSpriteRelativePath($recording->relative_path, 'scrub-sprite.jpg');
+        }
+
         return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'scrub-sprite.jpg');
     }
 

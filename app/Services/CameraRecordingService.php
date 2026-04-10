@@ -9,8 +9,9 @@ use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -22,6 +23,8 @@ use Throwable;
 
 class CameraRecordingService
 {
+    private const MISSING_STORAGE_RECONCILE_MESSAGE = 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.';
+
     public function __construct(
         private readonly CameraStorageService $storage,
         private readonly RecordingReviewAssetService $reviewAssets,
@@ -75,6 +78,11 @@ class CameraRecordingService
             max(30, (int) config('recording.motion.idle_buffer_seconds', 180)),
             $this->motionPreRollSeconds($camera) + $this->motionPostTriggerSeconds($camera) + 30,
         );
+    }
+
+    public function motionMaxStitchedSeconds(?Camera $camera = null): int
+    {
+        return max(60, (int) config('recording.motion.max_stitched_seconds', 180));
     }
 
     public function queueName(): string
@@ -426,9 +434,32 @@ class CameraRecordingService
                 $activeRecording = $this->activeMotionRecording($state);
             }
 
+            $rolloverStartedAt = null;
+
+            if ($activeRecording instanceof CameraRecording) {
+                $rolloverStartedAt = $this->motionRecordingRolloverStartedAt($camera, $state, $activeRecording, $segment['started_at']);
+
+                if ($rolloverStartedAt instanceof Carbon) {
+                    if ($this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'], $rolloverStartedAt)) {
+                        $finalized++;
+                    } else {
+                        $rolloverStartedAt = null;
+                    }
+
+                    $state->refresh();
+                    $activeRecording = $this->activeMotionRecording($state);
+                }
+            }
+
             try {
                 $motion = $this->motionDetector->detectClip($camera, $segment['path']);
             } catch (Throwable $exception) {
+                if ($this->shouldDiscardBufferedMotionSegment($exception, $segment['path'])) {
+                    $this->discardBufferedMotionSegment($camera, $segment['path'], $exception);
+
+                    continue;
+                }
+
                 $targetRecording = $activeRecording instanceof CameraRecording ? $activeRecording : $preferredRecording;
 
                 if ($targetRecording instanceof CameraRecording && $targetRecording->isPending()) {
@@ -459,7 +490,7 @@ class CameraRecordingService
 
             if ($motion['detected']) {
                 if (!$activeRecording instanceof CameraRecording) {
-                    $activeRecording = $this->startMotionRecordingEvent($camera, $state, $source, $segment, $motion, $preferredRecording);
+                    $activeRecording = $this->startMotionRecordingEvent($camera, $state, $source, $segment, $motion, $preferredRecording, $rolloverStartedAt);
                     $started = true;
                 } else {
                     $this->touchMotionRecordingEvent($camera, $state, $activeRecording, $source, $segment, $motion);
@@ -477,10 +508,7 @@ class CameraRecordingService
             $activeRecording = $this->activeMotionRecording($state);
         }
 
-        $keepFrom = $activeRecording instanceof CameraRecording
-            ? (($state->event_started_at instanceof Carbon ? $state->event_started_at->copy()->utc() : $activeRecording->started_at?->copy()->utc())
-                ?? now()->utc()->subSeconds($this->motionIdleBufferSeconds($camera)))
-            : now()->utc()->subSeconds($this->motionIdleBufferSeconds($camera));
+        $keepFrom = $this->motionBufferKeepFrom($camera, $state, $activeRecording);
 
         $this->motionSegmenter->pruneSegments($camera, $keepFrom, $segmenter['running']);
 
@@ -559,6 +587,31 @@ class CameraRecordingService
         });
 
         return $deleted;
+    }
+
+    public function recoverPreviouslyMissingRecordedFiles(?int $cameraId = null): int
+    {
+        $recovered = 0;
+
+        CameraRecording::query()
+            ->when($cameraId !== null, function (Builder $query) use ($cameraId): void {
+                $query->where('camera_id', $cameraId);
+            })
+            ->where('status', CameraRecording::STATUS_FAILED)
+            ->whereNotNull('relative_path')
+            ->where('message', self::MISSING_STORAGE_RECONCILE_MESSAGE)
+            ->orderBy('id')
+            ->chunkById(100, function ($recordings) use (&$recovered): void {
+                foreach ($recordings as $recording) {
+                    if ($this->recoverPreviouslyMissingRecordedFile($recording)) {
+                        $recording->refresh();
+                        $this->reviewAssets->ensureQueued($recording, true);
+                        $recovered++;
+                    }
+                }
+            }, 'id');
+
+        return $recovered;
     }
 
     public function reconcileMissingRecordedFiles(?int $cameraId = null): int
@@ -681,7 +734,7 @@ class CameraRecordingService
 
     private function reconcileMissingRecordedFile(CameraRecording $recording): bool
     {
-        if ($this->storage->recordingExists($recording->relative_path)) {
+        if ($this->storage->recordingAvailability($recording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_MISSING) {
             return false;
         }
 
@@ -696,7 +749,7 @@ class CameraRecordingService
                     return false;
                 }
 
-                if ($this->storage->recordingExists($lockedRecording->relative_path)) {
+                if ($this->storage->recordingAvailability($lockedRecording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_MISSING) {
                     return false;
                 }
 
@@ -705,7 +758,7 @@ class CameraRecordingService
                 $this->markRecording(
                     $lockedRecording,
                     CameraRecording::STATUS_FAILED,
-                    'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+                    self::MISSING_STORAGE_RECONCILE_MESSAGE,
                     [
                         'ended_at' => $lockedRecording->ended_at ?? now()->utc(),
                         'file_size_bytes' => null,
@@ -727,12 +780,64 @@ class CameraRecordingService
         }
     }
 
+    private function recoverPreviouslyMissingRecordedFile(CameraRecording $recording): bool
+    {
+        if ($this->storage->recordingAvailability($recording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_PRESENT) {
+            return false;
+        }
+
+        try {
+            return DB::transaction(function () use ($recording): bool {
+                $lockedRecording = CameraRecording::query()
+                    ->whereKey($recording->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lockedRecording instanceof CameraRecording
+                    || $lockedRecording->status !== CameraRecording::STATUS_FAILED
+                    || $lockedRecording->relative_path === null
+                    || $lockedRecording->message !== self::MISSING_STORAGE_RECONCILE_MESSAGE) {
+                    return false;
+                }
+
+                if ($this->storage->recordingAvailability($lockedRecording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_PRESENT) {
+                    return false;
+                }
+
+                $metadata = $this->storage->recordingStreamMetadata($lockedRecording->relative_path);
+
+                $this->markRecording(
+                    $lockedRecording,
+                    CameraRecording::STATUS_RECORDED,
+                    'Recovered the recorded segment after storage became reachable again.',
+                    [
+                        'file_size_bytes' => is_int($metadata['size'] ?? null)
+                            ? (int) $metadata['size']
+                            : $lockedRecording->file_size_bytes,
+                    ],
+                );
+
+                return true;
+            }, 3);
+        } catch (Throwable $exception) {
+            Log::warning('Failed to recover a previously reconciled recording after storage became reachable again.', [
+                'recording_id' => $recording->getKey(),
+                'relative_path' => $recording->relative_path,
+                'error' => $this->summarizeThrowable($exception, 'Unable to recover the recording after storage returned.'),
+            ]);
+
+            $this->safeReport($exception);
+
+            return false;
+        }
+    }
+
     public function playbackResponse(CameraRecording $recording): StreamedResponse
     {
         $absolutePath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
 
         if ($absolutePath === null) {
-            throw new RuntimeException('The saved recording segment is not available on disk.');
+            throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));
         }
 
         $command = $this->buildPlaybackCommand($absolutePath);
@@ -758,7 +863,7 @@ class CameraRecordingService
         $absolutePath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
 
         if ($absolutePath === null) {
-            throw new RuntimeException('The saved recording segment is not available on disk.');
+            throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));
         }
 
         $bufferedPath = $this->bufferedPlaybackAbsolutePath($recording);
@@ -877,8 +982,14 @@ class CameraRecordingService
         array $segment,
         array $motion,
         ?CameraRecording $preferredRecording = null,
+        ?Carbon $minimumStartedAt = null,
     ): CameraRecording {
         $startedAt = $segment['started_at']->copy()->subSeconds($this->motionPreRollSeconds($camera))->utc()->startOfSecond();
+
+        if ($minimumStartedAt instanceof Carbon && $startedAt->lessThan($minimumStartedAt)) {
+            $startedAt = $minimumStartedAt->copy()->utc()->startOfSecond();
+        }
+
         $scheduledFor = $this->nextAvailableScheduledFor($camera, $startedAt, $preferredRecording?->getKey());
         $recording = $preferredRecording instanceof CameraRecording
             && $preferredRecording->camera_id === $camera->getKey()
@@ -980,92 +1091,119 @@ class CameraRecordingService
         CameraMotionState $state,
         CameraRecording $recording,
         bool $recorderRunning,
+        ?Carbon $windowEndOverride = null,
     ): bool {
-        $windowStart = ($state->event_started_at instanceof Carbon ? $state->event_started_at->copy()->utc() : null)
-            ?? ($recording->started_at instanceof Carbon ? $recording->started_at->copy()->utc() : null)
-            ?? ($recording->scheduled_for instanceof Carbon ? $recording->scheduled_for->copy()->utc() : null);
-        $windowEnd = $state->finalize_after instanceof Carbon ? $state->finalize_after->copy()->utc() : null;
+        $windowStart = $this->motionWindowStart($state, $recording);
+        $windowEnd = $windowEndOverride instanceof Carbon
+            ? $windowEndOverride->copy()->utc()->startOfSecond()
+            : $this->motionWindowEnd($state);
 
-        if (!$windowStart instanceof Carbon || !$windowEnd instanceof Carbon) {
+        if (!$windowStart instanceof Carbon || !$windowEnd instanceof Carbon || $windowEnd->lessThanOrEqualTo($windowStart)) {
             return false;
         }
 
-        $segments = $this->motionSegmenter->segmentsForWindow($camera, $windowStart, $windowEnd, $recorderRunning);
-
-        if ($segments === []) {
-            return false;
-        }
-
-        $coveredUntil = end($segments)['ended_at'] ?? null;
-
-        if (!$coveredUntil instanceof Carbon || $coveredUntil->lessThan($windowEnd)) {
-            return false;
-        }
-
-        $workspace = $this->motionWorkspacePath($recording);
-        File::ensureDirectoryExists($workspace);
         $absolutePath = $this->buildRecordingAbsolutePath(
             $camera,
             $recording->scheduled_for instanceof Carbon ? $recording->scheduled_for->copy()->utc() : $windowStart,
             $recording->capture_mode,
         );
+        $coveredUntil = null;
 
-        try {
-            $process = $this->concatMotionSegments($segments, $absolutePath, $workspace.'/segments.ffconcat');
+        $stagedClip = $this->readyStagedMotionClip($absolutePath, $windowStart, $windowEnd);
 
-            if (!$process->isSuccessful() || !is_file($absolutePath)) {
-                $this->markRecordingProcessing(
-                    $recording,
-                    $this->summarizeProcessFailure($process, 'Unable to finalize the rolling motion event. Laravel will retry on the next scheduler tick.'),
-                );
+        if ($stagedClip !== null) {
+            $coveredUntil = $stagedClip['covered_until'];
+        } else {
+            $segments = $this->motionSegmenter->segmentsForWindow($camera, $windowStart, $windowEnd, $recorderRunning);
 
+            if ($segments === []) {
                 return false;
             }
 
-            clearstatcache(true, $absolutePath);
-            $relativePath = $this->storage->recordingRelativePathFromAbsolute($absolutePath);
-            $fileSize = is_file($absolutePath) ? filesize($absolutePath) : null;
+            $coveredUntil = end($segments)['ended_at'] ?? null;
+
+            if (!$coveredUntil instanceof Carbon || $coveredUntil->lessThan($windowEnd)) {
+                return false;
+            }
+
+            $workspace = $this->motionWorkspacePath($recording);
+            File::ensureDirectoryExists($workspace);
 
             try {
-                $this->storage->finalizeStagedWrite($relativePath, $absolutePath);
-            } catch (Throwable $exception) {
-                $this->markRecordingProcessing(
-                    $recording,
-                    $this->summarizeThrowable($exception, 'Unable to move the finalized motion clip into active storage. Laravel will retry on the next scheduler tick.'),
-                );
+                $this->clearReadyStagedMotionClip($absolutePath);
 
-                return false;
-            }
+                if (is_file($absolutePath)) {
+                    @unlink($absolutePath);
+                    clearstatcache(true, $absolutePath);
+                }
 
-            $endedAt = $coveredUntil->copy()->utc();
-            $lastMotionAt = $state->last_motion_at instanceof Carbon ? $state->last_motion_at->copy()->utc() : $endedAt;
+                $process = $this->concatMotionSegments($segments, $absolutePath, $workspace.'/segments.ffconcat');
 
-            $this->markRecording(
-                $recording,
-                CameraRecording::STATUS_RECORDED,
-                'Recorded a stitched motion event to '.$relativePath.' from the rolling segment buffer with '
-                .$this->motionPreRollSeconds($camera).' seconds of pre-roll context and a dynamically extended trailing quiet window.',
-                [
-                    'relative_path' => $relativePath,
-                    'file_size_bytes' => is_int($fileSize) ? $fileSize : null,
-                    'ended_at' => $endedAt,
-                ],
-            );
+                if (!$process->isSuccessful() || !is_file($absolutePath)) {
+                    if (is_file($absolutePath)) {
+                        @unlink($absolutePath);
+                        clearstatcache(true, $absolutePath);
+                    }
 
-            $camera->forceFill([
-                'recording_last_motion_at' => $lastMotionAt,
-                'recording_last_recorded_at' => $endedAt,
-            ])->save();
+                    $this->clearReadyStagedMotionClip($absolutePath);
 
-            $this->dispatchReviewAssetGeneration($recording, $camera, 'Recorded a motion event to '.$relativePath.'.');
-            $this->clearMotionState($state);
+                    $this->markRecordingProcessing(
+                        $recording,
+                        $this->summarizeProcessFailure($process, 'Unable to finalize the rolling motion event. Laravel will retry on the next scheduler tick.'),
+                    );
 
-            return true;
-        } finally {
-            if (is_dir($workspace)) {
-                File::deleteDirectory($workspace);
+                    return false;
+                }
+
+                $this->markReadyStagedMotionClip($absolutePath, $windowStart, $windowEnd, $coveredUntil);
+            } finally {
+                if (is_dir($workspace)) {
+                    File::deleteDirectory($workspace);
+                }
             }
         }
+
+        clearstatcache(true, $absolutePath);
+        $relativePath = $this->storage->recordingRelativePathFromAbsolute($absolutePath);
+        $fileSize = is_file($absolutePath) ? filesize($absolutePath) : null;
+
+        try {
+            $this->storage->finalizeStagedWrite($relativePath, $absolutePath);
+        } catch (Throwable $exception) {
+            $this->markRecordingProcessing(
+                $recording,
+                $this->summarizeThrowable($exception, 'Unable to move the finalized motion clip into active storage. Laravel will retry on the next scheduler tick.'),
+            );
+
+            return false;
+        }
+
+        $this->clearReadyStagedMotionClip($absolutePath);
+
+        $endedAt = $coveredUntil->copy()->utc();
+        $lastMotionAt = $state->last_motion_at instanceof Carbon ? $state->last_motion_at->copy()->utc() : $endedAt;
+
+        $this->markRecording(
+            $recording,
+            CameraRecording::STATUS_RECORDED,
+            'Recorded a stitched motion event to '.$relativePath.' from the rolling segment buffer with '
+            .$this->motionPreRollSeconds($camera).' seconds of pre-roll context and a dynamically extended trailing quiet window.',
+            [
+                'relative_path' => $relativePath,
+                'file_size_bytes' => is_int($fileSize) ? $fileSize : null,
+                'ended_at' => $endedAt,
+            ],
+        );
+
+        $camera->forceFill([
+            'recording_last_motion_at' => $lastMotionAt,
+            'recording_last_recorded_at' => $endedAt,
+        ])->save();
+
+        $this->dispatchReviewAssetGeneration($recording, $camera, 'Recorded a motion event to '.$relativePath.'.');
+        $this->clearMotionState($state);
+
+        return true;
     }
 
     private function dispatchReviewAssetGeneration(CameraRecording $recording, Camera $camera, string $successMessage): void
@@ -1118,6 +1256,174 @@ class CameraRecordingService
             'last_motion_at' => null,
             'finalize_after' => null,
         ])->save();
+    }
+
+    private function motionBufferKeepFrom(Camera $camera, CameraMotionState $state, ?CameraRecording $activeRecording): Carbon
+    {
+        $idleCutoff = now()->utc()->subSeconds($this->motionIdleBufferSeconds($camera));
+
+        if (!$activeRecording instanceof CameraRecording) {
+            return $idleCutoff;
+        }
+
+        $windowStart = $this->motionWindowStart($state, $activeRecording);
+
+        if (!$windowStart instanceof Carbon) {
+            return $idleCutoff;
+        }
+
+        $windowEnd = $this->motionWindowEnd($state);
+
+        if (!$windowEnd instanceof Carbon) {
+            return $windowStart;
+        }
+
+        $absolutePath = $this->buildRecordingAbsolutePath(
+            $camera,
+            $activeRecording->scheduled_for instanceof Carbon ? $activeRecording->scheduled_for->copy()->utc() : $windowStart,
+            $activeRecording->capture_mode,
+        );
+
+        return $this->readyStagedMotionClip($absolutePath, $windowStart, $windowEnd) !== null
+            ? $idleCutoff
+            : $windowStart;
+    }
+
+    private function motionWindowStart(CameraMotionState $state, CameraRecording $recording): ?Carbon
+    {
+        return ($state->event_started_at instanceof Carbon ? $state->event_started_at->copy()->utc() : null)
+            ?? ($recording->started_at instanceof Carbon ? $recording->started_at->copy()->utc() : null)
+            ?? ($recording->scheduled_for instanceof Carbon ? $recording->scheduled_for->copy()->utc() : null);
+    }
+
+    private function motionWindowEnd(CameraMotionState $state): ?Carbon
+    {
+        return $state->finalize_after instanceof Carbon ? $state->finalize_after->copy()->utc() : null;
+    }
+
+    private function motionRecordingRolloverStartedAt(
+        Camera $camera,
+        CameraMotionState $state,
+        CameraRecording $recording,
+        Carbon $segmentStartedAt,
+    ): ?Carbon {
+        $windowStart = $this->motionWindowStart($state, $recording);
+
+        if (!$windowStart instanceof Carbon) {
+            return null;
+        }
+
+        $maximumWindowEnd = $windowStart->copy()->addSeconds($this->motionMaxStitchedSeconds($camera));
+
+        return $segmentStartedAt->greaterThanOrEqualTo($maximumWindowEnd)
+            ? $segmentStartedAt->copy()->utc()->startOfSecond()
+            : null;
+    }
+
+    /**
+     * @return array{covered_until: Carbon}|null
+     */
+    private function readyStagedMotionClip(string $absolutePath, Carbon $windowStart, Carbon $windowEnd): ?array
+    {
+        if (!is_file($absolutePath)) {
+            return null;
+        }
+
+        $metadataPath = $this->readyStagedMotionClipPath($absolutePath);
+
+        if (!is_file($metadataPath)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($metadataPath), true);
+
+        if (!is_array($decoded)
+            || ($decoded['window_start'] ?? null) !== $windowStart->toIso8601String()
+            || ($decoded['window_end'] ?? null) !== $windowEnd->toIso8601String()) {
+            return null;
+        }
+
+        try {
+            $coveredUntil = Carbon::parse((string) ($decoded['covered_until'] ?? ''), 'UTC')->utc()->startOfSecond();
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($coveredUntil->lessThan($windowEnd)) {
+            return null;
+        }
+
+        return [
+            'covered_until' => $coveredUntil,
+        ];
+    }
+
+    private function markReadyStagedMotionClip(string $absolutePath, Carbon $windowStart, Carbon $windowEnd, Carbon $coveredUntil): void
+    {
+        File::put($this->readyStagedMotionClipPath($absolutePath), json_encode([
+            'window_start' => $windowStart->toIso8601String(),
+            'window_end' => $windowEnd->toIso8601String(),
+            'covered_until' => $coveredUntil->toIso8601String(),
+            'generated_at' => now()->utc()->toIso8601String(),
+        ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+    }
+
+    private function clearReadyStagedMotionClip(string $absolutePath): void
+    {
+        File::delete($this->readyStagedMotionClipPath($absolutePath));
+    }
+
+    private function readyStagedMotionClipPath(string $absolutePath): string
+    {
+        return $absolutePath.'.motion-ready.json';
+    }
+
+    private function shouldDiscardBufferedMotionSegment(Throwable $exception, string $segmentPath): bool
+    {
+        if (!is_string($segmentPath) || trim($segmentPath) === '') {
+            return false;
+        }
+
+        $normalizedPath = str_replace('\\', '/', $segmentPath);
+
+        if (!str_contains($normalizedPath, '/motion-recorders/') || !str_contains(basename($normalizedPath), '-buffer.')) {
+            return false;
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        foreach ([
+            'ebml header parsing failed',
+            'invalid data found when processing input',
+            'error opening input file',
+            'error opening input:',
+            'moov atom not found',
+            'could not find codec parameters',
+        ] as $needle) {
+            if (str_contains($message, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function discardBufferedMotionSegment(Camera $camera, string $segmentPath, Throwable $exception): void
+    {
+        $deleted = false;
+
+        if (is_file($segmentPath)) {
+            $deleted = @unlink($segmentPath);
+            clearstatcache(true, $segmentPath);
+        }
+
+        $this->safeLog('warning', 'Discarded an unreadable buffered motion segment.', [
+            'camera_id' => $camera->getKey(),
+            'segment_path' => $segmentPath,
+            'deleted' => $deleted || !is_file($segmentPath),
+            'exception' => $exception::class,
+            'message' => $exception->getMessage(),
+        ]);
     }
 
     private function motionStateOwnsRecording(CameraRecording $recording): bool
@@ -1456,28 +1762,40 @@ class CameraRecordingService
     private function markRecording(CameraRecording $recording, string $status, string $message, array $attributes = []): void
     {
         $previousStatus = $recording->status;
-
-        $recording->forceFill(array_merge($attributes, [
+        $updates = array_merge($attributes, [
             'status' => $status,
             'message' => Str::limit($message, 240),
-        ]))->save();
+        ]);
 
-        $context = [
-            'recording_id' => $recording->getKey(),
-            'camera_id' => $recording->camera_id,
-            'from' => $previousStatus,
-            'to' => $status,
-            'scheduled_for' => $recording->scheduled_for?->toIso8601String(),
-            'message' => $recording->message,
-        ];
+        $delta = $recording->auditDeltaFor($updates);
 
-        if ($status === CameraRecording::STATUS_FAILED) {
-            $this->safeLog('warning', 'Camera recording transitioned to a failed state.', $context);
+        if ($delta['old'] === [] && $delta['new'] === []) {
+            return;
+        }
+
+        $recording->forceFill($updates);
+
+        if ($previousStatus === $status) {
+            $recording->save();
 
             return;
         }
 
-        $this->safeLog('info', 'Camera recording state advanced.', $context);
+        $recording->suppressNextAuditEvent('updated');
+        $recording->save();
+
+        $recording->writeAuditLog(
+            'recording.state_transition',
+            $delta['old'],
+            $delta['new'],
+            Arr::whereNotNull([
+                'camera_id' => $recording->camera_id,
+                'capture_mode' => $recording->capture_mode,
+                'from' => $previousStatus,
+                'to' => $status,
+                'scheduled_for' => $recording->scheduled_for?->toIso8601String(),
+            ]),
+        );
     }
 
     private function buildRecordingAbsolutePath(Camera $camera, Carbon $scheduledFor, string $mode): string
@@ -1511,18 +1829,19 @@ class CameraRecordingService
      */
     private function discardTransientMotionRecording(CameraRecording $recording, string $reason, array $context = []): void
     {
-        $recordingId = $recording->getKey();
-        $cameraId = $recording->camera_id;
-        $scheduledFor = $recording->scheduled_for?->toIso8601String();
+        $recording->suppressNextAuditEvent('deleted');
+        $recording->writeAuditLog(
+            'recording.transient_discarded',
+            $recording->auditValues(),
+            [],
+            array_merge([
+                'camera_id' => $recording->camera_id,
+                'scheduled_for' => $recording->scheduled_for?->toIso8601String(),
+                'reason' => Str::limit($reason, 240),
+            ], $context),
+        );
 
         $recording->delete();
-
-        $this->safeLog('info', 'Discarded a transient motion recording row.', array_merge([
-            'recording_id' => $recordingId,
-            'camera_id' => $cameraId,
-            'scheduled_for' => $scheduledFor,
-            'reason' => Str::limit($reason, 240),
-        ], $context));
     }
 
     private function shouldDiscardTransientMotionRecording(CameraRecording $recording): bool

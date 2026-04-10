@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,8 @@ use Illuminate\Support\Str;
 #[Fillable(['email', 'added_by_user_id'])]
 class AllowedLoginEmail extends Model
 {
+    use Auditable;
+
     protected static function booted(): void
     {
         static::saving(function (self $allowedLoginEmail): void {

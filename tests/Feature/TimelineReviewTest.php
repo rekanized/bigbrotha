@@ -10,6 +10,7 @@ use App\Models\CameraRecording;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
+use App\Services\RecordingReviewAssetService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -294,6 +295,176 @@ class TimelineReviewTest extends TestCase
             route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 0]),
             $summaries->first()['previewThumbnailUrl'] ?? null,
         );
+    }
+
+    public function test_camera_summaries_do_not_build_full_review_payloads(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $reviewAssets = \Mockery::mock(RecordingReviewAssetService::class);
+        $reviewAssets->shouldNotReceive('timelinePlaybackMetadata');
+
+        $service = new RecordingTimelineReviewService(
+            app(ApplicationSettingsService::class),
+            $reviewAssets,
+        );
+
+        $summaries = $service->buildCameraSummaries(
+            collect([$camera]),
+            collect([$recording]),
+            now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 30),
+            now()->utc()->setDate(2026, 4, 3)->startOfDay(),
+            now()->utc()->setDate(2026, 4, 4)->startOfDay(),
+        );
+
+        $this->assertSame(
+            app(ApplicationSettingsService::class)->formatTimeRange(
+                now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+                now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+                'H:i:s',
+            ),
+            $summaries->first()['previewTimeLabel'] ?? null,
+        );
+    }
+
+    public function test_timeline_playback_metadata_skips_manifest_probes_for_network_storage(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('usingNetworkStorage')->andReturn(true);
+        $storage->shouldReceive('reviewSpritesStoredLocally')->andReturn(true);
+        $storage->shouldReceive('privateFileExists')
+            ->once()
+            ->with('review-sprites/cameras/'.$camera->id.'/recordings/2026/04/03/_review/in-window/scrub-sprite.jpg')
+            ->andReturn(true);
+        $storage->shouldNotReceive('resolveReviewAssetAbsolutePath');
+        $this->app->instance(CameraStorageService::class, $storage);
+
+        $metadata = app(RecordingReviewAssetService::class)->timelinePlaybackMetadata($recording);
+
+        $this->assertSame(RecordingReviewAssetService::STATUS_MISSING, $metadata['status'] ?? null);
+        $this->assertFalse((bool) ($metadata['ready'] ?? true));
+        $this->assertTrue((bool) ($metadata['scrub']['available'] ?? false));
+        $this->assertSame('review-sprites/cameras/'.$camera->id.'/recordings/2026/04/03/_review/in-window/scrub-sprite.jpg', $metadata['scrub']['relative_path'] ?? null);
+    }
+
+    public function test_recording_review_payload_uses_public_fallback_thumbnail_for_network_storage(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $camera = Camera::query()->create([
+            'name' => 'North Gate',
+            'local_ip' => '192.168.1.70',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 0, 0),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(12, 1, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/in-window.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Window segment',
+        ]);
+
+        $reviewAssets = \Mockery::mock(RecordingReviewAssetService::class);
+        $reviewAssets->shouldReceive('timelinePlaybackMetadata')
+            ->once()
+            ->andReturn([
+                'status' => RecordingReviewAssetService::STATUS_MISSING,
+                'duration_seconds' => 60,
+                'scrub' => [
+                    'relative_path' => 'review-sprites/cameras/'.$camera->id.'/recordings/2026/04/03/_review/in-window/scrub-sprite.jpg',
+                    'frame_count' => 6,
+                    'frame_interval_seconds' => 10,
+                    'frame_width' => 128,
+                    'frame_height' => 72,
+                    'columns' => 4,
+                    'rows' => 2,
+                    'available' => true,
+                ],
+            ]);
+
+        $service = new RecordingTimelineReviewService(
+            app(ApplicationSettingsService::class),
+            $reviewAssets,
+        );
+
+        $payload = $service->recordingReviewPayload(
+            $recording,
+            now()->utc()->setDate(2026, 4, 3)->startOfDay(),
+            now()->utc()->setDate(2026, 4, 4)->startOfDay(),
+        );
+
+        $this->assertSame(asset('img/recording-preview-missing.svg'), $payload['thumbnailUrl'] ?? null);
+    $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['thumbnailSpriteUrl'] ?? null);
+    $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['scrubSpriteUrl'] ?? null);
     }
 
     public function test_timeline_review_initial_stage_falls_back_to_the_latest_clip_before_focus(): void

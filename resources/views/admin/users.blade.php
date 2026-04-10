@@ -11,6 +11,7 @@
 @section('page_lead', 'Review approved Google sign-in emails, authenticated operators, and admin access from one admin screen.')
 
 @section('page_actions')
+    <a class="button button--soft" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
     <a class="button button--soft" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
 @endsection
 

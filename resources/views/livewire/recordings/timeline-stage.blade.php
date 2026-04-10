@@ -41,7 +41,6 @@
                 preload="metadata"
                 muted
                 crossorigin="anonymous"
-                @if (!empty($segment['thumbnailUrl'])) poster="{{ $segment['thumbnailUrl'] }}" @endif
             >
                 <source data-role="video-source" @if ($segmentSourceUrl) src="{{ $segmentSourceUrl }}" @endif type="video/mp4">
                 Your browser could not load the timeline review video.

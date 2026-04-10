@@ -822,7 +822,7 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
-        $spritePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', true);
+        $spritePath = app(CameraStorageService::class)->recordingLocalReviewSpriteAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', true);
         File::put($spritePath, 'sprite-stream');
         $this->writeCurrentReviewManifest($recording, [
             'scrub_status' => RecordingReviewAssetService::STATUS_READY,
@@ -1010,7 +1010,7 @@ class RecordingBrowserTest extends TestCase
             'message' => 'Clip saved.',
         ]);
 
-        $spritePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', true);
+        $spritePath = app(CameraStorageService::class)->recordingLocalReviewSpriteAbsolutePath($recording->relative_path, 'scrub-sprite.jpg', true);
         File::put($spritePath, 'sprite-stream');
         $this->writeCurrentReviewManifest($recording, [
             'scrub_status' => RecordingReviewAssetService::STATUS_READY,

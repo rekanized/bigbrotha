@@ -75,6 +75,12 @@
             'href' => route('admin.settings.index'),
             'active' => request()->routeIs('admin.settings.*'),
         ],
+        [
+            'label' => 'Audit log',
+            'caption' => 'Review model changes, actors, and captured deltas',
+            'href' => route('admin.audit-logs.index'),
+            'active' => request()->routeIs('admin.audit-logs.*'),
+        ],
     ] : [];
     $adminNavigationActive = collect($adminNavigation)->contains(fn (array $item): bool => $item['active']);
 @endphp

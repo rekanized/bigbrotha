@@ -40,12 +40,6 @@ class RecordingTimelineReviewService
             $selectedRecording = $this->selectRecordingForFocus($cameraRecordings, $focusAt);
             $latestRecording = $cameraRecordings->last();
             $cameraPreview = $this->cameraPreviewImage($camera);
-            $selectedRecordingPayload = $selectedRecording instanceof CameraRecording
-                ? $this->recordingReviewPayload($selectedRecording, $reviewWindowStart, $reviewWindowEnd)
-                : null;
-            $latestRecordingPayload = $latestRecording instanceof CameraRecording
-                ? $this->recordingReviewPayload($latestRecording, $reviewWindowStart, $reviewWindowEnd)
-                : null;
 
             return [
                 'cameraId' => (int) $camera->getKey(),
@@ -56,12 +50,12 @@ class RecordingTimelineReviewService
                 'rowSpan' => 1,
                 'segmentCount' => $cameraRecordings->count(),
                 'hasFocusSegment' => $selectedRecording instanceof CameraRecording,
-                'latestRecordingLabel' => $latestRecordingPayload['timeLabel'] ?? null,
+                'latestRecordingLabel' => $this->recordingTimeLabel($latestRecording),
                 'cameraPreviewAlt' => $cameraPreview['alt'],
                 'cameraPreviewAvailable' => $cameraPreview['available'],
                 'cameraPreviewUrl' => $cameraPreview['url'],
                 'previewThumbnailUrl' => $cameraPreview['url'],
-                'previewTimeLabel' => $latestRecordingPayload['timeLabel'] ?? null,
+                'previewTimeLabel' => $this->recordingTimeLabel($latestRecording),
             ];
         })->values();
     }
@@ -144,9 +138,8 @@ class RecordingTimelineReviewService
             ? max(1, (int) $timelineAssets['duration_seconds'])
             : ($this->durationSeconds($recording) ?? max(1, $recordingStart->diffInSeconds($recordingEnd)));
         $thumbnailFrameIndex = $this->thumbnailFrameIndex($durationSeconds, $scrubSprite);
-        $scrubSpriteUrl = is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available'])
-            ? route('recordings.preview-sprite', ['recording' => $recording])
-            : null;
+        $scrubSpriteUrl = $this->timelineScrubSpriteUrl($recording, $scrubSprite);
+        $thumbnailSpriteUrl = $this->timelineThumbnailSpriteUrl($recording, $scrubSpriteUrl);
 
         return [
             'id' => $recording->getKey(),
@@ -168,9 +161,9 @@ class RecordingTimelineReviewService
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $timelineAssets['status'] ?? RecordingReviewAssetService::STATUS_MISSING,
             'streamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
-            'thumbnailUrl' => $recording->relative_path ? route('recordings.preview-thumbnail', ['recording' => $recording]) : null,
+            'thumbnailUrl' => $this->timelineThumbnailUrl($recording),
             'thumbnailFallbackUrl' => asset('img/recording-preview-missing.svg'),
-            'thumbnailSpriteUrl' => $scrubSpriteUrl,
+            'thumbnailSpriteUrl' => $thumbnailSpriteUrl,
             'thumbnailFrameIndex' => $thumbnailFrameIndex,
             'scrubSpriteUrl' => $scrubSpriteUrl,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
@@ -221,6 +214,50 @@ class RecordingTimelineReviewService
             'available' => $previewUrl !== null,
             'url' => $previewUrl,
         ];
+    }
+
+    private function recordingTimeLabel(?CameraRecording $recording): ?string
+    {
+        if (!$recording instanceof CameraRecording) {
+            return null;
+        }
+
+        [$recordingStart, $recordingEnd] = $this->recordingBounds($recording);
+
+        return $this->settings->formatTimeRange($recordingStart, $recordingEnd, 'H:i:s');
+    }
+
+    private function timelineThumbnailUrl(CameraRecording $recording): ?string
+    {
+        if ($recording->relative_path === null) {
+            return null;
+        }
+
+        $storage = app(CameraStorageService::class);
+        $relativePath = $storage->normalizePrivateStorageRelativePath($recording->relative_path);
+
+        if ($storage->usingNetworkStorage() && is_string($relativePath) && str_starts_with(ltrim($relativePath, '/'), 'cameras/')) {
+            return asset('img/recording-preview-missing.svg');
+        }
+
+        return route('recordings.preview-thumbnail', ['recording' => $recording]);
+    }
+
+    private function timelineThumbnailSpriteUrl(CameraRecording $recording, ?string $scrubSpriteUrl): ?string
+    {
+        return $scrubSpriteUrl;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $scrubSprite
+     */
+    private function timelineScrubSpriteUrl(CameraRecording $recording, ?array $scrubSprite): ?string
+    {
+        if (!is_array($scrubSprite) || empty($scrubSprite['relative_path']) || empty($scrubSprite['available'])) {
+            return null;
+        }
+
+        return route('recordings.preview-sprite', ['recording' => $recording]);
     }
 
     /**

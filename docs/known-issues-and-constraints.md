@@ -92,7 +92,7 @@ Current constraints:
 - do not point the admin SMB path at the parent directory above `cameras`; the logical `cameras/...` tree is expected to live entirely under that dedicated NAS directory.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
-- when SMB mode is enabled, ffmpeg still writes to local staging paths during capture and review-asset generation; Laravel uploads the finished files to the active SMB disk after each local write completes.
+- when SMB mode is enabled, ffmpeg still writes to local staging paths during capture and review-asset generation; Laravel uploads the finished files to the active SMB disk after each local write completes, verifies the remote copy, and only then deletes the local staged file.
 - previews, review assets, playback downloads, and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage.
 
 ## Preview Rendering Behavior
@@ -154,8 +154,10 @@ Implications:
 - the threshold is the percentage of selected mask pixels that must change between sampled frames before recording starts.
 - motion mode now depends on a persistent per-camera rolling buffer of short closed segments, not a one-shot buffered capture window.
 - the first detected motion segment opens the event, pre-roll is recovered from the buffered segments before that point, and the event stays open while later motion segments keep resetting the quiet post-trigger deadline.
+- long-running stitched motion events now roll over onto a new recording once they reach the configured `recording.motion.max_stitched_seconds` limit; the handoff happens on the next closed buffered-segment boundary so a continuously active camera produces multiple bounded clips instead of one unbounded event.
+- once a motion event has already been stitched into a local staged clip, later SMB upload or verification retries no longer pin the full raw motion buffer in place; the rolling `motion-recorders` spool can fall back to the normal idle-buffer window while Laravel retries the staged upload.
 - quiet motion scans remain transient work with no durable row until a real motion event opens, while stale legacy motion rows without an owning motion state are still discarded during recovery.
-- the hourly `camera-recordings:prune` maintenance pass now also reconciles `recorded` rows whose backing segment file is already missing by marking them failed and clearing stale review assets.
+- the hourly `camera-recordings:prune` maintenance pass reconciles `recorded` rows only when storage can confirm the backing segment file is actually missing; transient SMB reachability failures leave the row unchanged so healthy clips are not reclassified as failed, and rows previously failed by that reconcile step are restored automatically once the file becomes reachable again.
 - motion recording can optionally read through the local MediaMTX recording relay when `recording.motion.use_relay_source` is enabled, but the default path now reads directly from the camera so each motion feed does not require an extra always-on relay publisher.
 - because the pre-roll buffer is isolated to the motion workflow, motion cameras spend extra capture time around event evaluation and briefly suppress overlapping triggers while the current event clip is still being compiled.
 - the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
@@ -184,9 +186,11 @@ Current behavior:
 - each recorded segment can produce a low-resolution preview MP4 for faster scrubbing.
 - each recorded segment can also produce a thumbnail image for the vertical review rail.
 - each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
-- those files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
+- preview MP4, manifest, and thumbnail-side review files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
+- when camera storage is routed to SMB, scrub sprite sheets are stored under the local private `review-sprites/...` tree instead of on the network share so `preview-sprite` stays local and does not fan out into SMB reads; those local sprite files are still pruned with the parent recording.
 - the initial timeline page and rail JSON route now trust recorded database rows plus the review-asset manifest state; they do not synchronously probe the backing recording file on SMB during page load.
 - the timeline preview page now renders a plain Blade shell from controller payloads; public/js/recordings-review.js owns active camera switching, focus movement, stage playback, and rail virtualization without a mounted Livewire review component morphing the player DOM.
+- on network-backed camera storage, timeline page, stage, and rail payload assembly now skips synchronous `_review/manifest.json` probes during request handling, emits deterministic scrub-sprite metadata for the client, and uses the shared fallback thumbnail asset instead of per-recording thumbnail routes; the rail no longer preloads `preview-sprite` URLs on first paint, and scrub sprites are left for on-demand hover preview so the timeline does not fan out into dozens of SMB-backed sprite requests at once. When local sprite storage is enabled, the emitted `preview-sprite` route serves that local `review-sprites/...` copy instead of touching SMB.
 - the review shell should keep only camera-summary data in its public Livewire state; the rail now loads segment windows on demand instead of hydrating every segment for every selected camera into the initial payload.
 - the generated preview MP4 is now a rail and scrub aid only; the timeline stage player uses the buffered review-stream route so it behaves like the standalone Recordings viewer while still supporting timeline seeks against SMB-backed clips.
 - if preview generation has not completed yet, the thumbnail route still returns a placeholder image, but the stage player continues to use the buffered review-stream route instead of swapping to another stage source.
