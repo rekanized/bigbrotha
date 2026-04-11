@@ -4,6 +4,7 @@ set -eu
 APP_ROOT="${APP_ROOT:-/app}"
 APP_KEY_FILE="${APP_KEY_FILE:-$APP_ROOT/storage/app/private/app.key}"
 APP_BOOTSTRAP_MARKER="${APP_BOOTSTRAP_MARKER:-$APP_ROOT/storage/app/private/bootstrap/app.ready}"
+APP_DATABASE_INITIALIZED_MARKER="${APP_DATABASE_INITIALIZED_MARKER:-$APP_ROOT/storage/app/private/bootstrap/database.initialized}"
 APP_CONTAINER_ROLE="${APP_CONTAINER_ROLE:-app}"
 
 cd "$APP_ROOT"
@@ -91,6 +92,11 @@ wait_for_app_bootstrap() {
     done
 }
 
+mark_database_initialized() {
+    touch "$APP_DATABASE_INITIALIZED_MARKER"
+    chown www-data:www-data "$APP_DATABASE_INITIALIZED_MARKER"
+}
+
 should_migrate_if_no_users() {
     php <<'PHP'
 <?php
@@ -157,6 +163,11 @@ run_app_bootstrap() {
         should_migrate=true
     elif [ "${APP_AUTO_MIGRATE_IF_NO_USERS:-false}" = "true" ]; then
         if should_migrate_if_no_users; then
+            if [ -f "$APP_DATABASE_INITIALIZED_MARKER" ]; then
+                echo "Refusing automatic migrations: the database looks empty but a prior initialization marker exists at $APP_DATABASE_INITIALIZED_MARKER. Check the database volume or DB_* connection values before starting again." >&2
+                exit 1
+            fi
+
             should_migrate=true
         else
             status=$?
@@ -164,11 +175,17 @@ run_app_bootstrap() {
             if [ "$status" -eq 2 ]; then
                 exit 1
             fi
+
+            if [ "$status" -eq 1 ]; then
+                mark_database_initialized
+            fi
         fi
     fi
 
     if [ "$should_migrate" = "true" ]; then
+        echo "Running automatic migrations because the users table is missing or empty." >&2
         gosu www-data php artisan migrate --force
+        mark_database_initialized
     fi
 
     if [ "${APP_AUTO_START_RELAY:-false}" = "true" ]; then

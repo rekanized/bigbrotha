@@ -341,6 +341,7 @@ Container notes:
 - Laravel now reads the generated key from that shared storage file, so Docker startup no longer requires a pre-created host `.env` file.
 - Compose defaults the bundled database service to `postgres:18-alpine` and uses `DB_CONNECTION=pgsql` unless you override it.
 - The `app` container bootstraps itself automatically: when the `users` table is missing or contains zero rows it runs `php artisan migrate --force` before serving `php-fpm`.
+- After the first successful bootstrap, the app writes a database initialization marker into shared app storage. If a later startup sees an empty database while that marker already exists, startup now refuses to auto-migrate and exits loudly instead of silently reinitializing a fresh schema over what is likely a lost or swapped database volume.
 - Compose forces `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` so MediaMTX running in the `app` container can reach Laravel through the internal Nginx service instead of trying to call the public host from inside the container network.
 - Compose forces `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so relay-backed recording workflows can reach the relay from any Laravel container on the compose network.
 - Compose sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX does not advertise Docker-only interface IPs as browser ICE candidates.
@@ -377,6 +378,7 @@ What you should see:
 Automatic bootstrap behavior:
 
 - `app` waits for PostgreSQL, ensures `APP_KEY`, runs `php artisan migrate --force` when the `users` table is missing or empty, starts MediaMTX automatically, then serves `php-fpm`.
+- Once that first successful database bootstrap completes, later startups refuse to auto-initialize a now-empty database if the shared initialization marker already exists. That protects against silently bootstrapping a new database when the PostgreSQL volume was lost, changed, or mounted under a different Compose project name.
 - `worker` and `scheduler` wait for the app bootstrap marker before they start queue or scheduler work, so they do not race the first-time migration step.
 
 For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/startup-from-scratch.md).
