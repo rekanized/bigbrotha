@@ -128,7 +128,7 @@ class MediaMtxConfigService
             'webrtc: true',
             'webrtcAddress: '.config('mediamtx.webrtc.address'),
             'webrtcAllowOrigins: '.$this->inlineStringList((array) config('mediamtx.webrtc.allow_origins', ['*'])),
-            'webrtcIPsFromInterfaces: true',
+            'webrtcIPsFromInterfaces: '.(((bool) config('mediamtx.webrtc.ips_from_interfaces', true)) ? 'true' : 'false'),
             'webrtcLocalUDPAddress: '.$this->nullableScalar((string) config('mediamtx.webrtc.local_udp_address', ':8189')),
             'webrtcLocalTCPAddress: '.$this->nullableScalar((string) config('mediamtx.webrtc.local_tcp_address', ':8189')),
         ];

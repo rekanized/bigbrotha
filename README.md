@@ -343,6 +343,7 @@ Container notes:
 - The `app` container bootstraps itself automatically: when the `users` table is missing or contains zero rows it runs `php artisan migrate --force` before serving `php-fpm`.
 - Compose forces `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` so MediaMTX running in the `app` container can reach Laravel through the internal Nginx service instead of trying to call the public host from inside the container network.
 - Compose forces `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so relay-backed recording workflows can reach the relay from any Laravel container on the compose network.
+- Compose sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX does not advertise Docker-only interface IPs as browser ICE candidates.
 - Compose also sets `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the in-container MediaMTX `runOnDemand` publisher connects over loopback and satisfies the internal publisher auth checks.
 - If `APP_KEY` is not provided, the container entrypoint generates one once, stores a shared copy under Docker storage, and writes it into the mounted project `.env` so `app`, `worker`, `scheduler`, and later `docker compose exec` commands all resolve the same key.
 - If SMB-backed storage is enabled, the app image already includes `smbclient` so the container does not need that binary from the host.

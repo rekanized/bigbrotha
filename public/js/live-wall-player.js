@@ -334,9 +334,9 @@
 
             if (this.isAudioSelectable) {
                 this.applyAudioSelection();
-            } else {
-                this.video.play().catch(() => undefined);
             }
+
+            this.video.play().catch(() => undefined);
 
             this.setMessage('');
         }
