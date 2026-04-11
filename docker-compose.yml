@@ -17,7 +17,7 @@ x-laravel-environment: &laravel-environment
   MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
   MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
   MEDIAMTX_INSTALL_MODE: bundled
-  MEDIAMTX_LOG_PATH: /dev/stdout
+  MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
   MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
   QUEUE_CONNECTION: database
   SESSION_DRIVER: database

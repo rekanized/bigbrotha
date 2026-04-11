@@ -99,7 +99,7 @@ x-laravel-environment: &laravel-environment
 	MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
 	MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
 	MEDIAMTX_INSTALL_MODE: bundled
-	MEDIAMTX_LOG_PATH: /dev/stdout
+	MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
 	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
 	QUEUE_CONNECTION: database
 	SESSION_DRIVER: database
@@ -187,7 +187,7 @@ x-laravel-environment: &laravel-environment
 	MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
 	MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
 	MEDIAMTX_INSTALL_MODE: bundled
-	MEDIAMTX_LOG_PATH: /dev/stdout
+	MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
 	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
 	QUEUE_CONNECTION: database
 	SESSION_DRIVER: database
@@ -333,7 +333,7 @@ Container notes:
 - If `APP_KEY` is not provided, the container entrypoint generates one once, stores a shared copy under Docker storage, and writes it into the mounted project `.env` so `app`, `worker`, `scheduler`, and later `docker compose exec` commands all resolve the same key.
 - If SMB-backed storage is enabled, the app image already includes `smbclient` so the container does not need that binary from the host.
 - MediaMTX is bundled into the app image at `/usr/local/bin/mediamtx` and is started automatically during app bootstrap, while Laravel can still self-heal it later through `ensureRunning()` if needed. You do not need to run `php artisan relay:status` as part of normal startup.
-- Compose sets `MEDIAMTX_LOG_PATH=/dev/stdout`, so MediaMTX logs flow into the normal app container logs instead of disappearing into a separate file inside the volume.
+- Compose sets `MEDIAMTX_LOG_PATH=/app/storage/logs/mediamtx.log`, so the detached MediaMTX process writes to a real file inside shared storage instead of inheriting a short-lived bootstrap shell stdout pipe.
 - The app image now has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - The `web` service also has a lightweight healthcheck through Nginx, and Compose waits for the `app` service to become healthy before starting `web`, `worker`, and `scheduler`.
 - Motion capture through the relay path continues to work in Docker because Compose injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554`, but the default recording path still reads directly from cameras unless `CAMERA_MOTION_USE_RELAY_SOURCE=true` is explicitly enabled.

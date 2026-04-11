@@ -101,7 +101,13 @@ class MediaMtxProcessService
 
         $this->waitUntilReady();
 
-        return $this->status(false);
+        $status = $this->status(false);
+
+        if (!$status['running'] || !$status['api_reachable']) {
+            throw new RuntimeException('MediaMTX failed to become ready. Check '.$status['log_path'].' for details.');
+        }
+
+        return $status;
     }
 
     public function stop(): void

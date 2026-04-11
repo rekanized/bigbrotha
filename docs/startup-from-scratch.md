@@ -49,7 +49,7 @@ Docker runtime notes:
 - the compose file can either build local images or pull published images. The published install defaults are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`, and you can override them with shell exports or an optional local `.env` file.
 - the compose file injects production-safe defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr` so the stack does not inherit local development behavior from `.env.example`.
 - the app image bakes in MediaMTX and uses `MEDIAMTX_INSTALL_MODE=bundled` with `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`.
-- the compose stack also sets `MEDIAMTX_LOG_PATH=/dev/stdout`, so relay failures and startup logs appear in normal container logs.
+- the compose stack also sets `MEDIAMTX_LOG_PATH=/app/storage/logs/mediamtx.log`, so the detached MediaMTX process has a stable log target under shared storage.
 - the `app` container bootstraps itself automatically: after the database is reachable it runs `php artisan migrate --force` when the `users` table is missing or has zero rows, and then starts MediaMTX automatically.
 - the app image has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.

@@ -212,4 +212,12 @@ fi
 run_app_bootstrap
 wait_for_app_bootstrap
 
+if [ "$#" -gt 0 ]; then
+    case "$(basename "$1")" in
+        php-fpm|php-fpm*)
+            exec "$@"
+            ;;
+    esac
+fi
+
 exec gosu www-data "$@"
