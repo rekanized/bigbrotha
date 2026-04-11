@@ -276,6 +276,8 @@ services:
 			POSTGRES_DB: ${DB_DATABASE:-bigbrotha}
 			POSTGRES_PASSWORD: ${DB_PASSWORD:-bigbrotha}
 			POSTGRES_USER: ${DB_USERNAME:-bigbrotha}
+		ports:
+			- "${DB_HOST_BIND:-127.0.0.1}:${DB_HOST_PORT:-55432}:5432"
 		healthcheck:
 			test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bigbrotha} -d ${DB_DATABASE:-bigbrotha}"]
 			interval: 10s
@@ -307,6 +309,7 @@ Review these values in `docker-compose.yml` before first startup:
 
 - `APP_URL` with the public host or local published port, for example `http://localhost:8080`
 - `DB_PASSWORD` and any other `DB_*` values you want to override from the compose defaults
+- `DB_HOST_PORT` if you want the bundled PostgreSQL service reachable from the Docker host on a custom port
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
@@ -318,7 +321,8 @@ Container notes:
 - If you want a different registry or tag, override `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` in a shell export or in an optional local `.env` file before running Compose.
 - Compose forces production-safe container defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr`, so the stack does not depend on local development values left in `.env`.
 - Compose publishes the web UI on `APP_HTTP_PORT` and MediaMTX ICE on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.
-- PostgreSQL stays internal to the Docker network by default and is not published to the host, which is the safer production default.
+- App containers always talk to the bundled PostgreSQL service on `database:5432`. Leave `DB_PORT` at `5432` for the bundled service.
+- The bundled PostgreSQL service is also published to the Docker host on `${DB_HOST_BIND:-127.0.0.1}:${DB_HOST_PORT:-55432}` by default. Change `DB_HOST_PORT` if you need a different host-side port.
 - Compose sets `CAMERA_RECORDING_ENSURE_WORKER=false` because the worker runs as its own container instead of being started through systemd.
 - Compose includes the core installation settings directly in `docker-compose.yml`, and the container generates the Laravel `APP_KEY` automatically on first boot into shared Docker storage.
 - Laravel now reads the generated key from that shared storage file, so Docker startup no longer requires a pre-created host `.env` file.

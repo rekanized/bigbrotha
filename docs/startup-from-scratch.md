@@ -41,6 +41,7 @@ Recommended Docker env values:
 - `APP_URL=http://localhost:8080` for a local compose stack unless you publish a different host or port.
 - `DB_CONNECTION=pgsql` when using the bundled compose database.
 - `DB_PASSWORD=...` with a real production password instead of the compose fallback.
+- `DB_HOST_PORT=55432` or another host-side port if you want to reach the bundled PostgreSQL service from the Docker host.
 
 Docker runtime notes:
 
@@ -57,7 +58,8 @@ Docker runtime notes:
 - Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
 - the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.
 - Compose publishes the HTTP UI on `APP_HTTP_PORT` and the WebRTC ICE ports on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.
-- PostgreSQL remains internal to the Docker network by default and is not published to the host unless you add that override yourself.
+- App containers talk to the bundled PostgreSQL service on `database:5432`. Leave `DB_PORT=5432` for the bundled database path.
+- The bundled PostgreSQL service is also published to the Docker host on `${DB_HOST_BIND:-127.0.0.1}:${DB_HOST_PORT:-55432}` by default, so change `DB_HOST_PORT` if you need a different host-side port.
 - the `web` service also has a lightweight healthcheck through Nginx, and `worker` plus `scheduler` now wait for the `app` service to become healthy before they start.
 - `worker` and `scheduler` wait for the app bootstrap marker before they start processing jobs or scheduler ticks, so first-run migrations do not race those services.
 
