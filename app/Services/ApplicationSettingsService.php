@@ -6,6 +6,8 @@ use App\Models\AppSetting;
 use DateTimeInterface;
 use DateTimeZone;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Throwable;
@@ -133,6 +135,21 @@ class ApplicationSettingsService
     {
         $setting = AppSetting::query()->firstOrNew(['key' => self::SETTING_NETWORK_STORAGE]);
         $normalizedPassword = $this->nullableString($password);
+
+        if ($setting->exists && $this->requiresDirectNetworkStorageRewrite($setting)) {
+            $this->rewriteLegacyNetworkStorageSetting(
+                $setting,
+                $enabled,
+                $path,
+                $username,
+                $normalizedPassword,
+                $preserveExistingPassword,
+            );
+
+            $this->loadedNetworkStorage = null;
+
+            return;
+        }
 
         if (!$setting->exists) {
             $setting->value = null;
@@ -326,10 +343,10 @@ class ApplicationSettingsService
                 ->first();
 
             return $this->loadedNetworkStorage = [
-                'enabled' => (bool) ($setting?->network_storage_enabled ?? false),
-                'path' => $setting?->network_storage_path,
-                'username' => $setting?->network_storage_username,
-                'password' => $setting?->network_storage_password,
+                'enabled' => (bool) ($setting?->getRawOriginal('network_storage_enabled') ?? false),
+                'path' => $this->nullableString($setting?->getRawOriginal('network_storage_path')),
+                'username' => $this->nullableString($setting?->getRawOriginal('network_storage_username')),
+                'password' => $this->resolveStoredNetworkStoragePassword($setting),
             ];
         } catch (Throwable) {
             return $this->loadedNetworkStorage = [
@@ -350,6 +367,90 @@ class ApplicationSettingsService
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function requiresDirectNetworkStorageRewrite(AppSetting $setting): bool
+    {
+        $rawPassword = $this->nullableString($setting->getRawOriginal('network_storage_password'));
+
+        if ($rawPassword === null) {
+            return false;
+        }
+
+        try {
+            Crypt::decryptString($rawPassword);
+
+            return false;
+        } catch (Throwable) {
+            return true;
+        }
+    }
+
+    private function rewriteLegacyNetworkStorageSetting(
+        AppSetting $setting,
+        bool $enabled,
+        ?string $path,
+        ?string $username,
+        ?string $password,
+        bool $preserveExistingPassword,
+    ): void {
+        $passwordToStore = null;
+
+        if ($password !== null) {
+            $passwordToStore = Crypt::encryptString($password);
+        } elseif ($preserveExistingPassword) {
+            $existingPassword = $this->resolveStoredNetworkStoragePassword($setting);
+            $passwordToStore = $existingPassword !== null
+                ? Crypt::encryptString($existingPassword)
+                : null;
+        }
+
+        DB::table('app_settings')
+            ->where('id', $setting->getKey())
+            ->update([
+                'network_storage_enabled' => $enabled,
+                'network_storage_path' => $this->nullableString($path),
+                'network_storage_username' => $this->nullableString($username),
+                'network_storage_password' => $passwordToStore,
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function resolveStoredNetworkStoragePassword(?AppSetting $setting): ?string
+    {
+        if (!$setting instanceof AppSetting) {
+            return null;
+        }
+
+        $rawPassword = $this->nullableString($setting->getRawOriginal('network_storage_password'));
+
+        if ($rawPassword === null) {
+            return null;
+        }
+
+        try {
+            return $this->nullableString(Crypt::decryptString($rawPassword));
+        } catch (Throwable) {
+            return $this->looksLikeEncryptedPayload($rawPassword)
+                ? null
+                : $rawPassword;
+        }
+    }
+
+    private function looksLikeEncryptedPayload(string $value): bool
+    {
+        $decoded = base64_decode($value, true);
+
+        if (!is_string($decoded) || $decoded === '') {
+            return false;
+        }
+
+        $payload = json_decode($decoded, true);
+
+        return is_array($payload)
+            && is_string($payload['iv'] ?? null)
+            && is_string($payload['value'] ?? null)
+            && is_string($payload['mac'] ?? null);
     }
 
     private function settingsTableExists(): bool

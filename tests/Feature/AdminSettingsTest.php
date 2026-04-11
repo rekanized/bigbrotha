@@ -484,6 +484,42 @@ class AdminSettingsTest extends TestCase
         ]);
     }
 
+    public function test_admin_network_storage_panel_can_update_legacy_plaintext_password_records(): void
+    {
+        DB::table('app_settings')->insert([
+            'key' => ApplicationSettingsService::SETTING_NETWORK_STORAGE,
+            'value' => null,
+            'network_storage_enabled' => 1,
+            'network_storage_path' => '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'network_storage_username' => 'administrator',
+            'network_storage_password' => 'legacy-plain-password',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Livewire::test(NetworkStorageSettingsPanel::class)
+            ->assertSet('networkStorageEnabled', '1')
+            ->assertSet('networkStoragePath', '//192.168.1.199/fileshare/Applications/bigbrotha')
+            ->assertSet('networkStorageUsername', 'administrator')
+            ->assertSet('hasStoredPassword', true)
+            ->set('networkStoragePassword', 'fresh-secret')
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertSet('networkStorageEnabled', '1')
+            ->assertSet('hasStoredPassword', true);
+
+        $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
+
+        $this->assertNotNull($diskConfig);
+        $this->assertSame('fresh-secret', $diskConfig['password']);
+        $this->assertNotSame(
+            'fresh-secret',
+            DB::table('app_settings')
+                ->where('key', ApplicationSettingsService::SETTING_NETWORK_STORAGE)
+                ->value('network_storage_password'),
+        );
+    }
+
     public function test_timeline_review_allows_zooming_beyond_eight_times(): void
     {
         Livewire::test(TimelineReview::class, [
