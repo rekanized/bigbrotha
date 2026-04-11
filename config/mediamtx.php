@@ -28,9 +28,23 @@ $optionalEnvCsv = static function (string $key): ?array {
     return array_values(array_filter(array_map('trim', explode(',', $value))));
 };
 
+$optionalEnvBool = static function (string $key, bool $default): bool {
+    $value = env($key);
+
+    if ($value === null || $value === '') {
+        return $default;
+    }
+
+    $resolved = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+    return $resolved ?? $default;
+};
+
 $defaultInstallRoot = storage_path('app/private/mediamtx');
 $defaultVersion = '1.17.1';
 $defaultInstallDirectory = $defaultInstallRoot.'/releases/'.$defaultVersion;
+$defaultBinaryPath = $defaultInstallDirectory.'/mediamtx';
+$installMode = $optionalEnvString('MEDIAMTX_INSTALL_MODE') ?? 'download';
 $defaultAppUrl = trim((string) env('APP_URL', 'http://localhost'));
 $defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://localhost';
 $defaultWebRtcPublicUrl = rtrim($defaultAppUrl, '/').'/__webrtc';
@@ -53,45 +67,47 @@ $configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $de
 return [
     'version' => $defaultVersion,
 
-    'auto_start' => true,
+    'install_mode' => $installMode,
 
-    'download_base_url' => 'https://github.com/bluenviron/mediamtx/releases/download',
+    'auto_start' => $optionalEnvBool('MEDIAMTX_AUTO_START', true),
 
-    'install_root' => $defaultInstallRoot,
+    'download_base_url' => $optionalEnvString('MEDIAMTX_DOWNLOAD_BASE_URL') ?? 'https://github.com/bluenviron/mediamtx/releases/download',
 
-    'install_directory' => $defaultInstallDirectory,
+    'install_root' => $optionalEnvString('MEDIAMTX_INSTALL_ROOT') ?? $defaultInstallRoot,
 
-    'binary_path' => $defaultInstallDirectory.'/mediamtx',
+    'install_directory' => $optionalEnvString('MEDIAMTX_INSTALL_DIRECTORY') ?? $defaultInstallDirectory,
 
-    'config_path' => $defaultInstallRoot.'/mediamtx.yml',
+    'binary_path' => $optionalEnvString('MEDIAMTX_BINARY_PATH') ?? $defaultBinaryPath,
 
-    'pid_path' => $defaultInstallRoot.'/mediamtx.pid',
+    'config_path' => $optionalEnvString('MEDIAMTX_CONFIG_PATH') ?? $defaultInstallRoot.'/mediamtx.yml',
 
-    'log_path' => storage_path('logs/mediamtx.log'),
+    'pid_path' => $optionalEnvString('MEDIAMTX_PID_PATH') ?? $defaultInstallRoot.'/mediamtx.pid',
 
-    'download_timeout' => 180,
+    'log_path' => $optionalEnvString('MEDIAMTX_LOG_PATH') ?? storage_path('logs/mediamtx.log'),
+
+    'download_timeout' => (int) env('MEDIAMTX_DOWNLOAD_TIMEOUT', 180),
 
     'rtsp' => [
-        'listen_address' => ':8554',
-        'internal_base_url' => 'rtsp://127.0.0.1:8554',
+        'listen_address' => $optionalEnvString('MEDIAMTX_RTSP_LISTEN_ADDRESS') ?? ':8554',
+        'internal_base_url' => $optionalEnvString('MEDIAMTX_RTSP_INTERNAL_BASE_URL') ?? 'rtsp://127.0.0.1:8554',
         'transports' => ['tcp'],
     ],
 
     'api' => [
-        'enabled' => true,
-        'address' => ':9997',
-        'base_url' => 'http://127.0.0.1:9997',
+        'enabled' => $optionalEnvBool('MEDIAMTX_API_ENABLED', true),
+        'address' => $optionalEnvString('MEDIAMTX_API_ADDRESS') ?? ':9997',
+        'base_url' => $optionalEnvString('MEDIAMTX_API_BASE_URL') ?? 'http://127.0.0.1:9997',
     ],
 
     'webrtc' => [
-        'enabled' => true,
-        'address' => ':8889',
-        'internal_base_url' => 'http://127.0.0.1:8889',
+        'enabled' => $optionalEnvBool('MEDIAMTX_WEBRTC_ENABLED', true),
+        'address' => $optionalEnvString('MEDIAMTX_WEBRTC_ADDRESS') ?? ':8889',
+        'internal_base_url' => $optionalEnvString('MEDIAMTX_WEBRTC_INTERNAL_BASE_URL') ?? 'http://127.0.0.1:8889',
         'public_base_url' => $configuredWebRtcPublicUrl,
-        'port' => 8889,
+        'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
         'allow_origins' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ALLOW_ORIGINS') ?? [$defaultCallbackOrigin],
-        'local_udp_address' => ':8189',
-        'local_tcp_address' => ':8189',
+        'local_udp_address' => $optionalEnvString('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS') ?? ':8189',
+        'local_tcp_address' => $optionalEnvString('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS') ?? ':8189',
         'additional_hosts' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS') ?? [$defaultAdditionalHost],
         'iframe_query' => http_build_query([
             'controls' => 'false',

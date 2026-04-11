@@ -1,6 +1,6 @@
 (() => {
-    if (window.BigBrothasRecordingReviewModule) {
-        window.BigBrothasRecordingReviewModule.bootstrap();
+    if (window.BigBrothaRecordingReviewModule) {
+        window.BigBrothaRecordingReviewModule.bootstrap();
 
         return;
     }
@@ -3981,7 +3981,7 @@
         state.cleanupFns.push(() => document.removeEventListener('click', handleClick, true));
     };
 
-    window.BigBrothasRecordingReviewModule = {
+    window.BigBrothaRecordingReviewModule = {
         bootstrap,
         destroy,
         inspectPreviewState: () => previewDiagnostics(root()),

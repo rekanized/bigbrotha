@@ -115,7 +115,7 @@ class OnvifRtspStreamService
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$action.'"',
                     'SOAPAction' => $action,
-                    'User-Agent' => 'BigBrothas ONVIF Media Probe',
+                    'User-Agent' => 'BigBrotha ONVIF Media Probe',
                 ])
                 ->withBody($this->buildEnvelope($serviceUrl, $action, $body, $namespaces, $username, $password), 'application/soap+xml; charset=utf-8')
                 ->post($serviceUrl);

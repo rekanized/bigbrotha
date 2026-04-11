@@ -7,7 +7,7 @@
 
         <script>
             (() => {
-                const storageKey = 'bigbrothas-theme';
+                const storageKey = 'bigbrotha-theme';
                 const root = document.documentElement;
                 const media = window.matchMedia('(prefers-color-scheme: dark)');
                 let storedTheme = null;
@@ -171,7 +171,7 @@
         @stack('scripts')
         <script>
             (() => {
-                const storageKey = 'bigbrothas-theme';
+                const storageKey = 'bigbrotha-theme';
                 const root = document.documentElement;
                 const media = window.matchMedia('(prefers-color-scheme: dark)');
                 const themeColorMeta = document.querySelector('meta[name="theme-color"]');

@@ -20,7 +20,7 @@ return [
         'max_processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_MAX_PROCESSES', max(8, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)))),
         'cameras_per_process' => max(1, (int) env('CAMERA_RECORDING_WORKER_CAMERAS_PER_PROCESS', 4)),
         'jobs_per_process' => max(1, (int) env('CAMERA_RECORDING_WORKER_JOBS_PER_PROCESS', 200)),
-        'systemd_service' => env('CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE', 'bigbrothas-recordings-queue.service'),
+        'systemd_service' => env('CAMERA_RECORDING_WORKER_SYSTEMD_SERVICE', 'bigbrotha-recordings-queue.service'),
         'systemd_user_dir' => env('CAMERA_RECORDING_WORKER_SYSTEMD_USER_DIR', rtrim((string) env('HOME', storage_path('app/private')), '/').'/.config/systemd/user'),
         'systemctl_binary' => env('CAMERA_RECORDING_WORKER_SYSTEMCTL_BINARY', '/usr/bin/systemctl'),
         'ps_binary' => env('CAMERA_RECORDING_WORKER_PS_BINARY', '/usr/bin/ps'),

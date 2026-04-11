@@ -1,6 +1,6 @@
 (() => {
-    if (window.BigBrothasLiveWallPlayerModule) {
-        window.BigBrothasLiveWallPlayerModule.bootstrap();
+    if (window.BigBrothaLiveWallPlayerModule) {
+        window.BigBrothaLiveWallPlayerModule.bootstrap();
 
         return;
     }
@@ -197,7 +197,7 @@
         setMasterVolume(Number(target.value) / 100);
     };
 
-    class BigBrothasWhepPlayer {
+    class BigBrothaWhepPlayer {
         constructor(root) {
             this.root = root;
             const bootstrapContainer = root.closest('[data-reader-url], [data-whep-url], [data-access-token]');
@@ -592,7 +592,7 @@
 
         state.players = Array.from(document.querySelectorAll('[data-webrtc-player]'))
             .filter((element) => element instanceof HTMLElement && element.dataset.webrtcPlayerSkipAuto !== 'true')
-            .map((element) => new BigBrothasWhepPlayer(element));
+            .map((element) => new BigBrothaWhepPlayer(element));
 
         updateMasterVolumeUi();
         state.players.forEach((player) => player.start());
@@ -611,8 +611,8 @@
         bootstrapPlayers();
     };
 
-    window.BigBrothasWhepPlayer = BigBrothasWhepPlayer;
-    window.BigBrothasLiveWallPlayerModule = {
+    window.BigBrothaWhepPlayer = BigBrothaWhepPlayer;
+    window.BigBrothaLiveWallPlayerModule = {
         bootstrap: bootstrapPlayers,
         close: closePlayers,
     };

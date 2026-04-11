@@ -409,7 +409,7 @@ class LiveWallStreamTest extends TestCase
         File::ensureDirectoryExists($binaryDirectory);
 
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-live-mjpeg.sh';
-        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '%s' '--bigbrothas-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrothas-live--\\r\\n'".PHP_EOL);
+    File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '%s' '--bigbrotha-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrotha-live--\\r\\n'".PHP_EOL);
         chmod($ffmpegBinary, 0755);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
@@ -419,7 +419,7 @@ class LiveWallStreamTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertHeader('content-type', 'multipart/x-mixed-replace;boundary=bigbrothas-live');
+            ->assertHeader('content-type', 'multipart/x-mixed-replace;boundary=bigbrotha-live');
 
         $this->assertStringContainsString('frame-one', $response->streamedContent());
     }

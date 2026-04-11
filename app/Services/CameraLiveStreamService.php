@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CameraLiveStreamService
 {
-    private const MJPEG_BOUNDARY = 'bigbrothas-live';
+    private const MJPEG_BOUNDARY = 'bigbrotha-live';
 
     /**
      * @return array{index: int|null, profile: array<string, string|null>}|null

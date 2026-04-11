@@ -88,7 +88,7 @@ The admin settings page at `/admin/settings` can now route the logical camera st
 Current constraints:
 
 - only the `storage/app/private/cameras` tree is rerouted; other private-storage paths remain local.
-- the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrothas/cameras`.
+- the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrotha/cameras`.
 - do not point the admin SMB path at the parent directory above `cameras`; the logical `cameras/...` tree is expected to live entirely under that dedicated NAS directory.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
@@ -105,6 +105,8 @@ If the file is missing, corrupt, or contains invalid bytes, the route returns a 
 
 The default application expectation is that `config/ffmpeg.php` resolves the bundled binaries from `base_path('bin/ffmpeg')` and `base_path('bin/ffprobe')`.
 
+Docker deployments now also support a bundled MediaMTX binary by setting `MEDIAMTX_INSTALL_MODE=bundled` and `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
+
 If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
 
 ## Recording Worker Requirements
@@ -116,6 +118,7 @@ Current expectations:
 - `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
 - a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
+- the repository Docker stack satisfies those two requirements with dedicated `worker` and `scheduler` containers, so container deployments should leave `CAMERA_RECORDING_ENSURE_WORKER=false` and should not rely on host systemd.
 - hosts that need overlapping continuous and motion capture should run more than one recordings worker; set `CAMERA_RECORDING_WORKER_PROCESSES` above `1` before running `php artisan camera-recordings:install-worker-service` and Laravel will generate numbered user units for the requested pool size.
 - `camera-recordings:ensure-worker` can run from the same minute scheduler as a safety net, but it should only be enabled when the host config explicitly allows Laravel to manage the worker process.
 - `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.

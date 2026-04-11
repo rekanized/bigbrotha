@@ -1,13 +1,13 @@
 (() => {
-    if (window.BigBrothasCameraMotionEditorModule) {
-        window.BigBrothasCameraMotionEditorModule.bootstrap();
+    if (window.BigBrothaCameraMotionEditorModule) {
+        window.BigBrothaCameraMotionEditorModule.bootstrap();
 
         return;
     }
 
     const instances = new Map();
 
-    class BigBrothasCameraMotionEditor {
+    class BigBrothaCameraMotionEditor {
         constructor(root) {
             this.root = root;
             this.playerRoot = root.querySelector('[data-role="motion-player"]');
@@ -526,7 +526,7 @@
         }
 
         restartPlayer() {
-            if (!(this.playerRoot instanceof HTMLElement) || typeof window.BigBrothasWhepPlayer !== 'function' || this.sessionUrlBase() === '') {
+            if (!(this.playerRoot instanceof HTMLElement) || typeof window.BigBrothaWhepPlayer !== 'function' || this.sessionUrlBase() === '') {
                 return;
             }
 
@@ -535,7 +535,7 @@
             }
 
             this.playerRoot.dataset.sessionUrl = this.sessionUrl();
-            this.player = new window.BigBrothasWhepPlayer(this.playerRoot);
+            this.player = new window.BigBrothaWhepPlayer(this.playerRoot);
             this.player.start();
         }
 
@@ -730,7 +730,7 @@
                 return;
             }
 
-            instances.set(root, new BigBrothasCameraMotionEditor(root));
+            instances.set(root, new BigBrothaCameraMotionEditor(root));
         });
     };
 
@@ -749,7 +749,7 @@
         document.addEventListener('livewire:navigated', syncInstances);
     };
 
-    window.BigBrothasCameraMotionEditorModule = {
+    window.BigBrothaCameraMotionEditorModule = {
         bootstrap: syncInstances,
     };
 

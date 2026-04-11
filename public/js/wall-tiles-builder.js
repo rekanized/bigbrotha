@@ -1,11 +1,11 @@
 (() => {
-    if (window.BigBrothasWallTilesBuilderModule) {
-        window.BigBrothasWallTilesBuilderModule.bootstrap();
+    if (window.BigBrothaWallTilesBuilderModule) {
+        window.BigBrothaWallTilesBuilderModule.bootstrap();
 
         return;
     }
 
-    class BigBrothasWallTilesBuilder {
+    class BigBrothaWallTilesBuilder {
         constructor() {
             this.instances = new Map();
             this.observer = null;
@@ -201,6 +201,6 @@
         }
     }
 
-    window.BigBrothasWallTilesBuilderModule = new BigBrothasWallTilesBuilder();
-    window.BigBrothasWallTilesBuilderModule.bootstrap();
+    window.BigBrothaWallTilesBuilderModule = new BigBrothaWallTilesBuilder();
+    window.BigBrothaWallTilesBuilderModule.bootstrap();
 })();

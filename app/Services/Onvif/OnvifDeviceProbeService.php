@@ -28,7 +28,7 @@ class OnvifDeviceProbeService
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.self::GET_DEVICE_INFORMATION_ACTION.'"',
                     'SOAPAction' => self::GET_DEVICE_INFORMATION_ACTION,
-                    'User-Agent' => 'BigBrothas ONVIF Probe',
+                    'User-Agent' => 'BigBrotha ONVIF Probe',
                 ])
                 ->withBody($this->buildEnvelope($serviceUrl, $username, $password), 'application/soap+xml; charset=utf-8')
                 ->post($serviceUrl);

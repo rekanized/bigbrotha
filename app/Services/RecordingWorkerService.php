@@ -553,7 +553,7 @@ class RecordingWorkerService
 
     private function systemdServiceName(): string
     {
-        return (string) config('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
+        return (string) config('recording.worker.systemd_service', 'bigbrotha-recordings-queue.service');
     }
 
     /**
@@ -592,7 +592,7 @@ class RecordingWorkerService
     {
         return implode(PHP_EOL, [
             '[Unit]',
-            'Description=BigBrothas recordings queue worker',
+            'Description=BigBrotha recordings queue worker',
             'After=default.target',
             '',
             '[Service]',

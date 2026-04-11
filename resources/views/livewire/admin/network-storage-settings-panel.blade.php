@@ -2,7 +2,7 @@
     <div class="panel-heading">
         <div>
             <h2 class="panel-title">Network camera storage</h2>
-            <p class="panel-copy">Route the camera recordings and preview tree to an SMB share instead of the local private cameras directory. Use a path such as <strong>//fileserver/cameras/bigbrothas</strong> or <strong>smb://fileserver/cameras/bigbrothas</strong>.</p>
+            <p class="panel-copy">Route the camera recordings and preview tree to an SMB share instead of the local private cameras directory. Use a path such as <strong>//fileserver/cameras/bigbrotha</strong> or <strong>smb://fileserver/cameras/bigbrotha</strong>.</p>
         </div>
     </div>
 

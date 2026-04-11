@@ -12,6 +12,17 @@ class MediaMtxInstaller
     public function install(bool $force = false): string
     {
         $binaryPath = $this->binaryPath();
+        $installMode = strtolower((string) config('mediamtx.install_mode', 'download'));
+
+        if ($installMode === 'bundled') {
+            if ($this->isInstalled()) {
+                @chmod($binaryPath, 0755);
+
+                return $binaryPath;
+            }
+
+            throw new RuntimeException('MediaMTX install mode is set to bundled, but the binary was not found at '.$binaryPath.'.');
+        }
 
         if (!$force && $this->isInstalled()) {
             return $binaryPath;

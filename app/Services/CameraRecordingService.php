@@ -1720,7 +1720,7 @@ class CameraRecordingService
             throw new RuntimeException('Unable to prepare a writable temporary directory for buffered review playback.');
         }
 
-        $bufferedPath = $this->temporaryPlaybackFile($systemTemporaryDirectory, 'bigbrothas-review-'.$recording->getKey().'-');
+        $bufferedPath = $this->temporaryPlaybackFile($systemTemporaryDirectory, 'bigbrotha-review-'.$recording->getKey().'-');
 
         if ($bufferedPath === null) {
             throw new RuntimeException('Unable to allocate a temporary file for buffered review playback.');

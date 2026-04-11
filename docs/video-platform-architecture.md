@@ -13,7 +13,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Google OAuth via Laravel Socialite for operator sign-in.
 - ffmpeg and ffprobe configured through `config/ffmpeg.php` and service bindings in `app/Providers/AppServiceProvider.php`.
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
-- MediaMTX as the shared WebRTC relay managed from Laravel and installed through Composer-driven commands.
+- MediaMTX as the shared WebRTC relay managed from Laravel and either installed through Composer-driven host commands or baked directly into the Docker image through `MEDIAMTX_INSTALL_MODE=bundled`.
 
 ## Route Map
 
