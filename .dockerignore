@@ -5,6 +5,15 @@
 .env.*
 vendor
 node_modules
+docs
+tests
+database/backups
+README.md
+AGENTS.md
+UI-rules.md
+phpunit.xml
+publish.sh
+docker-compose.yml
 storage/*.key
 storage/app
 storage/framework/cache

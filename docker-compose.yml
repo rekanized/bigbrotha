@@ -28,6 +28,9 @@ x-laravel-service: &laravel-service
     database:
       condition: service_healthy
   environment: *laravel-environment
+  init: true
+  networks:
+    - bigbrotha
   volumes:
     - app-storage:/app/storage
 
@@ -62,6 +65,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - bigbrotha
     restart: unless-stopped
     ports:
       - "${APP_HTTP_PORT:-8080}:80"
@@ -98,6 +103,8 @@ services:
 
   database:
     image: postgres:18-alpine
+    networks:
+      - bigbrotha
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:-bigbrotha}
@@ -116,3 +123,7 @@ services:
 volumes:
   app-storage:
   db-data:
+
+networks:
+  bigbrotha:
+    driver: bridge
