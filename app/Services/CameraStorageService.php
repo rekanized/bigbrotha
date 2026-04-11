@@ -246,9 +246,9 @@ class CameraStorageService
         return $deleted || !is_file($absolutePath);
     }
 
-    public function resolveRecordingAbsolutePath(?string $recordingPath): ?string
+    public function resolveRecordingAbsolutePath(?string $recordingPath, ?int $transferTimeoutSeconds = null): ?string
     {
-        return $this->localReadablePath($recordingPath);
+        return $this->localReadablePath($recordingPath, false, $transferTimeoutSeconds);
     }
 
     /**
@@ -666,7 +666,7 @@ class CameraStorageService
         File::deleteDirectory($this->privateAbsolutePath('review-sprites/cameras/'.$cameraDirectory));
     }
 
-    private function localReadablePath(?string $path, bool $preferDirectRead = false): ?string
+    private function localReadablePath(?string $path, bool $preferDirectRead = false, ?int $transferTimeoutSeconds = null): ?string
     {
         $relativePath = $this->privateStorageRelativePath($path);
 
@@ -681,7 +681,7 @@ class CameraStorageService
         $diskPath = $this->cameraDiskRelativePath($relativePath);
 
         if ($preferDirectRead) {
-            $directReadPath = $this->copyCameraDiskPathToReadCache($diskPath, $relativePath);
+            $directReadPath = $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
 
             if ($directReadPath !== null) {
                 return $directReadPath;
@@ -692,11 +692,21 @@ class CameraStorageService
             return null;
         }
 
-        return $this->copyCameraDiskPathToReadCache($diskPath, $relativePath);
+        return $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
     }
 
-    private function copyCameraDiskPathToReadCache(string $diskPath, string $relativePath): ?string
+    private function copyCameraDiskPathToReadCache(string $diskPath, string $relativePath, ?int $transferTimeoutSeconds = null): ?string
     {
+        $smbClientReadPath = $this->copyCameraDiskPathToReadCacheWithSmbClient($diskPath, $relativePath, $transferTimeoutSeconds);
+
+        if (is_string($smbClientReadPath)) {
+            return $smbClientReadPath;
+        }
+
+        if ($smbClientReadPath === false) {
+            return null;
+        }
+
         $readPath = $this->temporaryReadCachePath($relativePath);
         $readDirectory = dirname($readPath);
 
@@ -726,6 +736,71 @@ class CameraStorageService
         }
 
         return is_file($readPath) ? $readPath : null;
+    }
+
+    /**
+     * @return string|false|null
+     */
+    private function copyCameraDiskPathToReadCacheWithSmbClient(string $diskPath, string $relativePath, ?int $transferTimeoutSeconds = null): string|false|null
+    {
+        if ($transferTimeoutSeconds === null) {
+            return null;
+        }
+
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+
+        if (!is_array($networkConfig)) {
+            return null;
+        }
+
+        $binary = $this->smbClientBinary();
+
+        if ($binary === null) {
+            return null;
+        }
+
+        $targetPath = $this->cameraDiskSmbTargetPath($diskPath);
+
+        if (!is_string($targetPath) || $targetPath === '') {
+            return false;
+        }
+
+        $readPath = $this->temporaryReadCachePath($relativePath);
+        $readDirectory = dirname($readPath);
+
+        $this->ensureWritableDirectory($readDirectory);
+
+        if (is_file($readPath)) {
+            @unlink($readPath);
+        }
+
+        $command = [
+            $binary,
+            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+            '-U',
+            $networkConfig['username'].'%'.$networkConfig['password'],
+            '-c',
+            'get "'.$targetPath.'" "'.$readPath.'"',
+        ];
+
+        $process = new Process($command);
+        $process->setTimeout(max(15, $transferTimeoutSeconds));
+
+        try {
+            $process->run();
+        } catch (Throwable) {
+            @unlink($readPath);
+
+            return false;
+        }
+
+        if (!$process->isSuccessful() || !is_file($readPath)) {
+            @unlink($readPath);
+
+            return false;
+        }
+
+        return $readPath;
     }
 
     private function openReadCacheDestination(string $readPath, string $readDirectory)
@@ -1040,10 +1115,14 @@ class CameraStorageService
         try {
             $remoteSize = $this->cameraDisk()->size($diskPath);
         } catch (Throwable $exception) {
-            throw new RuntimeException(
-                $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
-                previous: $exception,
-            );
+            $remoteSize = $this->cameraDiskFileSizeWithSmbClient($diskPath);
+
+            if (!is_int($remoteSize)) {
+                throw new RuntimeException(
+                    $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
+                    previous: $exception,
+                );
+            }
         }
 
         clearstatcache(true, $localPath);
@@ -1074,6 +1153,12 @@ class CameraStorageService
     {
         $disk = $this->cameraDisk();
         $encounteredException = false;
+
+        $smbClientAvailability = $this->cameraDiskFileAvailabilityWithSmbClient($diskPath);
+
+        if ($smbClientAvailability !== null) {
+            return $smbClientAvailability;
+        }
 
         try {
             if ($disk->exists($diskPath)) {
@@ -1107,12 +1192,6 @@ class CameraStorageService
             }
         } catch (Throwable) {
             $encounteredException = true;
-        }
-
-        $smbClientAvailability = $this->cameraDiskFileAvailabilityWithSmbClient($diskPath);
-
-        if ($smbClientAvailability !== null) {
-            return $smbClientAvailability;
         }
 
         return $encounteredException
@@ -1303,6 +1382,30 @@ class CameraStorageService
 
     protected function cameraDiskFileAvailabilityWithSmbClient(string $diskPath): ?string
     {
+        $metadata = $this->cameraDiskFileMetadataWithSmbClient($diskPath);
+        $availability = $metadata['availability'] ?? null;
+
+        return is_string($availability) ? $availability : null;
+    }
+
+    protected function cameraDiskFileSizeWithSmbClient(string $diskPath): ?int
+    {
+        $metadata = $this->cameraDiskFileMetadataWithSmbClient($diskPath);
+
+        if (($metadata['availability'] ?? null) !== self::RECORDING_AVAILABILITY_PRESENT) {
+            return null;
+        }
+
+        $size = $metadata['size'] ?? null;
+
+        return is_int($size) ? $size : null;
+    }
+
+    /**
+     * @return array{availability: string, size: int|null}|null
+     */
+    protected function cameraDiskFileMetadataWithSmbClient(string $diskPath): ?array
+    {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
         if (!is_array($networkConfig)) {
@@ -1334,16 +1437,39 @@ class CameraStorageService
         $process->setTimeout(20);
         $process->run();
 
-        $errorOutput = strtolower(trim($process->getErrorOutput().' '.$process->getOutput()));
+        $combinedOutput = trim($process->getErrorOutput().' '.$process->getOutput());
+        $errorOutput = strtolower($combinedOutput);
 
         foreach (['nt_status_object_name_not_found', 'nt_status_no_such_file', 'not found'] as $needle) {
             if (str_contains($errorOutput, $needle)) {
-                return self::RECORDING_AVAILABILITY_MISSING;
+                return [
+                    'availability' => self::RECORDING_AVAILABILITY_MISSING,
+                    'size' => null,
+                ];
             }
         }
 
         if ($process->isSuccessful()) {
-            return self::RECORDING_AVAILABILITY_PRESENT;
+            return [
+                'availability' => self::RECORDING_AVAILABILITY_PRESENT,
+                'size' => $this->parseSmbClientAllInfoSize($combinedOutput),
+            ];
+        }
+
+        return null;
+    }
+
+    private function parseSmbClientAllInfoSize(string $output): ?int
+    {
+        foreach ([
+            '/(?:^|\R)\s*size:\s*(\d+)\b/im',
+            '/(?:^|\R)\s*eof:\s*(\d+)\b/im',
+            '/(?:^|\R)\s*end of file:\s*(\d+)\b/im',
+            '/(?:^|\R)\s*allocation size:\s*(\d+)\b/im',
+        ] as $pattern) {
+            if (preg_match($pattern, $output, $matches) === 1) {
+                return (int) $matches[1];
+            }
         }
 
         return null;

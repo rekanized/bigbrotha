@@ -756,18 +756,6 @@ class AdminSettingsTest extends TestCase
         File::put($localPath, 'segment');
 
         $disk = \Mockery::mock(FilesystemContract::class);
-        $disk->shouldReceive('exists')
-            ->once()
-            ->with('7/recordings/2026/04/10/retry-check.mkv')
-            ->andReturn(false);
-        $disk->shouldReceive('size')
-            ->once()
-            ->with('7/recordings/2026/04/10/retry-check.mkv')
-            ->andThrow(new \RuntimeException('adapter miss'));
-        $disk->shouldReceive('files')
-            ->once()
-            ->with('7/recordings/2026/04/10')
-            ->andReturn([]);
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
             ->makePartial()
@@ -819,12 +807,58 @@ class AdminSettingsTest extends TestCase
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
         $storage->shouldReceive('cameraDisk')->andReturn($disk);
-        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')->never();
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('99/recordings/2026/04/07/metadata-check.mkv')
+            ->andReturn(null);
 
         $this->assertSame(
             CameraStorageService::RECORDING_AVAILABILITY_PRESENT,
             $storage->recordingAvailability('cameras/99/recordings/2026/04/07/metadata-check.mkv'),
         );
+    }
+
+    public function test_camera_storage_upload_verification_uses_smbclient_size_when_adapter_size_lookup_fails(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $localPath = storage_path('app/private/ffmpeg-temp/camera-network-staging/cameras/7/recordings/2026/04/10/size-fallback.mkv');
+        File::ensureDirectoryExists(dirname($localPath));
+        File::put($localPath, 'segment');
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('exists')
+            ->once()
+            ->with('7/recordings/2026/04/10/size-fallback.mkv')
+            ->andReturn(true);
+        $disk->shouldReceive('size')
+            ->once()
+            ->with('7/recordings/2026/04/10/size-fallback.mkv')
+            ->andThrow(new \RuntimeException('adapter miss'));
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()
+            ->with('7/recordings/2026/04/10/size-fallback.mkv')
+            ->andReturn(null);
+        $storage->shouldReceive('cameraDiskFileSizeWithSmbClient')
+            ->once()
+            ->with('7/recordings/2026/04/10/size-fallback.mkv')
+            ->andReturn(strlen('segment'));
+
+        $method = new \ReflectionMethod($storage, 'verifyCameraDiskWrite');
+        $method->setAccessible(true);
+        $method->invoke($storage, '7/recordings/2026/04/10/size-fallback.mkv', $localPath);
+
+        $this->assertFileExists($localPath);
     }
 
     public function test_camera_storage_network_availability_reports_missing_when_parent_listing_does_not_contain_the_file(): void
@@ -837,18 +871,6 @@ class AdminSettingsTest extends TestCase
         );
 
         $disk = \Mockery::mock(FilesystemContract::class);
-        $disk->shouldReceive('exists')
-            ->once()
-            ->with('99/recordings/2026/04/07/missing-check.mkv')
-            ->andReturn(false);
-        $disk->shouldReceive('size')
-            ->once()
-            ->with('99/recordings/2026/04/07/missing-check.mkv')
-            ->andThrow(new \RuntimeException('not found'));
-        $disk->shouldReceive('files')
-            ->once()
-            ->with('99/recordings/2026/04/07')
-            ->andReturn(['99/recordings/2026/04/07/other-file.mkv']);
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
             ->makePartial()
@@ -913,18 +935,6 @@ class AdminSettingsTest extends TestCase
         );
 
         $disk = \Mockery::mock(FilesystemContract::class);
-        $disk->shouldReceive('exists')
-            ->once()
-            ->with('99/recordings/2026/04/07/smbclient-fallback.mkv')
-            ->andReturn(false);
-        $disk->shouldReceive('size')
-            ->once()
-            ->with('99/recordings/2026/04/07/smbclient-fallback.mkv')
-            ->andThrow(new \RuntimeException('adapter miss'));
-        $disk->shouldReceive('files')
-            ->once()
-            ->with('99/recordings/2026/04/07')
-            ->andReturn([]);
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
             ->makePartial()
@@ -955,18 +965,6 @@ class AdminSettingsTest extends TestCase
         rewind($stream);
 
         $disk = \Mockery::mock(FilesystemContract::class);
-        $disk->shouldReceive('exists')
-            ->once()
-            ->with('99/recordings/2026/04/07/read-fallback.mkv')
-            ->andReturn(false);
-        $disk->shouldReceive('size')
-            ->once()
-            ->with('99/recordings/2026/04/07/read-fallback.mkv')
-            ->andThrow(new \RuntimeException('adapter miss'));
-        $disk->shouldReceive('files')
-            ->once()
-            ->with('99/recordings/2026/04/07')
-            ->andReturn([]);
         $disk->shouldReceive('readStream')
             ->once()
             ->with('99/recordings/2026/04/07/read-fallback.mkv')

@@ -481,7 +481,10 @@ class RecordingReviewAssetService
      */
     public function generateForRecording(CameraRecording $recording): array
     {
-        $absoluteRecordingPath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
+        $absoluteRecordingPath = $this->storage->resolveRecordingAbsolutePath(
+            $recording->relative_path,
+            max(30, $this->jobTimeoutSeconds() - 30),
+        );
 
         if ($absoluteRecordingPath === null) {
             throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));

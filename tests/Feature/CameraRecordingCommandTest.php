@@ -453,6 +453,49 @@ class CameraRecordingCommandTest extends TestCase
         }
     }
 
+    public function test_review_asset_generation_requests_a_bounded_storage_read(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.172',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream172',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 13, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 13, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 13, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/bounded-read-review-assets.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Clip saved.',
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('resolveRecordingAbsolutePath')
+            ->once()
+            ->with($recording->relative_path, \Mockery::on(static fn (mixed $timeout): bool => is_int($timeout) && $timeout >= 30))
+            ->andReturn(null);
+        $storage->shouldReceive('missingRecordingSegmentMessage')
+            ->once()
+            ->with($recording->relative_path)
+            ->andReturn('The saved recording segment is not available on disk.');
+        $this->app->instance(CameraStorageService::class, $storage);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('The saved recording segment is not available on disk.');
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+    }
+
     public function test_build_review_assets_can_limit_a_missing_backfill_to_the_newest_segments(): void
     {
         config()->set('queue.default', 'database');
