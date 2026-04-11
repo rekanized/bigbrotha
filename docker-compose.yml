@@ -19,6 +19,7 @@ x-laravel-environment: &laravel-environment
   MEDIAMTX_INSTALL_MODE: bundled
   MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
   MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
+  MEDIAMTX_RTSP_PUBLISH_BASE_URL: rtsp://127.0.0.1:8554
   QUEUE_CONNECTION: database
   SESSION_DRIVER: database
   TRUSTED_PROXIES: "*"
@@ -46,6 +47,9 @@ services:
       APP_AUTO_START_RELAY: "true"
       APP_CONTAINER_ROLE: app
     image: rekanized/bigbrotha-app:latest
+    networks:
+      - bigbrotha
+      - camera_lan
     restart: unless-stopped
     ports:
       - "8189:8189/tcp"
@@ -127,3 +131,11 @@ volumes:
 networks:
   bigbrotha:
     driver: bridge
+  camera_lan:
+    driver: macvlan
+    driver_opts:
+      parent: eth0 #change if your primary network interface is not eth0
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24 #change to match your camera LAN subnet
+          gateway: 192.168.1.1 #change to match your camera LAN gateway

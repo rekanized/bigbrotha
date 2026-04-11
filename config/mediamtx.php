@@ -112,6 +112,7 @@ return [
     'rtsp' => [
         'listen_address' => $optionalEnvString('MEDIAMTX_RTSP_LISTEN_ADDRESS') ?? ':8554',
         'internal_base_url' => $optionalEnvString('MEDIAMTX_RTSP_INTERNAL_BASE_URL') ?? 'rtsp://127.0.0.1:8554',
+        'publish_base_url' => $optionalEnvString('MEDIAMTX_RTSP_PUBLISH_BASE_URL') ?? 'rtsp://127.0.0.1:8554',
         'transports' => ['tcp'],
     ],
 

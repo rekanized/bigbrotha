@@ -27,6 +27,19 @@ docker compose pull
 docker compose up -d
 ```
 
+### Docker ONVIF Discovery Network
+
+The main `docker-compose.yml` attaches the `app` container to a LAN-facing `camera_lan` macvlan network so ONVIF WS-Discovery can probe from the camera segment.
+
+```bash
+export DISCOVERY_PARENT_INTERFACE=eth0
+export DISCOVERY_SUBNET=192.168.1.0/24
+export DISCOVERY_GATEWAY=192.168.1.1
+docker compose up -d
+```
+
+Set those values to match the real camera LAN before starting the stack. This keeps the normal `bigbrotha` bridge network for `web`, `worker`, `scheduler`, and `database`, while giving the `app` container a second LAN-facing interface that WS-Discovery can probe from.
+
 ### Docker Hub Startup
 
 ```bash
@@ -54,6 +67,8 @@ Docker runtime notes:
 - the app image has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
+- Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.
+- ONVIF WS-Discovery over Docker usually needs a LAN-facing interface in addition to the normal bridge network. The main compose file now requires `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` so the `app` container can join that LAN-facing macvlan network.
 - if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.
 - Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
 - the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.

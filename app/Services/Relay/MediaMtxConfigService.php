@@ -444,7 +444,7 @@ class MediaMtxConfigService
 
     private function internalPublishUrl(string $path): string
     {
-        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url'), '/');
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.publish_base_url', config('mediamtx.rtsp.internal_base_url')), '/');
         $publisherUser = rawurlencode((string) config('mediamtx.auth.publisher_user', 'publisher'));
         $publisherPass = rawurlencode((string) config('mediamtx.auth.publisher_pass', ''));
 

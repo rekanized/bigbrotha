@@ -101,6 +101,7 @@ x-laravel-environment: &laravel-environment
 	MEDIAMTX_INSTALL_MODE: bundled
 	MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
 	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
+	MEDIAMTX_RTSP_PUBLISH_BASE_URL: rtsp://127.0.0.1:8554
 	QUEUE_CONNECTION: database
 	SESSION_DRIVER: database
 	TRUSTED_PROXIES: "*"
@@ -189,6 +190,7 @@ x-laravel-environment: &laravel-environment
 	MEDIAMTX_INSTALL_MODE: bundled
 	MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log
 	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
+	MEDIAMTX_RTSP_PUBLISH_BASE_URL: rtsp://127.0.0.1:8554
 	QUEUE_CONNECTION: database
 	SESSION_DRIVER: database
 	TRUSTED_PROXIES: "*"
@@ -305,6 +307,17 @@ docker compose pull
 docker compose up -d --no-build
 ```
 
+ONVIF discovery network requirements for Docker:
+
+```bash
+export DISCOVERY_PARENT_INTERFACE=eth0
+export DISCOVERY_SUBNET=192.168.1.0/24
+export DISCOVERY_GATEWAY=192.168.1.1
+docker compose up -d
+```
+
+The main compose file now attaches the `app` service to a LAN-facing `camera_lan` macvlan network by default so ONVIF WS-Discovery can probe from the camera segment. Set those three values before startup.
+
 Review these values in `docker-compose.yml` before first startup:
 
 - `APP_URL` with the public host or local published port, for example `http://localhost:8080`
@@ -330,6 +343,7 @@ Container notes:
 - The `app` container bootstraps itself automatically: when the `users` table is missing or contains zero rows it runs `php artisan migrate --force` before serving `php-fpm`.
 - Compose forces `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` so MediaMTX running in the `app` container can reach Laravel through the internal Nginx service instead of trying to call the public host from inside the container network.
 - Compose forces `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so relay-backed recording workflows can reach the relay from any Laravel container on the compose network.
+- Compose also sets `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the in-container MediaMTX `runOnDemand` publisher connects over loopback and satisfies the internal publisher auth checks.
 - If `APP_KEY` is not provided, the container entrypoint generates one once, stores a shared copy under Docker storage, and writes it into the mounted project `.env` so `app`, `worker`, `scheduler`, and later `docker compose exec` commands all resolve the same key.
 - If SMB-backed storage is enabled, the app image already includes `smbclient` so the container does not need that binary from the host.
 - MediaMTX is bundled into the app image at `/usr/local/bin/mediamtx` and is started automatically during app bootstrap, while Laravel can still self-heal it later through `ensureRunning()` if needed. You do not need to run `php artisan relay:status` as part of normal startup.
@@ -337,6 +351,7 @@ Container notes:
 - The app image now has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - The `web` service also has a lightweight healthcheck through Nginx, and Compose waits for the `app` service to become healthy before starting `web`, `worker`, and `scheduler`.
 - Motion capture through the relay path continues to work in Docker because Compose injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554`, but the default recording path still reads directly from cameras unless `CAMERA_MOTION_USE_RELAY_SOURCE=true` is explicitly enabled.
+- ONVIF WS-Discovery uses UDP multicast to `239.255.255.250:3702`. The main Docker stack now attaches the `app` service to a `camera_lan` macvlan network by default. Set `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` before startup so the container can probe directly on the camera LAN.
 
 Production verification after startup:
 
