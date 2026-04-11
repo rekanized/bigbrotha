@@ -316,7 +316,7 @@ export DISCOVERY_GATEWAY=192.168.1.1
 docker compose up -d
 ```
 
-The main compose file now attaches the `app` service to a LAN-facing `camera_lan` macvlan network by default so ONVIF WS-Discovery can probe from the camera segment. Set those three values before startup.
+The main compose file now attaches the `app` service to a LAN-facing `camera_lan` `ipvlan` L2 network by default so ONVIF WS-Discovery can probe from the camera segment without requiring a second container MAC on the uplink. Set those three values before startup.
 
 Review these values in `docker-compose.yml` before first startup:
 
@@ -351,7 +351,7 @@ Container notes:
 - The app image now has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - The `web` service also has a lightweight healthcheck through Nginx, and Compose waits for the `app` service to become healthy before starting `web`, `worker`, and `scheduler`.
 - Motion capture through the relay path continues to work in Docker because Compose injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554`, but the default recording path still reads directly from cameras unless `CAMERA_MOTION_USE_RELAY_SOURCE=true` is explicitly enabled.
-- ONVIF WS-Discovery uses UDP multicast to `239.255.255.250:3702`. The main Docker stack now attaches the `app` service to a `camera_lan` macvlan network by default. Set `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` before startup so the container can probe directly on the camera LAN.
+- ONVIF WS-Discovery uses UDP multicast to `239.255.255.250:3702`. The main Docker stack now attaches the `app` service to a `camera_lan` `ipvlan` L2 network by default. Set `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` before startup so the container can probe directly on the camera LAN.
 
 Production verification after startup:
 

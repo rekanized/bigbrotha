@@ -29,7 +29,7 @@ docker compose up -d
 
 ### Docker ONVIF Discovery Network
 
-The main `docker-compose.yml` attaches the `app` container to a LAN-facing `camera_lan` macvlan network so ONVIF WS-Discovery can probe from the camera segment.
+The main `docker-compose.yml` attaches the `app` container to a LAN-facing `camera_lan` `ipvlan` L2 network so ONVIF WS-Discovery can probe from the camera segment.
 
 ```bash
 export DISCOVERY_PARENT_INTERFACE=eth0
@@ -68,7 +68,7 @@ Docker runtime notes:
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
 - Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.
-- ONVIF WS-Discovery over Docker usually needs a LAN-facing interface in addition to the normal bridge network. The main compose file now requires `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` so the `app` container can join that LAN-facing macvlan network.
+- ONVIF WS-Discovery over Docker usually needs a LAN-facing interface in addition to the normal bridge network. The main compose file now requires `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` so the `app` container can join that LAN-facing `ipvlan` L2 network.
 - if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.
 - Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
 - the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.

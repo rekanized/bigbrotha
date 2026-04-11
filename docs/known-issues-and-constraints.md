@@ -74,7 +74,7 @@ If discovery still returns no devices, likely causes are outside Laravel:
 
 The practical fallback is the manual ONVIF probe flow on `/discovery/onvif-sweep`.
 
-For the repository Docker stack, multicast discovery usually requires attaching the `app` container to the camera LAN with a macvlan or host-network-style solution; the default bridge-only compose network is not enough to assume WS-Discovery will work. The repository `docker-compose.yml` now includes an active `camera_lan` macvlan network that must be configured with `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` before startup.
+For the repository Docker stack, multicast discovery usually requires attaching the `app` container to the camera LAN with an `ipvlan`/host-network-style solution; the default bridge-only compose network is not enough to assume WS-Discovery will work. The repository `docker-compose.yml` now includes an active `camera_lan` `ipvlan` L2 network that must be configured with the correct parent interface, subnet, and gateway before startup.
 
 ## Preview Storage History
 
