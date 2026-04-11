@@ -34,6 +34,16 @@ $optionalEnvString = static function (string $key): ?string {
     return $value !== '' ? $value : null;
 };
 
+$envStringAllowEmpty = static function (string $key): ?string {
+    $value = env($key);
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    return trim($value);
+};
+
 $optionalEnvCsv = static function (string $key): ?array {
     $value = env($key);
 
@@ -129,9 +139,9 @@ return [
         'public_base_url' => $configuredWebRtcPublicUrl,
         'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
         'allow_origins' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ALLOW_ORIGINS') ?? [$defaultCallbackOrigin],
-        'ips_from_interfaces' => $optionalEnvBool('MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES', true),
-        'local_udp_address' => $optionalEnvString('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS') ?? ':8189',
-        'local_tcp_address' => $optionalEnvString('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS') ?? ':8189',
+        'ips_from_interfaces' => $optionalEnvBool('MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES', false),
+        'local_udp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS') ?? ':8189',
+        'local_tcp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS') ?? ':8189',
         'additional_hosts' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS') ?? [$defaultAdditionalHost],
         'iframe_query' => http_build_query([
             'controls' => 'false',

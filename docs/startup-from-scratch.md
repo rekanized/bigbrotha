@@ -163,6 +163,22 @@ php artisan relay:sync
 
 This project manages MediaMTX from Laravel rather than expecting a separate hand-installed binary.
 
+For WebRTC stability on hosts that also have Docker bridges, VPN adapters, or Tailscale interfaces, prefer explicit browser-reachable hosts instead of interface auto-discovery:
+
+```dotenv
+MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false
+MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS=monitor.example.com,192.168.1.222
+```
+
+If browsers can complete WHEP but the video stays black and the peer reconnects every few seconds, the camera feed is often fine and the problem is ICE connectivity. In that case you can force TCP media transport with:
+
+```dotenv
+MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS=
+MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS=:8189
+```
+
+Then run `php artisan optimize:clear` and restart the app plus MediaMTX so the generated relay config is rebuilt.
+
 ## 5. Install The Recordings Worker Service
 
 ```bash
