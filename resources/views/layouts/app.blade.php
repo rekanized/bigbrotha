@@ -36,13 +36,15 @@
 
         <title>@yield('title', config('app.name', 'Bigbrotha'))</title>
 
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}" sizes="any">
-        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+        @php($assetBase = rtrim(request()->getBaseUrl(), '/'))
+
+        <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
+        <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
 
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded">
-        <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css">
         <script>
             (() => {
                 if (!('fonts' in document)) {
@@ -100,7 +102,7 @@
                     <div class="app-rail__inner">
                         <div class="sidebar-brand">
                             <div class="sidebar-brand__mark" aria-hidden="true">
-                                <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                                <img class="sidebar-brand__logo" src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
                             </div>
                             <div class="sidebar-brand__meta">
                                 <span class="sidebar-brand__eyebrow">Operator workspace</span>

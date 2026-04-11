@@ -7,17 +7,19 @@
 
         <title>{{ config('app.name', 'Bigbrotha') }} | Sign in</title>
 
-        <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}" sizes="any">
-        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+        @php($assetBase = rtrim(request()->getBaseUrl(), '/'))
 
-        <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+        <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
+        <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
+
+        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css">
     </head>
     <body class="auth-page">
         <main class="auth-layout">
             <section class="auth-brief page-card">
                 <div class="auth-brief__brand">
                     <div class="auth-card__mark" aria-hidden="true">
-                        <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                        <img class="sidebar-brand__logo" src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
                     </div>
                     <div>
                         <div class="auth-card__eyebrow">Camera operations platform</div>
@@ -55,7 +57,7 @@
             <section class="auth-card page-card">
                 <div class="auth-card__brand">
                     <div class="auth-card__mark" aria-hidden="true">
-                        <img class="sidebar-brand__logo" src="{{ asset('img/bigbrotha-logo.svg') }}" alt="">
+                        <img class="sidebar-brand__logo" src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
                     </div>
                     <div>
                         <div class="auth-card__eyebrow">Secure operator access</div>
