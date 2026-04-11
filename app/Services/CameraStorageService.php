@@ -494,16 +494,22 @@ class CameraStorageService
         $diskPath = $this->cameraDiskRelativePath($relativePath);
         $this->ensureCameraDiskDirectory(dirname($diskPath));
 
-        $stream = fopen($localPath, 'rb');
+        if ($this->shouldUseSmbClientTransfers()) {
+            if (!$this->writeCameraDiskPathWithSmbClient($diskPath, $localPath)) {
+                throw new RuntimeException('Unable to upload the staged file to SMB storage: '.$localPath);
+            }
+        } else {
+            $stream = fopen($localPath, 'rb');
 
-        if (!is_resource($stream)) {
-            throw new RuntimeException('Unable to open the staged file for SMB upload: '.$localPath);
-        }
+            if (!is_resource($stream)) {
+                throw new RuntimeException('Unable to open the staged file for SMB upload: '.$localPath);
+            }
 
-        try {
-            $this->cameraDisk()->writeStream($diskPath, $stream);
-        } finally {
-            fclose($stream);
+            try {
+                $this->cameraDisk()->writeStream($diskPath, $stream);
+            } finally {
+                fclose($stream);
+            }
         }
 
         $this->verifyCameraDiskWrite($diskPath, $localPath);
@@ -743,7 +749,7 @@ class CameraStorageService
      */
     private function copyCameraDiskPathToReadCacheWithSmbClient(string $diskPath, string $relativePath, ?int $transferTimeoutSeconds = null): string|false|null
     {
-        if ($transferTimeoutSeconds === null) {
+        if (!$this->shouldUseSmbClientTransfers()) {
             return null;
         }
 
@@ -784,7 +790,7 @@ class CameraStorageService
         ];
 
         $process = new Process($command);
-        $process->setTimeout(max(15, $transferTimeoutSeconds));
+        $process->setTimeout(max(15, $transferTimeoutSeconds ?? 20));
 
         try {
             $process->run();
@@ -801,6 +807,47 @@ class CameraStorageService
         }
 
         return $readPath;
+    }
+
+    private function writeCameraDiskPathWithSmbClient(string $diskPath, string $localPath, ?int $transferTimeoutSeconds = null): bool
+    {
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+
+        if (!is_array($networkConfig)) {
+            return false;
+        }
+
+        $binary = $this->smbClientBinary();
+
+        if ($binary === null) {
+            return false;
+        }
+
+        $targetPath = $this->cameraDiskSmbTargetPath($diskPath);
+
+        if (!is_string($targetPath) || $targetPath === '') {
+            return false;
+        }
+
+        $command = [
+            $binary,
+            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+            '-U',
+            $networkConfig['username'].'%'.$networkConfig['password'],
+            '-c',
+            'put "'.$localPath.'" "'.$targetPath.'"',
+        ];
+
+        $process = new Process($command);
+        $process->setTimeout(max(20, $transferTimeoutSeconds ?? 30));
+
+        try {
+            $process->run();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $process->isSuccessful();
     }
 
     private function openReadCacheDestination(string $readPath, string $readDirectory)
@@ -1118,6 +1165,10 @@ class CameraStorageService
             $remoteSize = $this->cameraDiskFileSizeWithSmbClient($diskPath);
 
             if (!is_int($remoteSize)) {
+                if ($this->shouldUseSmbClientTransfers()) {
+                    return;
+                }
+
                 throw new RuntimeException(
                     $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
                     previous: $exception,
@@ -1473,6 +1524,14 @@ class CameraStorageService
         }
 
         return null;
+    }
+
+    private function shouldUseSmbClientTransfers(): bool
+    {
+        return $this->usingNetworkStorage()
+            && (string) config('filesystems.disks.camera_private.driver', 'local') === 'smb'
+            && is_array($this->settings->networkStorageDiskConfig())
+            && $this->smbClientBinary() !== null;
     }
 
     private function smbClientBinary(): ?string
