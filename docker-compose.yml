@@ -49,7 +49,6 @@ services:
     image: rekanized/bigbrotha-app:latest
     networks:
       - bigbrotha
-      - camera_lan
     restart: unless-stopped
     ports:
       - "8189:8189/tcp"
@@ -131,12 +130,3 @@ volumes:
 networks:
   bigbrotha:
     driver: bridge
-  camera_lan:
-    driver: ipvlan
-    driver_opts:
-      parent: ens160 #change if your primary network interface is not ens160
-      ipvlan_mode: l2
-    ipam:
-      config:
-        - subnet: 192.168.1.0/24 #change to match your camera LAN subnet
-          gateway: 192.168.1.1 #change to match your camera LAN gateway
