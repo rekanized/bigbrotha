@@ -7,7 +7,9 @@
 
         <title>{{ config('app.name', 'Bigbrotha') }} | Sign in</title>
 
-        @php($assetBase = rtrim(request()->getBaseUrl(), '/'))
+        @php
+            $assetBase = rtrim(request()->getBaseUrl(), '/');
+        @endphp
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
         <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
