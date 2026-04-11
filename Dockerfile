@@ -48,7 +48,7 @@ RUN composer install --no-dev --prefer-dist --no-interaction --no-progress --opt
         mkdir -p /tmp/mediamtx; \
         tar -xzf /tmp/mediamtx.tar.gz -C /tmp/mediamtx; \
         install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx; \
-        rm -rf /tmp/mediamtx /tmp/mediamtx.tar.gz; \
+        rm -rf /tmp/mediamtx /tmp/mediamtx.tar.gz \
     && mkdir -p \
         bootstrap/cache \
         storage/app/private/ffmpeg-temp \
