@@ -6,7 +6,9 @@ use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\CameraRecording;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -47,6 +49,156 @@ class RecordingReviewAssetService
     public function lockSeconds(): int
     {
         return max(60, (int) config('recording.review_assets.lock_seconds', 120));
+    }
+
+    public function dispatchSuppressionSeconds(): int
+    {
+        return max(
+            $this->lockSeconds(),
+            (int) config('recording.review_assets.dispatch_suppression_seconds', max($this->jobTimeoutSeconds() * 6, 900)),
+        );
+    }
+
+    public function markQueued(int $recordingId): bool
+    {
+        return Cache::add(
+            $this->queuedCacheKey($recordingId),
+            now()->utc()->toIso8601String(),
+            now()->addSeconds($this->dispatchSuppressionSeconds()),
+        );
+    }
+
+    public function clearQueued(int $recordingId): void
+    {
+        Cache::forget($this->queuedCacheKey($recordingId));
+    }
+
+    public function isQueued(int $recordingId): bool
+    {
+        return Cache::has($this->queuedCacheKey($recordingId));
+    }
+
+    /**
+     * @return array{ok: bool, jobs_scanned: int, jobs_matched: int, recordings_matched: int, recordings_with_duplicates: int, jobs_deleted: int, jobs_requeued: int, active_reserved_recordings: int, message: string}
+     */
+    public function reconcileQueuedJobs(bool $dryRun = false): array
+    {
+        if (!$this->usesDatabaseQueue()) {
+            return [
+                'ok' => false,
+                'jobs_scanned' => 0,
+                'jobs_matched' => 0,
+                'recordings_matched' => 0,
+                'recordings_with_duplicates' => 0,
+                'jobs_deleted' => 0,
+                'jobs_requeued' => 0,
+                'active_reserved_recordings' => 0,
+                'message' => 'Review-asset queue reconciliation requires the database queue driver and jobs table.',
+            ];
+        }
+
+        $jobs = DB::table('jobs')
+            ->select(['id', 'queue', 'payload', 'reserved_at', 'available_at', 'created_at'])
+            ->where('payload', 'like', '%'.class_basename(GenerateRecordingReviewAssetsJob::class).'%')
+            ->orderBy('id')
+            ->get();
+
+        $matchedJobs = 0;
+        $groups = [];
+
+        foreach ($jobs as $job) {
+            $recordingId = $this->reviewAssetRecordingIdFromPayload((string) $job->payload);
+
+            if ($recordingId === null) {
+                continue;
+            }
+
+            $matchedJobs++;
+            $groups[$recordingId] ??= [];
+            $groups[$recordingId][] = $job;
+        }
+
+        $jobsDeleted = 0;
+        $jobsRequeued = 0;
+        $recordingsWithDuplicates = 0;
+        $activeReservedRecordings = 0;
+        $targetQueue = $this->queueName();
+
+        foreach ($groups as $recordingId => $recordingJobs) {
+            $reservedJobs = array_values(array_filter($recordingJobs, static fn (object $job): bool => $job->reserved_at !== null));
+            $readyJobs = array_values(array_filter($recordingJobs, static fn (object $job): bool => $job->reserved_at === null));
+
+            if (count($recordingJobs) > 1) {
+                $recordingsWithDuplicates++;
+            }
+
+            if ($reservedJobs !== []) {
+                $activeReservedRecordings++;
+                $deleteIds = array_map(static fn (object $job): int => (int) $job->id, $readyJobs);
+
+                if ($deleteIds !== []) {
+                    $jobsDeleted += count($deleteIds);
+
+                    if (!$dryRun) {
+                        DB::table('jobs')->whereIn('id', $deleteIds)->delete();
+                    }
+                }
+
+                continue;
+            }
+
+            usort($readyJobs, static function (object $left, object $right): int {
+                $createdComparison = ((int) $left->created_at) <=> ((int) $right->created_at);
+
+                if ($createdComparison !== 0) {
+                    return $createdComparison;
+                }
+
+                return ((int) $left->id) <=> ((int) $right->id);
+            });
+
+            $keptJob = $readyJobs[0] ?? null;
+            $duplicateJobs = array_slice($readyJobs, 1);
+            $deleteIds = array_map(static fn (object $job): int => (int) $job->id, $duplicateJobs);
+
+            if ($deleteIds !== []) {
+                $jobsDeleted += count($deleteIds);
+
+                if (!$dryRun) {
+                    DB::table('jobs')->whereIn('id', $deleteIds)->delete();
+                }
+            }
+
+            if ($keptJob !== null && (string) $keptJob->queue !== $targetQueue) {
+                $jobsRequeued++;
+
+                if (!$dryRun) {
+                    DB::table('jobs')
+                        ->where('id', (int) $keptJob->id)
+                        ->update(['queue' => $targetQueue]);
+                }
+            }
+
+            if (!$dryRun && $keptJob !== null) {
+                Cache::put(
+                    $this->queuedCacheKey((int) $recordingId),
+                    now()->utc()->toIso8601String(),
+                    now()->addSeconds($this->dispatchSuppressionSeconds()),
+                );
+            }
+        }
+
+        return [
+            'ok' => true,
+            'jobs_scanned' => $jobs->count(),
+            'jobs_matched' => $matchedJobs,
+            'recordings_matched' => count($groups),
+            'recordings_with_duplicates' => $recordingsWithDuplicates,
+            'jobs_deleted' => $jobsDeleted,
+            'jobs_requeued' => $jobsRequeued,
+            'active_reserved_recordings' => $activeReservedRecordings,
+            'message' => 'Review-asset queue reconciliation complete.',
+        ];
     }
 
     public function recordJobFailure(CameraRecording $recording, string $message): void
@@ -248,6 +400,7 @@ class RecordingReviewAssetService
         $manifest = $this->manifest($recording);
         $previewRelativePath = $this->previewRelativePath($recording);
         $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
+        $queued = $this->isQueued($recording->getKey());
         $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
         $manifestStatus = $versionCurrent && is_string($manifest['status'] ?? null) ? $manifest['status'] : self::STATUS_MISSING;
         $scrubStatus = $versionCurrent && is_string($manifest['scrub_status'] ?? null) ? $manifest['scrub_status'] : self::STATUS_MISSING;
@@ -261,11 +414,11 @@ class RecordingReviewAssetService
         return [
             'status' => $ready
                 ? self::STATUS_READY
-                : $manifestStatus,
+                : ($manifestStatus === self::STATUS_MISSING && $queued ? self::STATUS_PENDING : $manifestStatus),
             'ready' => $ready,
             'preview_available' => $previewAvailable,
             'thumbnail_available' => $thumbnailAvailable,
-            'scrub_status' => $scrubStatus,
+            'scrub_status' => $scrubStatus === self::STATUS_MISSING && $queued ? self::STATUS_PENDING : $scrubStatus,
             'scrub_sprite_available' => $scrubSpriteAvailable,
             'version' => is_string($manifest['version'] ?? null) ? $manifest['version'] : null,
             'version_current' => $versionCurrent,
@@ -292,15 +445,17 @@ class RecordingReviewAssetService
             return false;
         }
 
+        if ($this->isQueued($recording->getKey())) {
+            return false;
+        }
+
         $assetState = $this->assetState($recording);
 
         if ($this->assetStateSatisfiesRequirement($assetState, $recording, $requireScrubSprite) || (($assetState['status'] ?? null) === self::STATUS_PENDING)) {
             return false;
         }
 
-        $dispatchKey = 'camera-recordings:review-assets:dispatch:'.$recording->getKey();
-
-        if (!Cache::add($dispatchKey, now()->utc()->toIso8601String(), now()->addSeconds(30))) {
+        if (!$this->markQueued($recording->getKey())) {
             return false;
         }
 
@@ -310,7 +465,7 @@ class RecordingReviewAssetService
 
             return true;
         } catch (Throwable $exception) {
-            Cache::forget($dispatchKey);
+            $this->clearQueued($recording->getKey());
             Log::warning('Unable to queue review asset generation from a web request fallback.', [
                 'recording_id' => $recording->getKey(),
                 'camera_id' => $recording->camera_id,
@@ -567,6 +722,47 @@ class RecordingReviewAssetService
     private function previewRelativePath(CameraRecording $recording): ?string
     {
         return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'preview.mp4');
+    }
+
+    private function jobTimeoutSeconds(): int
+    {
+        return max(180, (int) config('recording.review_assets.job_timeout_seconds', 240));
+    }
+
+    private function queuedCacheKey(int $recordingId): string
+    {
+        return 'camera-recordings:review-assets:queued:'.$recordingId;
+    }
+
+    private function usesDatabaseQueue(): bool
+    {
+        $defaultConnection = (string) config('queue.default', '');
+
+        return $defaultConnection !== ''
+            && (string) config('queue.connections.'.$defaultConnection.'.driver', '') === 'database'
+            && Schema::hasTable('jobs');
+    }
+
+    private function reviewAssetRecordingIdFromPayload(string $payload): ?int
+    {
+        if (!str_contains($payload, class_basename(GenerateRecordingReviewAssetsJob::class))) {
+            return null;
+        }
+
+        if (preg_match('/recordingId";i:(\d+);/', $payload, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        $decoded = json_decode($payload, true);
+        $command = is_array($decoded) && is_string($decoded['data']['command'] ?? null)
+            ? $decoded['data']['command']
+            : null;
+
+        if ($command !== null && preg_match('/recordingId";i:(\d+);/', $command, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return null;
     }
 
     /**

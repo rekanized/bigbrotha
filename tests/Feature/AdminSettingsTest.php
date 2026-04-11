@@ -132,11 +132,11 @@ class AdminSettingsTest extends TestCase
     public function test_admin_job_queue_component_lists_pending_and_failed_jobs(): void
     {
         config()->set('queue.default', 'database');
-        config()->set('recording.worker.queue', 'recordings,default');
+        config()->set('recording.worker.queue', 'recordings,default,review-assets');
 
         DB::table('jobs')->insert([
             [
-                'queue' => 'recordings',
+                'queue' => 'review-assets',
                 'payload' => json_encode([
                     'displayName' => 'App\\Jobs\\GenerateRecordingReviewAssetsJob',
                 ], JSON_THROW_ON_ERROR),
@@ -172,6 +172,7 @@ class AdminSettingsTest extends TestCase
             ->assertSee('Job queue monitor')
             ->assertSee('recordings')
             ->assertSee('default')
+            ->assertSee('review-assets')
             ->assertSee('GenerateRecordingReviewAssetsJob')
             ->assertSee('RefreshCameraPreviewJob')
             ->assertSee('ProcessCameraRecordingJob')

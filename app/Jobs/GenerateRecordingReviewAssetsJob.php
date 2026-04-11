@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\CameraRecording;
 use App\Services\RecordingReviewAssetService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Cache;
 use RuntimeException;
 use Throwable;
 
-class GenerateRecordingReviewAssetsJob implements ShouldQueue
+class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -26,6 +27,11 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue
     public function __construct(public int $recordingId)
     {
         $this->timeout = max(180, (int) config('recording.review_assets.job_timeout_seconds', 240));
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->recordingId;
     }
 
     /**
@@ -41,6 +47,8 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue
         $recording = CameraRecording::query()->find($this->recordingId);
 
         if (!$recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
+            $reviewAssets->clearQueued($this->recordingId);
+
             return;
         }
 
@@ -60,9 +68,11 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue
 
         try {
             $reviewAssets->generateForRecording($recording);
+            $reviewAssets->clearQueued($recording->getKey());
         } catch (Throwable $exception) {
             if ($this->attempts() >= $this->tries) {
                 $reviewAssets->recordJobFailure($recording, 'Final review asset attempt failed: '.$this->summarizeThrowable($exception).'.');
+                $reviewAssets->clearQueued($recording->getKey());
             }
 
             throw $exception;
@@ -81,16 +91,20 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        $reviewAssets = app(RecordingReviewAssetService::class);
         $recording = CameraRecording::query()->find($this->recordingId);
 
         if (!$recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
+            $reviewAssets->clearQueued($this->recordingId);
+
             return;
         }
 
-        app(RecordingReviewAssetService::class)->recordJobFailure(
+        $reviewAssets->recordJobFailure(
             $recording,
             'The queue worker marked the review asset job as failed after '.$this->tries.' attempts: '.$this->summarizeThrowable($exception).'.',
         );
+        $reviewAssets->clearQueued($recording->getKey());
     }
 
     private function summarizeThrowable(?Throwable $exception): string

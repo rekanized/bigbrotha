@@ -153,7 +153,7 @@ php artisan serve
 In another shell, run:
 
 ```bash
-php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
+php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
 ```
 
 And either run cron externally or trigger the scheduler manually while testing:

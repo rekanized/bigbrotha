@@ -40,7 +40,13 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => max(
+                120,
+                (int) env('DB_QUEUE_RETRY_AFTER', max(
+                    max(180, (int) env('CAMERA_RECORDING_JOB_TIMEOUT_SECONDS', 240)),
+                    max(180, (int) env('CAMERA_REVIEW_ASSET_JOB_TIMEOUT_SECONDS', 240))
+                ) + 60)
+            ),
             'after_commit' => false,
         ],
 

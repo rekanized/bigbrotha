@@ -35,7 +35,7 @@ BASH);
     config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
     config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
     config()->set('recording.worker.php_binary', '/usr/bin/php');
-    config()->set('recording.worker.queue', 'recordings,default');
+    config()->set('recording.worker.queue', 'recordings,default,review-assets');
     config()->set('recording.worker.max_jobs', 50);
     config()->set('recording.worker.max_time', 3600);
     config()->set('recording.worker.memory', 256);
@@ -48,7 +48,7 @@ BASH);
     $this->assertStringContainsString('Installed and started the recordings worker systemd unit.', $output);
     $this->assertFileExists($servicePath);
     $this->assertStringContainsString('WorkingDirectory='.base_path(), (string) file_get_contents($servicePath));
-    $this->assertStringContainsString('ExecStart=/usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256', (string) file_get_contents($servicePath));
+    $this->assertStringContainsString('ExecStart=/usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256', (string) file_get_contents($servicePath));
     $this->assertFileExists($invocationLog);
     $this->assertStringContainsString('--user daemon-reload', (string) file_get_contents($invocationLog));
     $this->assertStringContainsString('--user enable --now bigbrothas-recordings-queue.service', (string) file_get_contents($invocationLog));
@@ -76,7 +76,7 @@ BASH);
       config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
       config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
       config()->set('recording.worker.php_binary', '/usr/bin/php');
-      config()->set('recording.worker.queue', 'recordings,default');
+      config()->set('recording.worker.queue', 'recordings,default,review-assets');
       config()->set('recording.worker.max_jobs', 50);
       config()->set('recording.worker.max_time', 3600);
       config()->set('recording.worker.memory', 256);
@@ -88,11 +88,52 @@ BASH);
       $this->assertStringContainsString('Installed and started 2 recordings worker systemd units.', $output);
       $this->assertFileExists($systemdDirectory.'/bigbrothas-recordings-queue-1.service');
       $this->assertFileExists($systemdDirectory.'/bigbrothas-recordings-queue-2.service');
-      $this->assertStringContainsString('ExecStart=/usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256', (string) file_get_contents($systemdDirectory.'/bigbrothas-recordings-queue-1.service'));
+      $this->assertStringContainsString('ExecStart=/usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256', (string) file_get_contents($systemdDirectory.'/bigbrothas-recordings-queue-1.service'));
       $this->assertFileExists($invocationLog);
       $log = (string) file_get_contents($invocationLog);
       $this->assertStringContainsString('--user enable --now bigbrothas-recordings-queue-1.service bigbrothas-recordings-queue-2.service', $log);
       $this->assertStringContainsString('--user disable --now bigbrothas-recordings-queue.service', $log);
+    }
+
+    public function test_it_disables_stale_numbered_worker_units_when_capacity_shrinks(): void
+    {
+      $binaryDirectory = storage_path('app/private/test-binaries');
+      $systemdDirectory = $binaryDirectory.'/systemd-user-shrink';
+      File::ensureDirectoryExists($binaryDirectory);
+      File::ensureDirectoryExists($systemdDirectory);
+
+      $invocationLog = $binaryDirectory.'/recording-worker-install-shrink.log';
+      @unlink($invocationLog);
+
+      $systemctlBinary = $binaryDirectory.'/recording-worker-install-shrink-systemctl.sh';
+      File::put($systemctlBinary, <<<BASH
+#!/usr/bin/env bash
+echo "$*" >> {$invocationLog}
+exit 0
+BASH);
+      chmod($systemctlBinary, 0755);
+
+      File::put($systemdDirectory.'/bigbrothas-recordings-queue-3.service', 'stale');
+      File::put($systemdDirectory.'/bigbrothas-recordings-queue-4.service', 'stale');
+
+      config()->set('recording.worker.processes', 2);
+      config()->set('recording.worker.systemctl_binary', $systemctlBinary);
+      config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
+      config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
+      config()->set('recording.worker.php_binary', '/usr/bin/php');
+      config()->set('recording.worker.queue', 'recordings,default,review-assets');
+      config()->set('recording.worker.max_jobs', 50);
+      config()->set('recording.worker.max_time', 3600);
+      config()->set('recording.worker.memory', 256);
+
+      $exitCode = Artisan::call('camera-recordings:install-worker-service');
+      $output = Artisan::output();
+      $log = (string) file_get_contents($invocationLog);
+
+      $this->assertSame(0, $exitCode);
+      $this->assertStringContainsString('Installed and started 2 recordings worker systemd units.', $output);
+      $this->assertStringContainsString('--user disable --now bigbrothas-recordings-queue-3.service', $log);
+      $this->assertStringContainsString('--user disable --now bigbrothas-recordings-queue-4.service', $log);
     }
 
     public function test_it_starts_the_recordings_worker_via_systemd_when_enabled(): void
@@ -153,8 +194,8 @@ BASH);
         File::put($psBinary, <<<'BASH'
 #!/usr/bin/env bash
 cat <<'OUT'
- 3100 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
- 3101 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
+ 3100 /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
+ 3101 /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
 OUT
 exit 0
 BASH);
@@ -236,7 +277,7 @@ BASH);
         config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
         config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
         config()->set('recording.worker.php_binary', '/usr/bin/php');
-        config()->set('recording.worker.queue', 'recordings,default');
+        config()->set('recording.worker.queue', 'recordings,default,review-assets');
         config()->set('recording.worker.max_jobs', 50);
         config()->set('recording.worker.max_time', 3600);
         config()->set('recording.worker.memory', 256);
@@ -315,7 +356,7 @@ BASH);
         config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
         config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
         config()->set('recording.worker.php_binary', '/usr/bin/php');
-        config()->set('recording.worker.queue', 'recordings,default');
+        config()->set('recording.worker.queue', 'recordings,default,review-assets');
         config()->set('recording.worker.max_jobs', 50);
         config()->set('recording.worker.max_time', 3600);
         config()->set('recording.worker.memory', 256);
@@ -374,7 +415,7 @@ BASH);
         config()->set('recording.worker.systemd_user_dir', $systemdDirectory);
         config()->set('recording.worker.systemd_service', 'bigbrothas-recordings-queue.service');
         config()->set('recording.worker.php_binary', '/usr/bin/php');
-        config()->set('recording.worker.queue', 'recordings,default');
+        config()->set('recording.worker.queue', 'recordings,default,review-assets');
         config()->set('recording.worker.max_jobs', 50);
         config()->set('recording.worker.max_time', 3600);
         config()->set('recording.worker.memory', 256);
@@ -395,8 +436,8 @@ BASH);
     File::put($psBinary, <<<'BASH'
 #!/usr/bin/env bash
 cat <<'OUT'
- 5100 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
- 5101 /usr/bin/php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256
+ 5100 /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
+ 5101 /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
 OUT
 exit 0
 BASH);
@@ -433,7 +474,7 @@ BASH);
     config()->set('recording.worker.max_processes', 4);
     config()->set('recording.worker.cameras_per_process', 4);
     config()->set('recording.worker.jobs_per_process', 120);
-    config()->set('recording.worker.queue', 'recordings,default');
+    config()->set('recording.worker.queue', 'recordings,default,review-assets');
     config()->set('recording.worker.ps_binary', $psBinary);
 
     $snapshot = app(\App\Services\RecordingWorkerService::class)->snapshot();
@@ -441,7 +482,7 @@ BASH);
     $this->assertFalse($snapshot['running']);
     $this->assertSame(0, $snapshot['running_workers']);
     $this->assertSame(2, $snapshot['desired_workers']);
-    $this->assertSame(['recordings', 'default'], $snapshot['queue_names']);
+    $this->assertSame(['recordings', 'default', 'review-assets'], $snapshot['queue_names']);
     $this->assertSame(5, $snapshot['enabled_recording_cameras']);
     $this->assertSame(240, $snapshot['queued_worker_jobs']);
   }

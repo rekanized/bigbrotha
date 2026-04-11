@@ -125,6 +125,7 @@ class RecordingWorkerService
             }
 
             $this->disableLegacySingleWorkerService();
+            $this->disableStaleNumberedWorkerServices();
 
             return [
                 'ok' => true,
@@ -684,6 +685,67 @@ class RecordingWorkerService
                 'service' => $legacyService,
                 'error' => $exception->getMessage(),
             ]);
+        }
+    }
+
+    private function disableStaleNumberedWorkerServices(): void
+    {
+        $service = trim($this->systemdServiceName());
+
+        if ($service === '' || preg_match('/^(.*?)(\.service)$/', $service, $matches) !== 1) {
+            return;
+        }
+
+        $directory = rtrim((string) config('recording.worker.systemd_user_dir', $this->defaultSystemdUserDirectory()), '/');
+
+        if (!is_dir($directory)) {
+            return;
+        }
+
+        $prefix = $matches[1];
+        $suffix = $matches[2];
+        $desiredServices = $this->systemdServiceNames();
+        $pattern = $directory.'/'.$prefix.'-*'.$suffix;
+        $servicePaths = glob($pattern);
+
+        if ($servicePaths === false) {
+            return;
+        }
+
+        foreach ($servicePaths as $path) {
+            $serviceName = basename($path);
+
+            if (!is_string($serviceName) || $serviceName === '' || in_array($serviceName, $desiredServices, true)) {
+                continue;
+            }
+
+            if (preg_match('/^'.preg_quote($prefix, '/').'-\d+'.preg_quote($suffix, '/').'$/', $serviceName) !== 1) {
+                continue;
+            }
+
+            try {
+                $disable = new Process([
+                    $this->systemctlBinary(),
+                    '--user',
+                    'disable',
+                    '--now',
+                    $serviceName,
+                ], base_path(), $this->systemdEnvironment());
+                $disable->setTimeout(20);
+                $disable->run();
+
+                if (!$disable->isSuccessful()) {
+                    $this->safeLogWarning('Unable to retire stale numbered recordings queue worker systemd units.', [
+                        'service' => $serviceName,
+                        'error' => trim($disable->getErrorOutput() ?: $disable->getOutput()),
+                    ]);
+                }
+            } catch (Throwable $exception) {
+                $this->safeLogWarning('Unable to retire stale numbered recordings queue worker systemd units.', [
+                    'service' => $serviceName,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
         }
     }
 

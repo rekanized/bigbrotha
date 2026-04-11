@@ -114,8 +114,8 @@ Per-camera recording is scheduler-orchestrated, with queue-backed motion work an
 Current expectations:
 
 - `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
-- a queue worker must process the `recordings` queue for motion clips, review assets, and legacy continuous recovery rows; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
-- the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
+- a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
+- the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
 - hosts that need overlapping continuous and motion capture should run more than one recordings worker; set `CAMERA_RECORDING_WORKER_PROCESSES` above `1` before running `php artisan camera-recordings:install-worker-service` and Laravel will generate numbered user units for the requested pool size.
 - `camera-recordings:ensure-worker` can run from the same minute scheduler as a safety net, but it should only be enabled when the host config explicitly allows Laravel to manage the worker process.
 - `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.

@@ -183,7 +183,7 @@ Current relay management behavior:
 Current recording management behavior:
 
 - `routes/console.php` exposes `camera-recordings:tick`, `camera-recordings:prune`, and `camera-recordings:prune-audit`.
-- `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit and `camera-recordings:ensure-worker`, which can be scheduled every minute to verify the bounded recording worker is present and to start the configured systemd unit when the worker is absent.
+- `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit, `camera-recordings:ensure-worker` for keeping the bounded recording worker online, and `camera-recordings:reconcile-review-asset-queue` for deduplicating and rehoming queued review-asset jobs when legacy backlog needs repair.
 - the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap, recovery, and segment-import safety net instead of the primary clip boundary.
 - recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
 - motion recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.
@@ -196,6 +196,7 @@ Current recording management behavior:
 - prune eligibility now uses `camera_recordings.created_at < now()->subDays(recording_retention_days)` per camera, while `camera-recordings:prune-audit` reports the same candidates without deleting files or rows.
 - stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever, except for transient motion rows whose buffered live window is no longer relevant and are therefore discarded.
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
+- review-asset jobs now dispatch onto a dedicated `review-assets` queue, while the shared worker polls `recordings`, then `default`, then `review-assets` so capture work stays ahead of SMB-heavy preview generation.
 - routine model lifecycle changes can now persist immutable `audit_logs` rows through a reusable Eloquent auditing trait, and recording status transitions use those database audit rows instead of emitting application-state `info` lines into `storage/logs/laravel.log`.
 - the Admin navigation now exposes an Audit log page with filters for subject type, actor type, source, event key, and free-text actor or IP search.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.

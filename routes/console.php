@@ -691,6 +691,30 @@ Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_f
     return 0;
 })->purpose('Queue selective scrub preview backfills for one camera or a display-date range');
 
+Artisan::command('camera-recordings:reconcile-review-asset-queue {--dry-run}', function (): int {
+    $result = app(RecordingReviewAssetService::class)->reconcileQueuedJobs((bool) $this->option('dry-run'));
+
+    if (!$result['ok']) {
+        $this->components->error($result['message']);
+
+        return 1;
+    }
+
+    $message = ($this->option('dry-run') ? 'Dry run only. ' : '')
+        .'Scanned '.$result['jobs_scanned'].' queued review-asset job'.($result['jobs_scanned'] === 1 ? '' : 's')
+        .' across '.$result['recordings_matched'].' recording'.($result['recordings_matched'] === 1 ? '' : 's').'.'
+        .' Deleted '.$result['jobs_deleted'].' duplicate job'.($result['jobs_deleted'] === 1 ? '' : 's').'.'
+        .' Requeued '.$result['jobs_requeued'].' pending job'.($result['jobs_requeued'] === 1 ? '' : 's').' onto '.config('recording.review_assets.queue', 'review-assets').'.';
+
+    if ($result['active_reserved_recordings'] > 0) {
+        $message .= ' Left '.$result['active_reserved_recordings'].' recording'.($result['active_reserved_recordings'] === 1 ? '' : 's').' with actively reserved review jobs untouched.';
+    }
+
+    $this->components->info($message);
+
+    return 0;
+})->purpose('Deduplicate queued review-asset jobs and move pending legacy jobs onto the review-assets queue');
+
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
     ->withoutOverlapping();

@@ -12,6 +12,7 @@ use App\Services\RecordingReviewAssetService;
 use Illuminate\Support\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Tests\Feature\Concerns\BuildsFakeRecordingFfmpegBinary;
@@ -149,6 +150,7 @@ class CameraRecordingCommandTest extends TestCase
     public function test_queue_review_assets_can_target_one_camera(): void
     {
         Queue::fake();
+        config()->set('recording.review_assets.queue', 'review-assets');
 
         $selectedCamera = Camera::query()->create([
             'name' => 'Loading Dock',
@@ -200,6 +202,7 @@ class CameraRecordingCommandTest extends TestCase
             '--camera_id' => (string) $selectedCamera->id,
         ])->assertSuccessful();
 
+        Queue::assertPushedOn('review-assets', GenerateRecordingReviewAssetsJob::class);
         Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($selectedRecording): bool {
             return $job->recordingId === $selectedRecording->id;
         });
@@ -211,6 +214,7 @@ class CameraRecordingCommandTest extends TestCase
     public function test_queue_review_assets_can_target_a_display_date_range(): void
     {
         Queue::fake();
+        config()->set('recording.review_assets.queue', 'review-assets');
 
         app(ApplicationSettingsService::class)->saveAppTimezone('Europe/Amsterdam');
 
@@ -259,6 +263,93 @@ class CameraRecordingCommandTest extends TestCase
         Queue::assertNotPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($outsideRecording): bool {
             return $job->recordingId === $outsideRecording->id;
         });
+    }
+
+    public function test_review_assets_only_queue_once_while_a_recording_is_already_pending(): void
+    {
+        Queue::fake();
+        config()->set('recording.review_assets.queue', 'review-assets');
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Entrance',
+            'local_ip' => '192.168.1.81',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 22, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 22, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 22, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/back-entrance-2230.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+
+        $this->assertTrue($reviewAssets->ensureQueued($recording, true));
+        $this->assertFalse($reviewAssets->ensureQueued($recording, true));
+        Queue::assertPushedOn('review-assets', GenerateRecordingReviewAssetsJob::class);
+    }
+
+    public function test_review_asset_queue_reconciliation_deletes_duplicates_and_moves_legacy_jobs(): void
+    {
+        config()->set('queue.default', 'database');
+        config()->set('recording.review_assets.queue', 'review-assets');
+
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.170',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream170',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 11, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 11, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/atrium-review-assets.mkv',
+            'message' => 'Clip saved.',
+        ]);
+
+        GenerateRecordingReviewAssetsJob::dispatch($recording->id)->onQueue('recordings');
+
+        $queuedJob = DB::table('jobs')->first();
+
+        $this->assertNotNull($queuedJob);
+
+        DB::table('jobs')->insert([
+            'queue' => 'recordings',
+            'payload' => $queuedJob->payload,
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => now()->timestamp,
+            'created_at' => now()->addSecond()->timestamp,
+        ]);
+
+        $this->artisan('camera-recordings:reconcile-review-asset-queue')
+            ->assertSuccessful();
+
+        $jobs = DB::table('jobs')->get();
+
+        $this->assertCount(1, $jobs);
+        $this->assertSame('review-assets', $jobs[0]->queue);
     }
 
     public function test_review_asset_generation_retries_scrub_generation_when_a_preview_is_ready_but_the_sprite_failed(): void

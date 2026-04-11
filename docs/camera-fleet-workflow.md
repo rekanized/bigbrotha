@@ -175,7 +175,7 @@ Continuous timestamp behavior:
 2. `ended_at` is derived from that imported segment start plus the configured segment duration instead of from PHP process cleanup time.
 3. exact timeline-boundary focus points resolve to the following adjacent clip, so operators do not lose the next clip behind an inclusive edge match.
 
-Production deployments should run both the minute scheduler and a queue worker for the `recordings` queue so the continuous watchdog, motion clips, and review assets all keep flowing.
+Production deployments should run both the minute scheduler and a queue worker that polls `recordings,default,review-assets` in that order so the continuous watchdog, motion clips, and delayed review assets all keep flowing without preview work blocking capture first.
 
 ## Live Wall Playback
 
