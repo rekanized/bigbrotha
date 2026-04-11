@@ -76,6 +76,8 @@
                         data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
                         data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
                         data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
+                        data-access-token-expires-in="{{ $sessionBootstrap['expires_in'] ?? '' }}"
+                        data-access-token-issued-at="{{ $sessionBootstrap['issued_at'] ?? '' }}"
                         @if (is_string($webrtcPath) && $webrtcPath !== '') data-webrtc-path="{{ $webrtcPath }}" @endif
                     >
                         <div class="wall-monitor-tile__feed">
@@ -88,6 +90,8 @@
                                         data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
                                         data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
                                         data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
+                                        data-access-token-expires-in="{{ $sessionBootstrap['expires_in'] ?? '' }}"
+                                        data-access-token-issued-at="{{ $sessionBootstrap['issued_at'] ?? '' }}"
                                         data-player-label="{{ $camera->name }}"
                                     >
                                         <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>

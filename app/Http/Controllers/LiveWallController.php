@@ -69,6 +69,7 @@ class LiveWallController extends Controller
                         'reader_url' => $readerUrl,
                         'access_token' => $accessTokenService->issueReadToken($operator, $path),
                         'expires_in' => $accessTokenService->ttl(),
+                        'issued_at' => now()->timestamp,
                     ];
                 }
 
@@ -80,7 +81,7 @@ class LiveWallController extends Controller
                     'rowSpan' => max(1, $tile->row_span),
                     'liveSelection' => $liveSelection,
                     'playerPageUrl' => route('live-wall.player', ['camera' => $camera]),
-                    'sessionUrl' => route('live-wall.session', ['camera' => $camera]),
+                    'sessionUrl' => $canBootstrapSessions ? route('live-wall.session', ['camera' => $camera]) : null,
                     'webrtcWhepUrl' => $whepUrl,
                     'readerUrl' => $readerUrl,
                     'sessionBootstrap' => $sessionBootstrap,

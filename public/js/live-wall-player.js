@@ -200,11 +200,13 @@
     class BigBrothaWhepPlayer {
         constructor(root) {
             this.root = root;
-            const bootstrapContainer = root.closest('[data-reader-url], [data-whep-url], [data-access-token]');
+            const bootstrapContainer = root.closest('[data-reader-url], [data-whep-url], [data-access-token], [data-access-token-expires-in], [data-access-token-issued-at]');
             this.bootstrapUrl = root.dataset.sessionUrl || bootstrapContainer?.dataset.sessionUrl || '';
             this.bootstrapReaderUrl = root.dataset.readerUrl || bootstrapContainer?.dataset.readerUrl || '';
             this.bootstrapWhepUrl = root.dataset.whepUrl || bootstrapContainer?.dataset.whepUrl || '';
             this.bootstrapAccessToken = root.dataset.accessToken || bootstrapContainer?.dataset.accessToken || '';
+            this.bootstrapAccessTokenExpiresIn = root.dataset.accessTokenExpiresIn || bootstrapContainer?.dataset.accessTokenExpiresIn || '';
+            this.bootstrapAccessTokenIssuedAt = root.dataset.accessTokenIssuedAt || bootstrapContainer?.dataset.accessTokenIssuedAt || '';
             this.label = root.dataset.playerLabel || 'camera';
             this.video = root.querySelector('[data-role="video"]');
             this.message = root.querySelector('[data-role="message"]');
@@ -217,6 +219,7 @@
             this.mediaStream = new MediaStream();
             this.reader = null;
             this.closed = false;
+            this.hasRetriedFreshSession = false;
 
             this.handleAudioToggle = this.handleAudioToggle.bind(this);
 
@@ -277,12 +280,14 @@
                 throw new Error('The MediaMTX WebRTC reader could not be loaded.');
             }
 
+            const usedBootstrapSession = bootstrapSession !== null && session === bootstrapSession;
+
             this.reader = new window.MediaMTXWebRTCReader({
                 url: session.whep_url,
                 token: session.access_token,
                 onError: (error) => {
                     if (!this.closed) {
-                        this.handleFailure(new Error(error));
+                        this.handleReaderError(error, usedBootstrapSession);
                     }
                 },
                 onTrack: (event) => {
@@ -312,11 +317,30 @@
                 return null;
             }
 
+            if (this.bootstrapSessionIsStale()) {
+                return null;
+            }
+
             return {
                 whep_url: this.bootstrapWhepUrl,
                 reader_url: this.bootstrapReaderUrl || this.deriveReaderUrl(this.bootstrapWhepUrl),
                 access_token: this.bootstrapAccessToken,
             };
+        }
+
+        handleReaderError(error, usedBootstrapSession) {
+            const normalizedError = error instanceof Error ? error : new Error(String(error));
+
+            if (usedBootstrapSession && !this.hasRetriedFreshSession && this.shouldRetryWithFreshSession(normalizedError)) {
+                this.hasRetriedFreshSession = true;
+                this.connect().catch((retryError) => {
+                    this.handleFailure(retryError);
+                });
+
+                return;
+            }
+
+            this.handleFailure(normalizedError);
         }
 
         handleTrack(event) {
@@ -491,6 +515,30 @@
 
         deriveReaderUrl(whepUrl) {
             return new URL('./reader.js', whepUrl).toString();
+        }
+
+        bootstrapSessionIsStale() {
+            const issuedAt = Number(this.bootstrapAccessTokenIssuedAt);
+            const expiresIn = Number(this.bootstrapAccessTokenExpiresIn);
+
+            if (!Number.isFinite(issuedAt) || issuedAt <= 0 || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+                return false;
+            }
+
+            const refreshLeadTime = Math.min(20, Math.max(5, Math.floor(expiresIn / 6)));
+            const expiresAt = issuedAt + expiresIn - refreshLeadTime;
+
+            return Math.floor(Date.now() / 1000) >= expiresAt;
+        }
+
+        shouldRetryWithFreshSession(error) {
+            const message = `${error instanceof Error ? error.message : error}`.toLowerCase();
+
+            return message.includes('401')
+                || message.includes('403')
+                || message.includes('authentication')
+                || message.includes('unauthorized')
+                || message.includes('forbidden');
         }
 
         async loadReaderScript(readerUrl) {
