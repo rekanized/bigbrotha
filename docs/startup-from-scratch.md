@@ -18,22 +18,20 @@ Container services in [docker-compose.yml](../docker-compose.yml):
 
 - Docker with Compose support.
 - Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries committed in `bin/`.
-- A `.env` file copied from `.env.example` with `APP_URL`, database values, and Google auth values. The Docker quick-start command below generates `APP_KEY` into that file.
+- Review the installation defaults in `docker-compose.yml`, especially `APP_URL`, database values, and Google auth values.
 
 ### Docker Startup
 
 ```bash
-cp .env.example .env
-docker compose build
+docker compose pull
 docker compose up -d
 ```
 
 ### Docker Hub Startup
 
 ```bash
-cp .env.example .env
-printf '%s\n' 'BIGBROTHA_APP_IMAGE=yourdockerhubuser/bigbrotha-app:latest' >> .env
-printf '%s\n' 'BIGBROTHA_WEB_IMAGE=yourdockerhubuser/bigbrotha-web:latest' >> .env
+export BIGBROTHA_APP_IMAGE=yourdockerhubuser/bigbrotha-app:latest
+export BIGBROTHA_WEB_IMAGE=yourdockerhubuser/bigbrotha-web:latest
 docker compose pull
 docker compose up -d --no-build
 ```
@@ -47,7 +45,7 @@ Recommended Docker env values:
 Docker runtime notes:
 
 - the Docker images use `/app` as the internal application root. That path is inside the image and is not tied to any host checkout path such as `/var/www/...`.
-- the compose file can either build local images or pull published images. Local builds are tagged as `bigbrotha-app:local` and `bigbrotha-web:local` unless `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` are set.
+- the compose file can either build local images or pull published images. The published install defaults are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`, and you can override them with shell exports or an optional local `.env` file.
 - the compose file injects production-safe defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr` so the stack does not inherit local development behavior from `.env.example`.
 - the app image bakes in MediaMTX and uses `MEDIAMTX_INSTALL_MODE=bundled` with `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`.
 - the compose stack also sets `MEDIAMTX_LOG_PATH=/dev/stdout`, so relay failures and startup logs appear in normal container logs.
@@ -55,7 +53,8 @@ Docker runtime notes:
 - the app image has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
-- if `APP_KEY` is missing, the entrypoint generates it once, persists it under shared Docker storage, and writes it into the mounted `.env` file so later `docker compose exec app php artisan ...` commands see the same key.
+- if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.
+- Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
 - the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.
 - Compose publishes the HTTP UI on `APP_HTTP_PORT` and the WebRTC ICE ports on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.
 - PostgreSQL remains internal to the Docker network by default and is not published to the host unless you add that override yourself.

@@ -1,5 +1,29 @@
 <?php
 
+$resolvedAppKey = (static function (): ?string {
+    $configuredKey = trim((string) env('APP_KEY', ''));
+
+    if ($configuredKey !== '') {
+        return $configuredKey;
+    }
+
+    $keyFile = trim((string) env('APP_KEY_FILE', storage_path('app/private/app.key')));
+
+    if ($keyFile === '' || !is_file($keyFile) || !is_readable($keyFile)) {
+        return null;
+    }
+
+    $storedKey = @file_get_contents($keyFile);
+
+    if (!is_string($storedKey)) {
+        return null;
+    }
+
+    $storedKey = trim($storedKey);
+
+    return $storedKey !== '' ? $storedKey : null;
+})();
+
 return [
 
     /*
@@ -99,7 +123,7 @@ return [
 
     'cipher' => 'AES-256-CBC',
 
-    'key' => env('APP_KEY'),
+    'key' => $resolvedAppKey,
 
     'previous_keys' => [
         ...array_filter(

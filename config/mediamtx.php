@@ -1,5 +1,27 @@
 <?php
 
+$resolvedAppKey = (static function (): string {
+    $configuredKey = trim((string) env('APP_KEY', ''));
+
+    if ($configuredKey !== '') {
+        return $configuredKey;
+    }
+
+    $keyFile = trim((string) env('APP_KEY_FILE', storage_path('app/private/app.key')));
+
+    if ($keyFile === '' || !is_file($keyFile) || !is_readable($keyFile)) {
+        return '';
+    }
+
+    $storedKey = @file_get_contents($keyFile);
+
+    if (!is_string($storedKey)) {
+        return '';
+    }
+
+    return trim($storedKey);
+})();
+
 $optionalEnvString = static function (string $key): ?string {
     $value = env($key);
 
@@ -60,7 +82,7 @@ $defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl, $defaultA
 $defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'localhost';
 $configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
 $defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
-$appKey = trim((string) env('APP_KEY', ''));
+$appKey = $resolvedAppKey;
 $defaultTokenSecret = $appKey !== '' ? $appKey : hash('sha256', $defaultAppUrl.'|mediamtx-token-secret');
 $configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $defaultTokenSecret;
 

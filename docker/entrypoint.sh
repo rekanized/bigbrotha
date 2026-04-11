@@ -3,7 +3,6 @@ set -eu
 
 APP_ROOT="${APP_ROOT:-/app}"
 APP_KEY_FILE="${APP_KEY_FILE:-$APP_ROOT/storage/app/private/app.key}"
-APP_ENV_FILE="${APP_ENV_FILE:-$APP_ROOT/.env}"
 APP_BOOTSTRAP_MARKER="${APP_BOOTSTRAP_MARKER:-$APP_ROOT/storage/app/private/bootstrap/app.ready}"
 APP_CONTAINER_ROLE="${APP_CONTAINER_ROLE:-app}"
 
@@ -23,38 +22,6 @@ mkdir -p "$(dirname "$APP_KEY_FILE")"
 
 chown -R www-data:www-data bootstrap/cache storage
 
-persist_app_key_to_env_file() {
-    if [ -f "$APP_ENV_FILE" ] && [ ! -w "$APP_ENV_FILE" ]; then
-        return
-    fi
-
-    if [ ! -f "$APP_ENV_FILE" ] && [ ! -w "$(dirname "$APP_ENV_FILE")" ]; then
-        return
-    fi
-
-    php -r '
-        $file = $argv[1];
-        $key = $argv[2];
-        $contents = is_file($file) ? file_get_contents($file) : "";
-
-        if ($contents === false) {
-            fwrite(STDERR, "Unable to read env file: {$file}\n");
-            exit(1);
-        }
-
-        if (preg_match("/^APP_KEY=.*$/m", $contents) === 1) {
-            $updated = preg_replace("/^APP_KEY=.*$/m", "APP_KEY={$key}", $contents, 1);
-        } else {
-            $updated = $contents.(str_ends_with($contents, PHP_EOL) || $contents === "" ? "" : PHP_EOL)."APP_KEY={$key}".PHP_EOL;
-        }
-
-        if ($updated === null || file_put_contents($file, $updated) === false) {
-            fwrite(STDERR, "Unable to write env file: {$file}\n");
-            exit(1);
-        }
-    ' "$APP_ENV_FILE" "$APP_KEY"
-}
-
 ensure_app_key() {
     if [ -n "${APP_KEY:-}" ]; then
         if [ ! -s "$APP_KEY_FILE" ]; then
@@ -62,8 +29,6 @@ ensure_app_key() {
             printf '%s' "$APP_KEY" > "$APP_KEY_FILE"
             chown www-data:www-data "$APP_KEY_FILE"
         fi
-
-        persist_app_key_to_env_file
 
         export APP_KEY
 
@@ -102,7 +67,6 @@ ensure_app_key() {
     fi
 
     export APP_KEY
-    persist_app_key_to_env_file
     rmdir "$lock_dir" 2>/dev/null || true
     trap - EXIT INT TERM
 }

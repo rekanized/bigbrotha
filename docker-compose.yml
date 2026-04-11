@@ -1,6 +1,7 @@
 x-laravel-environment: &laravel-environment
   APP_DEBUG: "false"
   APP_ENV: production
+  APP_URL: ${APP_URL:-http://localhost:8080}
   CAMERA_RECORDING_ENSURE_WORKER: "false"
   CACHE_STORE: database
   DB_CONNECTION: pgsql
@@ -9,6 +10,9 @@ x-laravel-environment: &laravel-environment
   DB_PASSWORD: ${DB_PASSWORD:-bigbrotha}
   DB_PORT: 5432
   DB_USERNAME: ${DB_USERNAME:-bigbrotha}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
   LOG_CHANNEL: stderr
   MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
   MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
@@ -23,11 +27,8 @@ x-laravel-service: &laravel-service
   depends_on:
     database:
       condition: service_healthy
-  env_file:
-    - .env
   environment: *laravel-environment
   volumes:
-    - ./.env:/app/.env
     - app-storage:/app/storage
 
 services:
@@ -41,7 +42,7 @@ services:
       APP_AUTO_MIGRATE_IF_NO_USERS: "true"
       APP_AUTO_START_RELAY: "true"
       APP_CONTAINER_ROLE: app
-    image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     restart: unless-stopped
     ports:
       - "${MEDIAMTX_WEBRTC_TCP_PORT:-8189}:8189/tcp"
@@ -51,7 +52,7 @@ services:
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
-    image: ${BIGBROTHA_WEB_IMAGE:-bigbrotha-web:local}
+    image: ${BIGBROTHA_WEB_IMAGE:-rekanized/bigbrotha-web:latest}
     depends_on:
       app:
         condition: service_healthy
@@ -76,7 +77,7 @@ services:
       <<: *laravel-environment
       APP_CONTAINER_ROLE: worker
       APP_WAIT_FOR_APP_BOOTSTRAP: "true"
-    image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     command: ["run-worker"]
     restart: unless-stopped
 
@@ -91,7 +92,7 @@ services:
       <<: *laravel-environment
       APP_CONTAINER_ROLE: scheduler
       APP_WAIT_FOR_APP_BOOTSTRAP: "true"
-    image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     command: ["run-scheduler"]
     restart: unless-stopped
 

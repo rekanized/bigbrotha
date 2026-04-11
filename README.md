@@ -77,15 +77,57 @@ After changing relay or auth-related environment values, run:
 ```bash
 php artisan config:clear
 php artisan view:clear
-php artisan relay:sync
+Docker Compose configuration:
 ```
+
+x-laravel-environment: &laravel-environment
+	APP_DEBUG: "false"
+	APP_ENV: production
+	APP_URL: ${APP_URL:-http://localhost:8080}
+	CAMERA_RECORDING_ENSURE_WORKER: "false"
+	CACHE_STORE: database
+	DB_CONNECTION: pgsql
+	DB_DATABASE: ${DB_DATABASE:-bigbrotha}
+	DB_HOST: database
+	DB_PASSWORD: ${DB_PASSWORD:-bigbrotha}
+	DB_PORT: 5432
+	DB_USERNAME: ${DB_USERNAME:-bigbrotha}
+	GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+	GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+	GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
+	LOG_CHANNEL: stderr
+	MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
+	MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
+	MEDIAMTX_INSTALL_MODE: bundled
+	MEDIAMTX_LOG_PATH: /dev/stdout
+	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
+	QUEUE_CONNECTION: database
+	SESSION_DRIVER: database
+	TRUSTED_PROXIES: "*"
+
+x-laravel-service: &laravel-service
+	depends_on:
+		database:
+			condition: service_healthy
+	env_file:
+		- .env
+	environment: *laravel-environment
+	volumes:
+		- ./.env:/app/.env
+		- app-storage:/app/storage
 
 In normal operation this is enough. A `php-fpm` restart is only needed if the host is serving stale PHP bytecode through OPcache.
 
+		<<: *laravel-service
 ## Production Setup
 
 Use this short checklist during deployment:
 
+		environment:
+			<<: *laravel-environment
+			APP_AUTO_MIGRATE_IF_NO_USERS: "true"
+			APP_AUTO_START_RELAY: "true"
+			APP_CONTAINER_ROLE: app
 1. Install PHP 8.3, Composer, a database, cron, and a user-level or system-level process manager.
 2. Run `composer install --no-dev --optimize-autoloader`.
 3. Commit the Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries in `bin/`. By default Laravel resolves those binaries and the FFmpeg temp directory from the project root dynamically through `config/ffmpeg.php`, so `.env` only needs `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` if a deployment wants an explicit override. Then create `.env`, set database, Google auth, `APP_URL`, and recording worker values, and run `php artisan key:generate` if the app key is still empty. MediaMTX will derive its same-host relay defaults from `APP_URL` and `APP_KEY`; only add MediaMTX env overrides if the relay is published on a different origin, prefix, or credential set.
@@ -96,13 +138,21 @@ Use this short checklist during deployment:
 8. Run `php artisan optimize:clear`, `php artisan relay:start`, and `php artisan camera-recordings:ensure-worker`.
 
 If the host uses a specific PHP binary such as `/usr/bin/php8.3`, set `CAMERA_RECORDING_WORKER_PHP_BINARY` in `.env` before running `composer recordings:worker:install` so the generated worker unit uses the correct interpreter.
+		depends_on:
+			app:
+				condition: service_healthy
+		healthcheck:
+			test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/robots.txt || exit 1"]
+			interval: 30s
+			timeout: 5s
+			retries: 3
+			start_period: 10s
 
 Composer now reapplies execute permissions to `bin/ffmpeg` and `bin/ffprobe` on `install` and `update`. If you replace those files manually, rerun `composer ffmpeg:binaries:chmod`.
 
 If you build this app into Docker, copy the repository `bin/` directory into the image so the container uses the same pinned binaries Laravel is configured to resolve.
 
 ## Docker Deployment
-
 The repository now includes a first-party Docker stack in [docker-compose.yml](docker-compose.yml), [Dockerfile](Dockerfile), and [docker/nginx/default.conf](docker/nginx/default.conf).
 
 What the containerized stack changes:
@@ -115,63 +165,145 @@ What the containerized stack changes:
 - the `web` service proxies `/__webrtc/` to MediaMTX running inside the `app` container and proxies PHP requests to `php-fpm`.
 - the only required host dependency for this deployment path is Docker with Compose support.
 
-Docker Compose overview:
+Docker Compose configuration:
 
 ```yaml
+x-laravel-environment: &laravel-environment
+	APP_DEBUG: "false"
+	APP_ENV: production
+	APP_URL: ${APP_URL:-http://localhost:8080}
+	CAMERA_RECORDING_ENSURE_WORKER: "false"
+	CACHE_STORE: database
+	DB_CONNECTION: pgsql
+	DB_DATABASE: ${DB_DATABASE:-bigbrotha}
+	DB_HOST: database
+	DB_PASSWORD: ${DB_PASSWORD:-bigbrotha}
+	DB_PORT: 5432
+	DB_USERNAME: ${DB_USERNAME:-bigbrotha}
+	GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+	GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+	GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
+	LOG_CHANNEL: stderr
+	MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
+	MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
+	MEDIAMTX_INSTALL_MODE: bundled
+	MEDIAMTX_LOG_PATH: /dev/stdout
+	MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://app:8554
+	QUEUE_CONNECTION: database
+	SESSION_DRIVER: database
+	TRUSTED_PROXIES: "*"
+
+x-laravel-service: &laravel-service
+	depends_on:
+		database:
+			condition: service_healthy
+	env_file:
+		- .env
+	environment: *laravel-environment
+	volumes:
+		- ./.env:/app/.env
+		- app-storage:/app/storage
+
 services:
 	app:
-		image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
+		<<: *laravel-service
 		build:
 			context: .
 			dockerfile: Dockerfile
+		environment:
+			<<: *laravel-environment
+			APP_AUTO_MIGRATE_IF_NO_USERS: "true"
+			APP_AUTO_START_RELAY: "true"
+			APP_CONTAINER_ROLE: app
+		image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
 		restart: unless-stopped
 		ports:
 			- "${MEDIAMTX_WEBRTC_TCP_PORT:-8189}:8189/tcp"
 			- "${MEDIAMTX_WEBRTC_UDP_PORT:-8189}:8189/udp"
 
 	web:
-		image: ${BIGBROTHA_WEB_IMAGE:-bigbrotha-web:local}
 		build:
 			context: .
 			dockerfile: docker/nginx/Dockerfile
+		image: ${BIGBROTHA_WEB_IMAGE:-rekanized/bigbrotha-web:latest}
+		depends_on:
+			app:
+				condition: service_healthy
+		healthcheck:
+			test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/robots.txt || exit 1"]
+			interval: 30s
+			timeout: 5s
+			retries: 3
+			start_period: 10s
 		restart: unless-stopped
 		ports:
 			- "${APP_HTTP_PORT:-8080}:80"
 
 	worker:
-		image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
-		restart: unless-stopped
+		<<: *laravel-service
+		depends_on:
+			app:
+				condition: service_healthy
+			database:
+				condition: service_healthy
+		environment:
+			<<: *laravel-environment
+			APP_CONTAINER_ROLE: worker
+			APP_WAIT_FOR_APP_BOOTSTRAP: "true"
+		image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
 		command: ["run-worker"]
+		restart: unless-stopped
 
 	scheduler:
-		image: ${BIGBROTHA_APP_IMAGE:-bigbrotha-app:local}
-		restart: unless-stopped
+		<<: *laravel-service
+		depends_on:
+			app:
+				condition: service_healthy
+			database:
+				condition: service_healthy
+		environment:
+			<<: *laravel-environment
+			APP_CONTAINER_ROLE: scheduler
+			APP_WAIT_FOR_APP_BOOTSTRAP: "true"
+		image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
 		command: ["run-scheduler"]
+		restart: unless-stopped
 
 	database:
 		image: postgres:18-alpine
 		restart: unless-stopped
+		environment:
+			POSTGRES_DB: ${DB_DATABASE:-bigbrotha}
+			POSTGRES_PASSWORD: ${DB_PASSWORD:-bigbrotha}
+			POSTGRES_USER: ${DB_USERNAME:-bigbrotha}
+		healthcheck:
+			test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bigbrotha} -d ${DB_DATABASE:-bigbrotha}"]
+			interval: 10s
+			timeout: 5s
+			retries: 12
+		volumes:
+			- db-data:/var/lib/postgresql/data
+
+volumes:
+	app-storage:
+	db-data:
 ```
 
 Quick start:
 
 ```bash
-cp .env.example .env
-docker compose build
+docker compose pull
 docker compose up -d
 ```
 
 Docker Hub workflow:
 
 ```bash
-cp .env.example .env
-printf '%s\n' 'BIGBROTHA_APP_IMAGE=yourdockerhubuser/bigbrotha-app:latest' >> .env
-printf '%s\n' 'BIGBROTHA_WEB_IMAGE=yourdockerhubuser/bigbrotha-web:latest' >> .env
 docker compose pull
 docker compose up -d --no-build
 ```
 
-Required environment review before `docker compose up`:
+Review these values in `docker-compose.yml` before first startup:
 
 - `APP_URL` with the public host or local published port, for example `http://localhost:8080`
 - `DB_PASSWORD` and any other `DB_*` values you want to override from the compose defaults
@@ -182,13 +314,14 @@ Required environment review before `docker compose up`:
 Container notes:
 
 - The Docker images use `/app` as the internal application root. That path exists inside the container image and does not depend on where the host stores the compose file or image.
-- The compose file now supports both local builds and prebuilt registry images. By default it tags local builds as `bigbrotha-app:local` and `bigbrotha-web:local`.
-- To run from Docker Hub instead of local builds, set `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` in `.env`, run `docker compose pull`, then start with `docker compose up -d --no-build`.
+- The compose file now ships with the published installation images as the defaults: `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`.
+- If you want a different registry or tag, override `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` in a shell export or in an optional local `.env` file before running Compose.
 - Compose forces production-safe container defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr`, so the stack does not depend on local development values left in `.env`.
 - Compose publishes the web UI on `APP_HTTP_PORT` and MediaMTX ICE on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.
 - PostgreSQL stays internal to the Docker network by default and is not published to the host, which is the safer production default.
 - Compose sets `CAMERA_RECORDING_ENSURE_WORKER=false` because the worker runs as its own container instead of being started through systemd.
-- Compose passes environment values from the local `.env` file into the containers and mounts that same file at `/app/.env` so the container can persist a generated `APP_KEY` for later `docker compose exec app php artisan ...` commands.
+- Compose includes the core installation settings directly in `docker-compose.yml`, and the container generates the Laravel `APP_KEY` automatically on first boot into shared Docker storage.
+- Laravel now reads the generated key from that shared storage file, so Docker startup no longer requires a pre-created host `.env` file.
 - Compose defaults the bundled database service to `postgres:18-alpine` and uses `DB_CONNECTION=pgsql` unless you override it.
 - The `app` container bootstraps itself automatically: when the `users` table is missing or contains zero rows it runs `php artisan migrate --force` before serving `php-fpm`.
 - Compose forces `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` so MediaMTX running in the `app` container can reach Laravel through the internal Nginx service instead of trying to call the public host from inside the container network.
