@@ -74,7 +74,8 @@ html[data-theme='dark'] {
 .theme-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 12px;
     min-height: 40px;
     padding: 8px 12px;
     border: 1px solid var(--border);
@@ -111,13 +112,54 @@ html[data-theme='dark'] {
     text-align: left;
 }
 
-.theme-toggle__indicator {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
+.theme-toggle__switch {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    width: 84px;
+    min-height: 34px;
+    padding: 3px;
+    border: 1px solid var(--border-strong);
     border-radius: 999px;
-    background: var(--accent);
-    box-shadow: 0 0 0 4px var(--accent-soft);
+    background: linear-gradient(180deg, var(--surface-muted) 0%, var(--surface-sunken) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.theme-toggle__switch-state {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.theme-toggle__indicator {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    display: block;
+    width: calc(50% - 3px);
+    height: calc(100% - 6px);
+    border-radius: 999px;
+    background: linear-gradient(180deg, #fff0ba 0%, #ffd771 100%);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16);
+}
+
+.theme-toggle[aria-pressed='true'] .theme-toggle__indicator {
+    left: calc(50% - 1px);
+    background: linear-gradient(180deg, #dbeafe 0%, #93c5fd 100%);
+}
+
+.theme-toggle[aria-pressed='false'] .theme-toggle__switch-state--light,
+.theme-toggle[aria-pressed='true'] .theme-toggle__switch-state--dark {
+    color: #10283c;
 }
 
 .theme-toggle--floating {
@@ -2357,6 +2399,32 @@ html[data-theme='dark'] .theme-toggle {
     color: var(--text);
 }
 
+html[data-theme='dark'] .theme-toggle__switch {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: linear-gradient(180deg, #0f1720 0%, #1a2430 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] .theme-toggle__switch-state {
+    color: #94a3b8;
+}
+
+html[data-theme='dark'] .theme-toggle[aria-pressed='false'] .theme-toggle__switch-state--light {
+    color: #4a3212;
+}
+
+html[data-theme='dark'] .theme-toggle[aria-pressed='true'] .theme-toggle__switch-state--dark {
+    color: #10283c;
+}
+
+html[data-theme='dark'] .theme-toggle__indicator {
+    background: linear-gradient(180deg, #f2d7a5 0%, #d4a74d 100%);
+}
+
+html[data-theme='dark'] .theme-toggle[aria-pressed='true'] .theme-toggle__indicator {
+    background: linear-gradient(180deg, #dbeafe 0%, #7ea6f8 100%);
+}
+
 html[data-theme='dark'] body.page-dashboard .button:hover,
 html[data-theme='dark'] body.page-dashboard .button:focus-visible,
 html[data-theme='dark'] body.auth-page .button:hover,
@@ -2624,6 +2692,41 @@ html[data-theme='dark'] body.page-recording-review .recording-review-focus__rail
 html[data-theme='dark'] body.page-recording-review .recording-review-switcher__camera-thumb,
 html[data-theme='dark'] body.page-recording-review .recording-review-switcher__camera-fallback {
     background: #314357;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range-card {
+    border-color: var(--border);
+    background: linear-gradient(180deg, #17202b 0%, #121924 100%);
+    box-shadow: var(--shadow-soft);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range-title {
+    color: var(--text);
+}
+
+html[data-theme='dark'] body.page-recording-review .field-stack--compact span {
+    color: var(--muted);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range--compact .form-input {
+    border-color: rgba(148, 163, 184, 0.26);
+    background: #0f1720;
+    color: var(--text);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range--compact .form-input:focus {
+    border-color: rgba(126, 166, 248, 0.46);
+    box-shadow: var(--focus-ring), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range--compact .form-input[type='date'] {
+    color-scheme: dark;
+}
+
+html[data-theme='dark'] body.page-recording-review .recording-review__date-range--compact .form-input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.88;
+    filter: invert(84%) sepia(9%) saturate(352%) hue-rotate(175deg) brightness(92%) contrast(90%);
 }
 
 html[data-theme='dark'] body.page-live-wall {

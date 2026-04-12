@@ -123,7 +123,11 @@
                                     <span class="theme-toggle__label">Theme</span>
                                     <strong class="theme-toggle__value" data-theme-toggle-value>Light</strong>
                                 </span>
-                                <span class="theme-toggle__indicator" aria-hidden="true"></span>
+                                <span class="theme-toggle__switch" aria-hidden="true">
+                                    <span class="theme-toggle__switch-state theme-toggle__switch-state--light">Light</span>
+                                    <span class="theme-toggle__switch-state theme-toggle__switch-state--dark">Dark</span>
+                                    <span class="theme-toggle__indicator"></span>
+                                </span>
                             </button>
                         </section>
                     </div>
