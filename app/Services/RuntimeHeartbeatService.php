@@ -36,12 +36,36 @@ class RuntimeHeartbeatService
 
     public function workerPath(): string
     {
-        return (string) config('recording.health.worker_heartbeat_path', storage_path('app/private/bootstrap/recordings-worker.heartbeat'));
+        if (!$this->workerContainerMode()) {
+            return (string) config('recording.health.worker_heartbeat_path', storage_path('app/private/bootstrap/recordings-worker.heartbeat'));
+        }
+
+        return $this->workerHeartbeatDirectory().'/recordings-worker-'.$this->workerInstanceId().'.heartbeat';
     }
 
     public function schedulerPath(): string
     {
         return (string) config('recording.health.scheduler_heartbeat_path', storage_path('app/private/bootstrap/recordings-scheduler.heartbeat'));
+    }
+
+    /**
+     * @return array<int, array{path: string, exists: bool, updated_at: Carbon|null, age_seconds: int|null}>
+     */
+    public function workerStatuses(): array
+    {
+        if (!$this->workerContainerMode()) {
+            return [$this->status($this->workerPath())];
+        }
+
+        $paths = glob($this->workerHeartbeatDirectory().'/recordings-worker-*.heartbeat');
+
+        if ($paths === false || $paths === []) {
+            return [$this->status($this->workerPath())];
+        }
+
+        sort($paths);
+
+        return array_values(array_map(fn (string $path): array => $this->status($path), $paths));
     }
 
     /**
@@ -112,5 +136,23 @@ class RuntimeHeartbeatService
         } catch (Throwable) {
             return null;
         }
+    }
+
+    private function workerContainerMode(): bool
+    {
+        return (bool) config('recording.worker.container_mode', false);
+    }
+
+    private function workerHeartbeatDirectory(): string
+    {
+        return dirname((string) config('recording.health.worker_heartbeat_path', storage_path('app/private/bootstrap/recordings-worker.heartbeat')));
+    }
+
+    private function workerInstanceId(): string
+    {
+        $candidate = trim((string) (env('HOSTNAME') ?: gethostname() ?: 'worker'));
+        $candidate = preg_replace('/[^A-Za-z0-9._-]+/', '-', $candidate) ?: 'worker';
+
+        return trim($candidate, '-.') !== '' ? trim($candidate, '-.') : 'worker';
     }
 }

@@ -15,6 +15,7 @@ return [
 
     'worker' => [
         'ensure_running' => filter_var(env('CAMERA_RECORDING_ENSURE_WORKER', false), FILTER_VALIDATE_BOOL),
+        'container_mode' => filter_var(env('CAMERA_RECORDING_WORKER_CONTAINER_MODE', false), FILTER_VALIDATE_BOOL),
         'processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)),
         'dynamic_enabled' => filter_var(env('CAMERA_RECORDING_WORKER_DYNAMIC', true), FILTER_VALIDATE_BOOL),
         'max_processes' => max(1, (int) env('CAMERA_RECORDING_WORKER_MAX_PROCESSES', max(8, (int) env('CAMERA_RECORDING_WORKER_PROCESSES', 1)))),

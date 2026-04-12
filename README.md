@@ -327,6 +327,7 @@ Container notes:
 
 - The Docker images use `/app` as the internal application root. That path exists inside the container image and does not depend on where the host stores the compose file or image.
 - The compose file now ships with the published installation images as the defaults: `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`.
+- `app`, `worker`, and `scheduler` all resolve from `BIGBROTHA_APP_IMAGE`, while `web` resolves from `BIGBROTHA_WEB_IMAGE`, so Docker rollouts keep the queue worker and scheduler on the same release as the app.
 - If you want a different registry or tag, override `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` in a shell export or in an optional local `.env` file before running Compose.
 - Compose forces production-safe container defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr`, so the stack does not depend on local development values left in `.env`.
 - Compose publishes the web UI on `APP_HTTP_PORT` and MediaMTX ICE on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.

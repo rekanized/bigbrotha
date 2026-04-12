@@ -3,6 +3,9 @@ x-laravel-environment: &laravel-environment
   APP_ENV: production
   APP_URL: ${APP_URL}
   CAMERA_RECORDING_ENSURE_WORKER: "false"
+  CAMERA_RECORDING_WORKER_CONTAINER_MODE: "true"
+  CAMERA_RECORDING_WORKER_DYNAMIC: "false"
+  CAMERA_RECORDING_WORKER_PROCESSES: "2"
   CACHE_STORE: database
   DB_CONNECTION: pgsql
   DB_DATABASE: bigbrotha
@@ -50,7 +53,7 @@ services:
       APP_AUTO_MIGRATE_IF_NO_USERS: "true"
       APP_AUTO_START_RELAY: "true"
       APP_CONTAINER_ROLE: app
-    image: rekanized/bigbrotha-app:latest
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     networks:
       - bigbrotha
     restart: unless-stopped
@@ -62,7 +65,7 @@ services:
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
-    image: rekanized/bigbrotha-web:latest
+    image: ${BIGBROTHA_WEB_IMAGE:-rekanized/bigbrotha-web:latest}
     depends_on:
       app:
         condition: service_healthy
@@ -89,7 +92,7 @@ services:
       <<: *laravel-environment
       APP_CONTAINER_ROLE: worker
       APP_WAIT_FOR_APP_BOOTSTRAP: "true"
-    image: rekanized/bigbrotha-app:latest
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     command: ["run-worker"]
     healthcheck:
       test: ["CMD", "/usr/local/bin/healthcheck-worker"]

@@ -57,6 +57,7 @@ Docker runtime notes:
 
 - the Docker images use `/app` as the internal application root. That path is inside the image and is not tied to any host checkout path such as `/var/www/...`.
 - the compose file can either build local images or pull published images. The published install defaults are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`, and you can override them with shell exports or an optional local `.env` file.
+- `app`, `worker`, and `scheduler` all use `BIGBROTHA_APP_IMAGE`, while `web` uses `BIGBROTHA_WEB_IMAGE`, so queue and scheduler containers do not drift onto a different image tag than the app.
 - the compose file injects production-safe defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr` so the stack does not inherit local development behavior from `.env.example`.
 - the app image bakes in MediaMTX and uses `MEDIAMTX_INSTALL_MODE=bundled` with `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`.
 - the compose stack also sets `MEDIAMTX_LOG_PATH=/app/storage/logs/mediamtx.log`, so the detached MediaMTX process has a stable log target under shared storage.

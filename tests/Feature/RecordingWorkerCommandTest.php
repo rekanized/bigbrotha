@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Camera;
+use App\Services\RuntimeHeartbeatService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -503,6 +504,33 @@ BASH);
     $this->assertSame(['recordings', 'default', 'review-assets'], $snapshot['queue_names']);
     $this->assertSame(5, $snapshot['enabled_recording_cameras']);
     $this->assertSame(240, $snapshot['queued_worker_jobs']);
+  }
+
+  public function test_snapshot_uses_shared_worker_heartbeats_in_container_mode(): void
+  {
+    $binaryDirectory = storage_path('app/private/test-binaries');
+    File::ensureDirectoryExists($binaryDirectory);
+
+    $psBinary = $binaryDirectory.'/recording-worker-ps-container-empty.sh';
+    File::put($psBinary, <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+    chmod($psBinary, 0755);
+
+    config()->set('recording.worker.container_mode', true);
+    config()->set('recording.worker.processes', 1);
+    config()->set('recording.worker.dynamic_enabled', true);
+    config()->set('recording.worker.ps_binary', $psBinary);
+
+    app(RuntimeHeartbeatService::class)->touchWorker('test');
+
+    $snapshot = app(\App\Services\RecordingWorkerService::class)->snapshot();
+
+    $this->assertTrue($snapshot['running']);
+    $this->assertSame(1, $snapshot['running_workers']);
+    $this->assertSame(1, $snapshot['desired_workers']);
+    $this->assertSame([], $snapshot['running_pids']);
   }
 
     public function test_it_noops_when_worker_supervision_is_disabled(): void

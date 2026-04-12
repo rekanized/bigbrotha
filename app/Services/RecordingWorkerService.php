@@ -13,6 +13,11 @@ use Throwable;
 
 class RecordingWorkerService
 {
+    public function __construct(
+        private readonly RuntimeHeartbeatService $heartbeats,
+    ) {
+    }
+
     /**
      * @return array{
      *     running: bool,
@@ -33,11 +38,17 @@ class RecordingWorkerService
     public function snapshot(): array
     {
         $runningPids = $this->runningPids();
+        $runningWorkers = count($runningPids);
+
+        if ($this->workerContainerMode() && $runningWorkers === 0) {
+            $runningWorkers = $this->externalRunningWorkerCount();
+        }
+
         $minimumWorkers = max(1, (int) config('recording.worker.processes', 1));
 
         return [
-            'running' => $runningPids !== [],
-            'running_workers' => count($runningPids),
+            'running' => $runningWorkers > 0,
+            'running_workers' => $runningWorkers,
             'desired_workers' => $this->desiredWorkerCount(),
             'running_pids' => $runningPids,
             'queue_names' => $this->workerQueueList(),
@@ -753,6 +764,10 @@ class RecordingWorkerService
     {
         $minimumWorkers = max(1, (int) config('recording.worker.processes', 1));
 
+        if ($this->workerContainerMode()) {
+            return $minimumWorkers;
+        }
+
         if (!(bool) config('recording.worker.dynamic_enabled', true)) {
             return $minimumWorkers;
         }
@@ -805,7 +820,9 @@ class RecordingWorkerService
 
     private function runningWorkerCount(): int
     {
-        return count($this->runningPids());
+        $snapshot = $this->snapshot();
+
+        return (int) ($snapshot['running_workers'] ?? 0);
     }
 
     private function workerQueues(): string
@@ -869,5 +886,22 @@ class RecordingWorkerService
         } catch (Throwable) {
             // Logging failures must not block the scheduler.
         }
+    }
+
+    private function workerContainerMode(): bool
+    {
+        return (bool) config('recording.worker.container_mode', false);
+    }
+
+    private function externalRunningWorkerCount(): int
+    {
+        $maxAgeSeconds = max(60, (int) config('recording.health.worker_max_age_seconds', 360));
+
+        return count(array_filter(
+            $this->heartbeats->workerStatuses(),
+            static fn (array $status): bool => ($status['exists'] ?? false)
+                && is_int($status['age_seconds'] ?? null)
+                && $status['age_seconds'] <= $maxAgeSeconds,
+        ));
     }
 }
