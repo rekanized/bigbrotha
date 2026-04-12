@@ -20,12 +20,14 @@ class CameraFleetStreamPreviewController extends Controller
         }
 
         $storage = app(CameraStorageService::class);
-        $absolutePath = $storage->resolvePreviewAbsolutePath($previewPath);
-        $imageMimeType = $storage->detectPreviewMimeType($previewPath);
+        $preview = $storage->resolvePreviewImage($previewPath);
 
-        if ($absolutePath === null || $imageMimeType === null) {
+        if ($preview === null) {
             return $this->placeholderResponse();
         }
+
+        $absolutePath = $preview['absolute_path'];
+        $imageMimeType = $preview['mime_type'];
 
         $response = response()->file($absolutePath, [
             'Content-Type' => $imageMimeType,

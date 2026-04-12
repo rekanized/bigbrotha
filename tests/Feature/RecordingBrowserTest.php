@@ -844,6 +844,75 @@ class RecordingBrowserTest extends TestCase
             ->assertSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
     }
 
+    public function test_timeline_preview_thumbnail_route_does_not_probe_network_backed_scrub_sprites_during_metadata_rendering(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Receiving Bay',
+            'local_ip' => '192.168.1.100',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/receiving-bay-network-thumb.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Clip saved.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $manifestRelativePath = $storage->recordingReviewAssetRelativePath($recording->relative_path, 'manifest.json');
+        $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
+
+        $this->writeCurrentReviewManifest($recording, [
+            'scrub_status' => RecordingReviewAssetService::STATUS_READY,
+            'scrub_sprite_relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/_review/receiving-bay-network-thumb/scrub-sprite.jpg',
+            'scrub_frame_count' => 30,
+            'scrub_frame_interval_seconds' => 10,
+            'scrub_frame_width' => 128,
+            'scrub_frame_height' => 72,
+            'scrub_columns' => 4,
+            'scrub_rows' => 8,
+        ]);
+
+        $networkStorage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $networkStorage->shouldReceive('usingNetworkStorage')
+            ->atLeast()
+            ->once()
+            ->andReturn(true);
+        $networkStorage->shouldReceive('reviewSpritesStoredLocally')
+            ->atLeast()
+            ->once()
+            ->andReturn(false);
+        $networkStorage->shouldReceive('resolveReviewAssetAbsolutePath')
+            ->once()
+            ->with($manifestRelativePath)
+            ->andReturn($manifestPath);
+        $networkStorage->shouldReceive('privateFileExists')->never();
+
+        app()->instance(CameraStorageService::class, $networkStorage);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
+            ->assertOk()
+            ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
+            ->assertSee('viewBox="0 0 128 72"', false)
+            ->assertSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
+    }
+
     public function test_timeline_preview_thumbnail_route_requeues_scrub_generation_when_the_preview_is_ready_but_the_sprite_failed(): void
     {
         Queue::fake();
@@ -1028,6 +1097,88 @@ class RecordingBrowserTest extends TestCase
             ->get(route('recordings.preview-sprite', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/jpeg');
+    }
+
+    public function test_timeline_preview_sprite_route_falls_back_to_a_placeholder_when_network_storage_is_unreachable(): void
+    {
+        Queue::fake();
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Receiving Bay',
+            'local_ip' => '192.168.1.100',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/receiving-bay-network-sprite.mkv',
+            'file_size_bytes' => 1024,
+            'message' => 'Clip saved.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $manifestRelativePath = $storage->recordingReviewAssetRelativePath($recording->relative_path, 'manifest.json');
+        $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
+
+        $this->writeCurrentReviewManifest($recording, [
+            'scrub_status' => RecordingReviewAssetService::STATUS_READY,
+            'scrub_sprite_relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/_review/receiving-bay-network-sprite/scrub-sprite.jpg',
+            'scrub_frame_count' => 30,
+            'scrub_frame_interval_seconds' => 10,
+            'scrub_frame_width' => 128,
+            'scrub_frame_height' => 72,
+            'scrub_columns' => 4,
+            'scrub_rows' => 8,
+        ]);
+
+        $networkStorage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $networkStorage->shouldReceive('usingNetworkStorage')
+            ->atLeast()
+            ->once()
+            ->andReturn(true);
+        $networkStorage->shouldReceive('reviewSpritesStoredLocally')
+            ->atLeast()
+            ->once()
+            ->andReturn(false);
+        $networkStorage->shouldReceive('recordingReviewAssetAbsolutePath')
+            ->atLeast()
+            ->once()
+            ->andReturnUsing(function (?string $recordingPath, string $fileName, bool $ensureDirectory = false) use ($recording, $manifestPath) {
+                if ($recordingPath !== $recording->relative_path || $ensureDirectory) {
+                    return null;
+                }
+
+                return $fileName === 'manifest.json' ? $manifestPath : null;
+            });
+        $networkStorage->shouldReceive('resolveReviewAssetAbsolutePath')
+            ->once()
+            ->with($manifestRelativePath)
+            ->andReturn($manifestPath);
+        $networkStorage->shouldReceive('privateFileExists')->never();
+
+        app()->instance(CameraStorageService::class, $networkStorage);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.preview-sprite', ['recording' => $recording]))
+            ->assertOk()
+            ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
+            ->assertSee('Thumbnail not ready yet', false);
+
+        Queue::assertNothingPushed();
     }
 
     public function test_timeline_initial_stage_uses_the_buffered_playback_stream_even_when_a_cached_preview_exists(): void

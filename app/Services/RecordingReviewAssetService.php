@@ -250,7 +250,7 @@ class RecordingReviewAssetService
 
         $manifestRelativePath = $this->manifestRelativePath($recording);
 
-        if ($manifestRelativePath === null || !$this->storage->privateFileExists($manifestRelativePath)) {
+        if ($manifestRelativePath === null) {
             return $this->manifestCache[$cacheKey] = null;
         }
 
@@ -404,8 +404,8 @@ class RecordingReviewAssetService
         $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
         $manifestStatus = $versionCurrent && is_string($manifest['status'] ?? null) ? $manifest['status'] : self::STATUS_MISSING;
         $scrubStatus = $versionCurrent && is_string($manifest['scrub_status'] ?? null) ? $manifest['scrub_status'] : self::STATUS_MISSING;
-        $previewFileAvailable = $previewRelativePath !== null && $this->storage->privateFileExists($previewRelativePath);
-        $scrubSpriteFileAvailable = $scrubSpriteRelativePath !== null && $this->storage->privateFileExists($scrubSpriteRelativePath);
+        $previewFileAvailable = $this->assetFileAvailableForRequest($previewRelativePath);
+        $scrubSpriteFileAvailable = $this->assetFileAvailableForRequest($scrubSpriteRelativePath);
         $previewAvailable = $versionCurrent && $manifestStatus === self::STATUS_READY && $previewFileAvailable;
         $scrubSpriteAvailable = $versionCurrent && $scrubStatus === self::STATUS_READY && $scrubSpriteFileAvailable;
         $thumbnailAvailable = $scrubSpriteAvailable;
@@ -675,14 +675,14 @@ class RecordingReviewAssetService
      */
     public function scrubSpriteMetadata(CameraRecording $recording): ?array
     {
-        $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording);
         $manifest = $this->manifest($recording);
+        $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
 
-        if ($scrubSpriteAbsolutePath === null) {
+        if ($scrubSpriteRelativePath === null) {
             return null;
         }
 
-        $computedManifest = $this->scrubManifest($recording, $scrubSpriteAbsolutePath);
+        $computedManifest = $this->defaultScrubManifest($recording, $scrubSpriteRelativePath);
 
         if (!is_array($computedManifest)) {
             return null;
@@ -690,36 +690,32 @@ class RecordingReviewAssetService
 
         $available = is_array($manifest)
             && ($manifest['scrub_status'] ?? null) === self::STATUS_READY
-            && $this->storage->privateFileExists($this->scrubSpriteRelativePath($recording));
+            && $this->assetFileAvailableForRequest($scrubSpriteRelativePath);
 
-        try {
-            return [
-                'relative_path' => is_string($manifest['scrub_sprite_relative_path'] ?? null)
-                    ? $manifest['scrub_sprite_relative_path']
-                    : $computedManifest['scrub_sprite_relative_path'],
-                'frame_count' => is_numeric($manifest['scrub_frame_count'] ?? null)
-                    ? (int) $manifest['scrub_frame_count']
-                    : (int) $computedManifest['scrub_frame_count'],
-                'frame_interval_seconds' => is_numeric($manifest['scrub_frame_interval_seconds'] ?? null)
-                    ? (int) $manifest['scrub_frame_interval_seconds']
-                    : (int) $computedManifest['scrub_frame_interval_seconds'],
-                'frame_width' => is_numeric($manifest['scrub_frame_width'] ?? null)
-                    ? (int) $manifest['scrub_frame_width']
-                    : (int) $computedManifest['scrub_frame_width'],
-                'frame_height' => is_numeric($manifest['scrub_frame_height'] ?? null)
-                    ? (int) $manifest['scrub_frame_height']
-                    : (int) $computedManifest['scrub_frame_height'],
-                'columns' => is_numeric($manifest['scrub_columns'] ?? null)
-                    ? (int) $manifest['scrub_columns']
-                    : (int) $computedManifest['scrub_columns'],
-                'rows' => is_numeric($manifest['scrub_rows'] ?? null)
-                    ? (int) $manifest['scrub_rows']
-                    : (int) $computedManifest['scrub_rows'],
-                'available' => $available,
-            ];
-        } finally {
-            $this->storage->deleteTemporaryFile($scrubSpriteAbsolutePath);
-        }
+        return [
+            'relative_path' => is_string($manifest['scrub_sprite_relative_path'] ?? null)
+                ? $manifest['scrub_sprite_relative_path']
+                : $computedManifest['scrub_sprite_relative_path'],
+            'frame_count' => is_numeric($manifest['scrub_frame_count'] ?? null)
+                ? (int) $manifest['scrub_frame_count']
+                : (int) $computedManifest['scrub_frame_count'],
+            'frame_interval_seconds' => is_numeric($manifest['scrub_frame_interval_seconds'] ?? null)
+                ? (int) $manifest['scrub_frame_interval_seconds']
+                : (int) $computedManifest['scrub_frame_interval_seconds'],
+            'frame_width' => is_numeric($manifest['scrub_frame_width'] ?? null)
+                ? (int) $manifest['scrub_frame_width']
+                : (int) $computedManifest['scrub_frame_width'],
+            'frame_height' => is_numeric($manifest['scrub_frame_height'] ?? null)
+                ? (int) $manifest['scrub_frame_height']
+                : (int) $computedManifest['scrub_frame_height'],
+            'columns' => is_numeric($manifest['scrub_columns'] ?? null)
+                ? (int) $manifest['scrub_columns']
+                : (int) $computedManifest['scrub_columns'],
+            'rows' => is_numeric($manifest['scrub_rows'] ?? null)
+                ? (int) $manifest['scrub_rows']
+                : (int) $computedManifest['scrub_rows'],
+            'available' => $available,
+        ];
     }
 
     private function previewRelativePath(CameraRecording $recording): ?string
@@ -903,6 +899,60 @@ class RecordingReviewAssetService
             'scrub_columns' => $columns,
             'scrub_rows' => $rows,
         ];
+    }
+
+    /**
+     * @return array<string, int|string>|null
+     */
+    private function defaultScrubManifest(CameraRecording $recording, string $scrubSpriteRelativePath): ?array
+    {
+        $frameCount = $this->scrubFrameCount($recording);
+
+        if ($frameCount < 1) {
+            return null;
+        }
+
+        $columns = $this->scrubColumns();
+        $rows = (int) ceil($frameCount / $columns);
+
+        return [
+            'scrub_sprite_relative_path' => $scrubSpriteRelativePath,
+            'scrub_frame_count' => $frameCount,
+            'scrub_frame_interval_seconds' => $this->scrubFrameIntervalSeconds(),
+            'scrub_frame_width' => $this->scrubFrameWidth(),
+            'scrub_frame_height' => $this->scrubFrameHeight(),
+            'scrub_columns' => $columns,
+            'scrub_rows' => $rows,
+        ];
+    }
+
+    private function assetFileAvailableForRequest(?string $relativePath): bool
+    {
+        if ($relativePath === null) {
+            return false;
+        }
+
+        if ($this->shouldSkipRemoteAssetProbe($relativePath)) {
+            return true;
+        }
+
+        return $this->storage->privateFileExists($relativePath);
+    }
+
+    private function shouldSkipRemoteAssetProbe(?string $relativePath): bool
+    {
+        if (!is_string($relativePath) || trim($relativePath) === '') {
+            return false;
+        }
+
+        $normalizedPath = $this->storage->normalizePrivateStorageRelativePath($relativePath);
+
+        if (!is_string($normalizedPath) || $normalizedPath === '') {
+            return false;
+        }
+
+        return $this->storage->usingNetworkStorage()
+            && str_starts_with(ltrim($normalizedPath, '/'), 'cameras/');
     }
 
     private function scrubFrameCount(CameraRecording $recording): int

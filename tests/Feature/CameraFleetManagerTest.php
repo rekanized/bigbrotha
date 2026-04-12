@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Livewire\CameraFleet\Manager;
 use App\Models\Camera;
 use App\Models\User;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -575,6 +576,98 @@ XML, 200),
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
             ->assertSee('Preview unavailable', false);
+    }
+
+    public function test_it_falls_back_to_a_placeholder_image_when_network_preview_storage_is_unreachable(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Front Door',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'preview_path' => null,
+                        'preview_generated_at' => '2026-04-01 19:21:29 UTC',
+                    ],
+                ],
+            ],
+        ]);
+
+        $metadata = $camera->metadata;
+        $metadata['rtsp_profiles'][0]['preview_path'] = 'cameras/'.$camera->id.'/previews/unreachable-preview.jpg';
+        $camera->metadata = $metadata;
+        $camera->save();
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('resolvePreviewImage')
+            ->once()
+            ->with('cameras/'.$camera->id.'/previews/unreachable-preview.jpg')
+            ->andReturn(null);
+
+        app()->instance(CameraStorageService::class, $storage);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]))
+            ->assertOk()
+            ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
+            ->assertSee('Preview unavailable', false);
+    }
+
+    public function test_camera_fleet_index_does_not_probe_network_preview_files_during_render(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Front Door',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'preview_path' => null,
+                        'preview_generated_at' => '2026-04-01 19:21:29 UTC',
+                    ],
+                ],
+            ],
+        ]);
+
+        $metadata = $camera->metadata;
+        $metadata['rtsp_profiles'][0]['preview_path'] = 'cameras/'.$camera->id.'/previews/network-preview.jpg';
+        $camera->metadata = $metadata;
+        $camera->save();
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('usingNetworkStorage')
+            ->atLeast()
+            ->once()
+            ->andReturn(true);
+        $storage->shouldReceive('hasUsablePreview')->never();
+
+        app()->instance(CameraStorageService::class, $storage);
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('camera-fleet.index'))
+            ->assertOk()
+            ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
     }
 
     public function test_it_preserves_saved_preview_metadata_when_rtsp_profiles_are_refreshed(): void

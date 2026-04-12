@@ -22,6 +22,12 @@ class CameraStorageService
 
     public const RECORDING_AVAILABILITY_UNREACHABLE = 'unreachable';
 
+    private const PREVIEW_READ_TIMEOUT_SECONDS = 3;
+
+    private const SMB_METADATA_TIMEOUT_SECONDS = 3;
+
+    private const REVIEW_ASSET_READ_TIMEOUT_SECONDS = 3;
+
     public function __construct(
         private readonly ApplicationSettingsService $settings,
     ) {
@@ -78,7 +84,32 @@ class CameraStorageService
 
     public function resolvePreviewAbsolutePath(?string $previewPath): ?string
     {
-        return $this->localReadablePath($previewPath);
+        return $this->localReadablePath($previewPath, true, self::PREVIEW_READ_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * @return array{absolute_path: string, mime_type: string}|null
+     */
+    public function resolvePreviewImage(?string $previewPath): ?array
+    {
+        $absolutePath = $this->resolvePreviewAbsolutePath($previewPath);
+
+        if ($absolutePath === null) {
+            return null;
+        }
+
+        $mimeType = $this->imageMimeTypeFromAbsolutePath($absolutePath);
+
+        if ($mimeType === null) {
+            $this->deleteTemporaryFile($absolutePath);
+
+            return null;
+        }
+
+        return [
+            'absolute_path' => $absolutePath,
+            'mime_type' => $mimeType,
+        ];
     }
 
     public function recordingAbsolutePath(Camera $camera, \DateTimeInterface $timestamp, string $fileName): string
@@ -165,12 +196,12 @@ class CameraStorageService
 
         return $ensureDirectory
             ? $this->localWritablePath($relativePath)
-            : $this->localReadablePath($relativePath, true);
+            : $this->localReadablePath($relativePath, true, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
     }
 
     public function resolveReviewAssetAbsolutePath(?string $assetPath): ?string
     {
-        return $this->localReadablePath($assetPath, true);
+        return $this->localReadablePath($assetPath, true, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
     }
 
     public function deleteRecordingReviewAssets(?string $recordingPath): void
@@ -619,13 +650,13 @@ class CameraStorageService
         }
 
         if ($this->isCameraRelativePath($relativePath) && $this->usingNetworkStorage()) {
-            try {
-                $mimeType = $this->cameraDisk()->mimeType($this->cameraDiskRelativePath($relativePath));
+            $absolutePath = $this->resolvePreviewAbsolutePath($relativePath);
 
-                return is_string($mimeType) && $mimeType !== '' ? $mimeType : null;
-            } catch (\Throwable) {
+            if ($absolutePath === null) {
                 return null;
             }
+
+            return $this->imageMimeTypeFromAbsolutePath($absolutePath);
         }
 
         $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
@@ -634,17 +665,21 @@ class CameraStorageService
             return null;
         }
 
-        $imageInfo = @getimagesize($absolutePath);
-
-        if (!is_array($imageInfo) || !is_string($imageInfo['mime'] ?? null)) {
-            return null;
-        }
-
-        return $imageInfo['mime'];
+        return $this->imageMimeTypeFromAbsolutePath($absolutePath);
     }
 
     public function hasUsablePreview(?string $previewPath): bool
     {
+        $relativePath = $this->privateStorageRelativePath($previewPath);
+
+        if ($relativePath === null) {
+            return false;
+        }
+
+        if ($this->isCameraRelativePath($relativePath) && $this->usingNetworkStorage()) {
+            return true;
+        }
+
         return $this->detectPreviewMimeType($previewPath) !== null;
     }
 
@@ -1485,7 +1520,7 @@ class CameraStorageService
         ];
 
         $process = new Process($command);
-        $process->setTimeout(20);
+        $process->setTimeout(self::SMB_METADATA_TIMEOUT_SECONDS);
         $process->run();
 
         $combinedOutput = trim($process->getErrorOutput().' '.$process->getOutput());
@@ -1524,6 +1559,17 @@ class CameraStorageService
         }
 
         return null;
+    }
+
+    private function imageMimeTypeFromAbsolutePath(string $absolutePath): ?string
+    {
+        $imageInfo = @getimagesize($absolutePath);
+
+        if (!is_array($imageInfo) || !is_string($imageInfo['mime'] ?? null)) {
+            return null;
+        }
+
+        return $imageInfo['mime'];
     }
 
     private function shouldUseSmbClientTransfers(): bool

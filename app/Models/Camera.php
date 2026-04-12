@@ -127,12 +127,18 @@ class Camera extends Model
     {
         $latestPreview = null;
         $latestTimestamp = null;
+
         $storage = app(CameraStorageService::class);
+        $skipRemotePreviewValidation = $storage->usingNetworkStorage();
 
         foreach ($this->rtspProfiles() as $index => $profile) {
             $previewPath = is_array($profile) ? ($profile['preview_path'] ?? null) : null;
 
-            if (!is_array($profile) || !is_string($previewPath) || $previewPath === '' || !$storage->hasUsablePreview($previewPath)) {
+            if (!is_array($profile) || !is_string($previewPath) || $previewPath === '') {
+                continue;
+            }
+
+            if (!$skipRemotePreviewValidation && !$storage->hasUsablePreview($previewPath)) {
                 continue;
             }
 
