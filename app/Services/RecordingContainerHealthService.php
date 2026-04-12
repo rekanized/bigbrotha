@@ -138,12 +138,51 @@ class RecordingContainerHealthService
      */
     private function checkWorkerHeartbeat(): array
     {
+        if ((bool) config('recording.worker.container_mode', false)) {
+            return $this->checkWorkerHeartbeats();
+        }
+
         return $this->checkHeartbeat(
             name: 'worker_heartbeat',
             label: 'Worker heartbeat',
             status: $this->heartbeats->workerStatus(),
             maxAgeSeconds: max(60, (int) config('recording.health.worker_max_age_seconds', 360)),
         );
+    }
+
+    /**
+     * @return array{name: string, ok: bool, message: string}
+     */
+    private function checkWorkerHeartbeats(): array
+    {
+        $statuses = $this->heartbeats->workerStatuses();
+        $maxAgeSeconds = max(60, (int) config('recording.health.worker_max_age_seconds', 360));
+        $freshCount = count(array_filter(
+            $statuses,
+            static fn (array $status): bool => ($status['exists'] ?? false)
+                && is_int($status['age_seconds'] ?? null)
+                && $status['age_seconds'] <= $maxAgeSeconds,
+        ));
+
+        if ($freshCount > 0) {
+            return $this->ok(
+                'worker_heartbeat',
+                'Detected '.$freshCount.' fresh worker heartbeat file'.($freshCount === 1 ? '' : 's').'.'
+            );
+        }
+
+        $firstStatus = $statuses[0] ?? [
+            'path' => (string) config('recording.health.worker_heartbeat_path', storage_path('app/private/bootstrap/recordings-worker.heartbeat')),
+            'exists' => false,
+            'updated_at' => null,
+            'age_seconds' => null,
+        ];
+
+        if (!($firstStatus['exists'] ?? false)) {
+            return $this->fail('worker_heartbeat', 'No shared worker heartbeat files were found under '.dirname((string) $firstStatus['path']).'.');
+        }
+
+        return $this->fail('worker_heartbeat', 'Shared worker heartbeat files exist, but none are fresh enough for the configured worker health window.');
     }
 
     /**

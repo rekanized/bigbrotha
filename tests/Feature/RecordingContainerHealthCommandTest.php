@@ -66,6 +66,25 @@ class RecordingContainerHealthCommandTest extends TestCase
         $this->assertStringContainsString('Oldest queued recordings job is', Artisan::output());
     }
 
+    public function test_worker_healthcheck_passes_from_a_non_worker_container_when_shared_worker_heartbeat_exists(): void
+    {
+        $this->writeBootstrapMarker();
+        $this->configureWorkerProcessSnapshot(empty: true);
+        config()->set('recording.worker.container_mode', true);
+
+        $heartbeatDirectory = dirname((string) config('recording.health.worker_heartbeat_path'));
+        File::ensureDirectoryExists($heartbeatDirectory);
+        File::put(
+            $heartbeatDirectory.'/recordings-worker-worker-a.heartbeat',
+            json_encode(['updated_at' => now()->utc()->toIso8601String()], JSON_THROW_ON_ERROR)
+        );
+
+        $exitCode = Artisan::call('camera-recordings:healthcheck', ['role' => 'worker']);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Worker container health checks passed.', Artisan::output());
+    }
+
     public function test_scheduler_healthcheck_fails_when_the_scheduler_heartbeat_is_stale(): void
     {
         $this->writeBootstrapMarker();
@@ -109,15 +128,22 @@ class RecordingContainerHealthCommandTest extends TestCase
         File::put($path, Carbon::now()->utc()->toIso8601String());
     }
 
-    private function configureWorkerProcessSnapshot(): void
+    private function configureWorkerProcessSnapshot(bool $empty = false): void
     {
         $psBinary = storage_path('app/private/test-binaries/recording-health-ps.sh');
         File::ensureDirectoryExists(dirname($psBinary));
 
-        File::put($psBinary, sprintf(
-            "#!/usr/bin/env bash\ncat <<'OUT'\n %d /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256\nOUT\n",
-            getmypid(),
-        ));
+        if ($empty) {
+            File::put($psBinary, <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+        } else {
+            File::put($psBinary, sprintf(
+                "#!/usr/bin/env bash\ncat <<'OUT'\n %d /usr/bin/php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256\nOUT\n",
+                getmypid(),
+            ));
+        }
 
         chmod($psBinary, 0755);
 
