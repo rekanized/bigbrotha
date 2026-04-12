@@ -84,7 +84,21 @@
                 </div>
 
                 <div class="probe-actions">
-                    <button class="button button--primary" type="button" wire:click="createWall">New wall</button>
+                    <button class="button button--primary" type="button" wire:click="createWall" wire:loading.attr="disabled" wire:target="createWall">
+                        <span class="button__content">
+                            <span class="button__icon-slot" aria-hidden="true">
+                                <svg class="button__icon" wire:loading.remove wire:target="createWall" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 5v14"></path>
+                                    <path d="M5 12h14"></path>
+                                </svg>
+                                <svg class="button__spinner" wire:loading wire:target="createWall" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                </svg>
+                            </span>
+                            <span>New wall</span>
+                        </span>
+                    </button>
                     @if ($selectedWall)
                         <a class="button button--soft" href="{{ route('live-wall.index', ['wall' => $selectedWall->slug]) }}" wire:navigate>Open selected wall</a>
                     @endif
@@ -103,9 +117,22 @@
                             class="wall-record{{ $selectedWall?->id === $wall->id ? ' wall-record--active' : '' }}"
                             type="button"
                             wire:click="selectWall({{ $wall->id }})"
+                            wire:loading.attr="disabled"
+                            wire:target="selectWall({{ $wall->id }})"
                         >
                             <span class="wall-record__header">
-                                <strong>{{ $wall->name }}</strong>
+                                <span class="wall-record__title">
+                                    <span class="button__icon-slot wall-record__action-indicator" aria-hidden="true">
+                                        <svg class="button__icon" wire:loading.remove wire:target="selectWall({{ $wall->id }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M9 18l6-6-6-6"></path>
+                                        </svg>
+                                        <svg class="button__spinner" wire:loading wire:target="selectWall({{ $wall->id }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                            <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                        </svg>
+                                    </span>
+                                    <strong>{{ $wall->name }}</strong>
+                                </span>
                                 <span class="badge-row">
                                     @if ($wall->is_default)
                                         <span class="status-pill status-pill--good">Default</span>
@@ -134,10 +161,42 @@
 
                 <div class="probe-actions">
                     @if ($selectedWall)
-                        <button class="button button--soft" type="button" wire:click="deleteWall({{ $selectedWall->id }})">Delete wall</button>
+                        <button class="button button--soft" type="button" wire:click="deleteWall({{ $selectedWall->id }})" wire:loading.attr="disabled" wire:target="deleteWall({{ $selectedWall->id }})">
+                            <span class="button__content">
+                                <span class="button__icon-slot" aria-hidden="true">
+                                    <svg class="button__icon" wire:loading.remove wire:target="deleteWall({{ $selectedWall->id }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 7h16"></path>
+                                        <path d="M10 11v6"></path>
+                                        <path d="M14 11v6"></path>
+                                        <path d="M6 7l1 12h10l1-12"></path>
+                                        <path d="M9 7V5h6v2"></path>
+                                    </svg>
+                                    <svg class="button__spinner" wire:loading wire:target="deleteWall({{ $selectedWall->id }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                    </svg>
+                                </span>
+                                <span>Delete wall</span>
+                            </span>
+                        </button>
                     @endif
 
-                    <button class="button button--primary" type="button" wire:click="saveWall">Save wall</button>
+                    <button class="button button--primary" type="button" wire:click="saveWall" wire:loading.attr="disabled" wire:target="saveWall">
+                        <span class="button__content">
+                            <span class="button__icon-slot" aria-hidden="true">
+                                <svg class="button__icon" wire:loading.remove wire:target="saveWall" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 5h11l3 3v11H5z"></path>
+                                    <path d="M9 5v6h6"></path>
+                                    <path d="M9 19v-5h6v5"></path>
+                                </svg>
+                                <svg class="button__spinner" wire:loading wire:target="saveWall" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                </svg>
+                            </span>
+                            <span>Save wall</span>
+                        </span>
+                    </button>
                 </div>
             </div>
 
@@ -219,7 +278,24 @@
                         <p class="panel-copy">This grid is the wall builder. Drag tiles to reorder them, edit each tile in place, and remove any tile you do not want shown on the live wall.</p>
                     </div>
 
-                    <button class="button button--soft" type="button" wire:click="addTile">Add tile</button>
+                    <button class="button button--soft" type="button" wire:click="addTile" wire:loading.attr="disabled" wire:target="addTile">
+                        <span class="button__content">
+                            <span class="button__icon-slot" aria-hidden="true">
+                                <svg class="button__icon" wire:loading.remove wire:target="addTile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="4" y="4" width="7" height="7"></rect>
+                                    <rect x="13" y="4" width="7" height="7"></rect>
+                                    <path d="M7.5 14.5v5"></path>
+                                    <path d="M5 17h5"></path>
+                                    <rect x="13" y="13" width="7" height="7"></rect>
+                                </svg>
+                                <svg class="button__spinner" wire:loading wire:target="addTile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                </svg>
+                            </span>
+                            <span>Add tile</span>
+                        </span>
+                    </button>
                 </div>
 
                 @php
@@ -282,7 +358,24 @@
                                             </div>
                                         </div>
 
-                                        <button class="button button--soft" type="button" wire:click="removeTile({{ $index }})">Remove</button>
+                                        <button class="button button--soft" type="button" wire:click="removeTile({{ $index }})" wire:loading.attr="disabled" wire:target="removeTile({{ $index }})">
+                                            <span class="button__content">
+                                                <span class="button__icon-slot" aria-hidden="true">
+                                                    <svg class="button__icon" wire:loading.remove wire:target="removeTile({{ $index }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M4 7h16"></path>
+                                                        <path d="M10 11v6"></path>
+                                                        <path d="M14 11v6"></path>
+                                                        <path d="M6 7l1 12h10l1-12"></path>
+                                                        <path d="M9 7V5h6v2"></path>
+                                                    </svg>
+                                                    <svg class="button__spinner" wire:loading wire:target="removeTile({{ $index }})" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                    </svg>
+                                                </span>
+                                                <span>Remove</span>
+                                            </span>
+                                        </button>
                                     </div>
 
                                     <div class="wall-grid-builder__tile-stage">

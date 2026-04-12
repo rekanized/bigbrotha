@@ -20,7 +20,6 @@ class ExampleTest extends TestCase
         $this->actingAs($operator)->withServerVariables($server)->get('/')->assertRedirect('/camera-fleet');
         $this->actingAs($operator)->withServerVariables($server)->get('/camera-fleet')->assertOk();
         $this->actingAs($operator)->withServerVariables($server)->get('/live-wall')->assertOk();
-        $this->actingAs($operator)->withServerVariables($server)->get('/discovery/onvif-sweep')->assertOk();
     }
 
     public function test_authenticated_requests_from_other_ips_are_forbidden(): void

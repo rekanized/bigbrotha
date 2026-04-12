@@ -23,7 +23,11 @@ class CameraFleetMotionEditorSessionController extends Controller
 
         $relayStatus = $relayProcess->ensureRunning();
 
-        abort_unless($relayStatus['running'] ?? false, Response::HTTP_SERVICE_UNAVAILABLE, 'Media relay is not running.');
+        abort_unless(
+            ($relayStatus['running'] ?? false) && ($relayStatus['api_reachable'] ?? false),
+            Response::HTTP_SERVICE_UNAVAILABLE,
+            'Media relay is not available.',
+        );
 
         $profileIndex = $request->query('profileIndex');
         $selectedProfileIndex = is_numeric($profileIndex) ? (int) $profileIndex : null;
@@ -41,7 +45,7 @@ class CameraFleetMotionEditorSessionController extends Controller
             ],
             'profile_index' => $definition['index'],
             'whep_url' => $whepUrl,
-            'reader_url' => preg_replace('#/whep$#', '/reader.js', $whepUrl),
+            'reader_url' => $relayConfig->browserReaderUrlForPath($definition['path'], $request),
             'access_token' => $accessTokenService->issueReadToken($request->user(), $definition['path']),
             'expires_in' => $accessTokenService->ttl(),
         ]);

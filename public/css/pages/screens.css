@@ -900,6 +900,17 @@
     transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.wall-record__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wall-record__action-indicator {
+    align-self: flex-start;
+    margin-top: 0.12rem;
+}
+
 .wall-record:hover,
 .wall-record:focus-visible {
     transform: translateY(-1px);
@@ -3655,6 +3666,18 @@ body.live-wall-focus-mode {
     gap: 16px;
 }
 
+@keyframes fleet-modal-scale-in {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
 .fleet-modal {
     position: fixed;
     inset: 0;
@@ -3668,17 +3691,24 @@ body.live-wall-focus-mode {
     position: absolute;
     inset: 0;
     border: 0;
-    background: hsla(220 37% 9% / 0.52);
-    backdrop-filter: blur(8px);
+    background-color: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
 }
 
 .fleet-modal__panel {
     position: relative;
     z-index: 1;
+    display: grid;
+    gap: var(--space-4);
     width: min(1100px, calc(100vw - 32px));
     max-height: calc(100vh - 40px);
     overflow: auto;
+    padding: var(--space-6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: linear-gradient(180deg, hsla(0 0% 100% / 0.96) 0%, hsla(204 30% 98% / 0.9) 100%);
     box-shadow: 0 32px 80px hsla(220 45% 10% / 0.32);
+    animation: fleet-modal-scale-in 0.2s ease-out;
 }
 
 @media (max-width: 1180px) {

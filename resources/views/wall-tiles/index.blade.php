@@ -12,8 +12,7 @@
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Live wall</a>
-    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-    <a class="button button--primary" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discover devices</a>
+    <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
 @endsection
 
 @section('content')

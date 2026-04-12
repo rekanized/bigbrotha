@@ -23,7 +23,22 @@
             </label>
 
             <div class="probe-form-grid__actions">
-                <button class="button button--primary" type="submit">Save network storage</button>
+                <button class="button button--primary" type="submit" wire:loading.attr="disabled" wire:target="save">
+                    <span class="button__content">
+                        <span class="button__icon-slot" aria-hidden="true">
+                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M5 5h11l3 3v11H5z"></path>
+                                <path d="M9 5v6h6"></path>
+                                <path d="M9 19v-5h6v5"></path>
+                            </svg>
+                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                            </svg>
+                        </span>
+                        <span>Save network storage</span>
+                    </span>
+                </button>
             </div>
         </div>
 

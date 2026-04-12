@@ -58,7 +58,7 @@ class LiveWallController extends Controller
                 $whepUrl = $relayConfig->browserWhepUrl($camera, $request);
                 $path = $relayConfig->cameraPathName($camera);
                 $readerUrl = is_string($whepUrl) && $whepUrl !== ''
-                    ? preg_replace('#/whep$#', '/reader.js', $whepUrl)
+                    ? $relayConfig->browserReaderUrlForPath($path, $request)
                     : null;
 
                 $sessionBootstrap = null;

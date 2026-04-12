@@ -19,28 +19,37 @@ class CameraFleetManagerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_it_can_create_update_toggle_and_delete_cameras_from_the_gui(): void
+    public function test_it_probes_creates_updates_toggles_and_deletes_cameras_from_the_gui(): void
     {
+        $this->fakeCreateProbeResponses();
+
         $component = Livewire::test(Manager::class)
             ->call('newCamera')
+            ->call('saveCamera')
+            ->assertHasErrors(['probeEndpointUrl'])
             ->assertSet('isEditorModalOpen', true)
-            ->set('form.name', 'Front Door')
-            ->set('form.local_ip', '192.168.1.67')
-            ->set('form.manufacturer', 'tp-link')
-            ->set('form.model', 'Tapo C200')
-            ->set('form.serial_number', '213ba426')
-            ->set('form.onvif_port', 2020)
-            ->set('form.http_port', 2020)
+            ->set('probeEndpointUrl', 'http://192.168.1.67:2020/onvif/device_service')
             ->set('form.username', 'operator')
             ->set('form.password', 'secret')
+            ->call('probeEndpoint')
+            ->assertSet('form.name', 'Tapo C200')
+            ->assertSet('form.local_ip', '192.168.1.67')
+            ->assertSet('form.model', 'Tapo C200')
+            ->assertSet('form.mac_address', 'AA:BB:CC:DD:EE:FF')
+            ->assertSet('form.rtsp_path', '/stream1')
             ->call('saveCamera');
 
         $camera = Camera::query()->firstOrFail();
 
-        $this->assertSame('Front Door', $camera->name);
+        $this->assertSame('Tapo C200', $camera->name);
         $this->assertSame('tp-link', $camera->manufacturer);
         $this->assertSame(2020, $camera->onvif_port);
         $this->assertSame('operator', $camera->username);
+        $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->mac_address);
+        $this->assertTrue($camera->supports_rtsp);
+        $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
+        $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->metadata['onvif']['mac_address']);
+        $this->assertCount(1, $camera->rtspProfiles());
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id));
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id.'/previews'));
 
@@ -58,10 +67,39 @@ class CameraFleetManagerTest extends TestCase
         $this->assertFalse($camera->is_enabled);
         $this->assertSame('secret', $camera->password);
 
+        $component
+            ->call('requestDeleteCamera', $camera->id)
+            ->assertSet('pendingDeleteCameraId', $camera->id);
+
+        $this->assertDatabaseCount('cameras', 1);
+
         $component->call('deleteCamera', $camera->id);
 
         $this->assertDatabaseCount('cameras', 0);
         $this->assertDirectoryDoesNotExist(storage_path('app/private/cameras/'.$camera->id));
+    }
+
+    public function test_it_can_cancel_a_pending_camera_delete(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Front Door',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('requestDeleteCamera', $camera->id)
+            ->assertSet('pendingDeleteCameraId', $camera->id)
+            ->call('cancelDeleteCamera')
+            ->assertSet('pendingDeleteCameraId', null);
+
+        $this->assertDatabaseCount('cameras', 1);
     }
 
     public function test_it_fetches_rtsp_profiles_and_saves_them_to_the_camera_record(): void
@@ -192,16 +230,15 @@ BASH);
             ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
     }
 
-    public function test_it_can_save_and_test_a_rtsp_only_camera_without_onvif(): void
+    public function test_it_can_create_a_rtsp_only_camera_without_probing_onvif(): void
     {
-        $component = Livewire::test(Manager::class)
+        Livewire::test(Manager::class)
             ->call('newCamera')
+            ->call('enableRtspOnlyMode')
+            ->assertSet('form.supports_onvif', false)
+            ->assertSet('form.supports_rtsp', true)
             ->set('form.name', 'RTSP Only Camera')
             ->set('form.local_ip', '192.168.1.88')
-            ->set('form.supports_onvif', false)
-            ->set('form.onvif_port', null)
-            ->set('form.onvif_path', '')
-            ->set('form.supports_rtsp', true)
             ->set('form.rtsp_port', 554)
             ->set('form.rtsp_path', '/manual-stream')
             ->set('form.username', 'operator')
@@ -210,6 +247,30 @@ BASH);
             ->assertHasNoErrors();
 
         $camera = Camera::query()->firstOrFail();
+
+        $this->assertSame('RTSP Only Camera', $camera->name);
+        $this->assertFalse($camera->supports_onvif);
+        $this->assertTrue($camera->supports_rtsp);
+        $this->assertSame('rtsp://192.168.1.88:554/manual-stream', $camera->rtspEndpoint());
+        $this->assertSame('operator', $camera->username);
+    }
+
+    public function test_it_can_refresh_and_test_a_rtsp_only_saved_camera_without_onvif(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'RTSP Only Camera',
+            'local_ip' => '192.168.1.88',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'rtsp_path' => '/manual-stream',
+            'username' => 'operator',
+            'password' => 'secret',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+        ]);
 
         $this->assertFalse($camera->supports_onvif);
         $this->assertTrue($camera->supports_rtsp);
@@ -236,7 +297,7 @@ BASH);
         config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
 
-        $component
+        Livewire::test(Manager::class)
             ->call('editCamera', $camera->id)
             ->call('fetchRtspProfiles')
             ->assertSet('rtspErrorMessage', null)
@@ -293,16 +354,26 @@ BASH);
             ],
         ];
 
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Entrance',
+            'local_ip' => '192.168.1.90',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'rtsp_path' => '/record-stream',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_OFF,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 35,
+            'recording_motion_pre_roll_seconds' => 8,
+            'recording_motion_post_trigger_seconds' => 20,
+        ]);
+
         Livewire::test(Manager::class)
-            ->call('newCamera')
-            ->set('form.name', 'Warehouse Entrance')
-            ->set('form.local_ip', '192.168.1.90')
-            ->set('form.supports_onvif', false)
-            ->set('form.onvif_port', null)
-            ->set('form.onvif_path', '')
-            ->set('form.supports_rtsp', true)
-            ->set('form.rtsp_port', 554)
-            ->set('form.rtsp_path', '/record-stream')
+            ->call('editCamera', $camera->id)
             ->set('form.recording_mode', Camera::RECORDING_MODE_MOTION)
             ->set('form.recording_retention_days', 1)
             ->set('form.motion_sensitivity', 14)
@@ -312,7 +383,7 @@ BASH);
             ->call('saveCamera')
             ->assertHasNoErrors();
 
-        $camera = Camera::query()->firstOrFail();
+        $camera->refresh();
 
         $this->assertSame(Camera::RECORDING_MODE_MOTION, $camera->recording_mode);
         $this->assertSame(1, $camera->recording_retention_days);
@@ -320,6 +391,103 @@ BASH);
         $this->assertSame(12, $camera->motionPreRollSeconds());
         $this->assertSame(26, $camera->motionPostTriggerSeconds());
         $this->assertSame($mask, $camera->recordingMotionMask());
+    }
+
+    private function fakeCreateProbeResponses(): void
+    {
+        Http::fake(function (Request $request) {
+            $body = $request->body();
+
+            return match (true) {
+                str_contains($body, '<tds:GetDeviceInformation />') => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+    <s:Body>
+        <tds:GetDeviceInformationResponse>
+            <tds:Manufacturer>tp-link</tds:Manufacturer>
+            <tds:Model>Tapo C200</tds:Model>
+            <tds:FirmwareVersion>1.0.17 Build 240806 Rel.39518n</tds:FirmwareVersion>
+            <tds:SerialNumber>213ba426</tds:SerialNumber>
+            <tds:HardwareId>5.0</tds:HardwareId>
+        </tds:GetDeviceInformationResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+                str_contains($body, '<tds:GetNetworkInterfaces />') => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:tds="http://www.onvif.org/ver10/device/wsdl"
+    xmlns:tt="http://www.onvif.org/ver10/schema">
+    <s:Body>
+        <tds:GetNetworkInterfacesResponse>
+            <tds:NetworkInterfaces token="eth0">
+                <tt:Enabled>true</tt:Enabled>
+                <tt:Info>
+                    <tt:HwAddress>aa-bb-cc-dd-ee-ff</tt:HwAddress>
+                </tt:Info>
+                <tt:IPv4>
+                    <tt:Enabled>true</tt:Enabled>
+                    <tt:Config>
+                        <tt:Manual>
+                            <tt:Address>192.168.1.67</tt:Address>
+                            <tt:PrefixLength>24</tt:PrefixLength>
+                        </tt:Manual>
+                    </tt:Config>
+                </tt:IPv4>
+            </tds:NetworkInterfaces>
+        </tds:GetNetworkInterfacesResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+                str_contains($body, '<tds:GetCapabilities>') => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+    <s:Body>
+        <tds:GetCapabilitiesResponse>
+            <tds:Capabilities>
+                <tds:Media>
+                    <tds:XAddr>http://192.168.1.67:2020/onvif/media_service</tds:XAddr>
+                </tds:Media>
+            </tds:Capabilities>
+        </tds:GetCapabilitiesResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+                str_contains($body, '<trt:GetProfiles />') => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
+    <s:Body>
+        <trt:GetProfilesResponse>
+            <trt:Profiles token="profile_main">
+                <tt:Name>MainStream</tt:Name>
+                <tt:VideoEncoderConfiguration>
+                    <tt:Encoding>H264</tt:Encoding>
+                    <tt:Resolution>
+                        <tt:Width>1920</tt:Width>
+                        <tt:Height>1080</tt:Height>
+                    </tt:Resolution>
+                </tt:VideoEncoderConfiguration>
+            </trt:Profiles>
+        </trt:GetProfilesResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+                str_contains($body, '<trt:ProfileToken>profile_main</trt:ProfileToken>') => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
+    <s:Body>
+        <trt:GetStreamUriResponse>
+            <trt:MediaUri>
+                <trt:Uri>rtsp://192.168.1.67:554/stream1</trt:Uri>
+            </trt:MediaUri>
+        </trt:GetStreamUriResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+                default => Http::response('', 500),
+            };
+        });
     }
 
     public function test_it_bootstraps_a_profile_specific_motion_editor_session(): void
@@ -367,7 +535,8 @@ BASH);
             ->assertJsonPath('camera.id', $camera->id)
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-recording-profile-0')
             ->assertJsonPath('profile_index', 0)
-            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/whep');
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/reader.js');
     }
 
     public function test_it_falls_back_to_a_placeholder_image_when_a_saved_preview_is_invalid(): void

@@ -9,7 +9,6 @@ use App\Http\Controllers\AdminUsersController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
 use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetController;
-use App\Http\Controllers\Discovery\OnvifSweepController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
 use App\Http\Controllers\LiveWallSessionController;
@@ -60,8 +59,4 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/live-wall/{camera}/session', LiveWallSessionController::class)->name('live-wall.session');
     Route::get('/live-wall/{camera}/stream', [LiveWallStreamController::class, 'mjpeg'])->name('live-wall.stream');
     Route::get('/live-wall/{camera}/relay', [LiveWallStreamController::class, 'relay'])->name('live-wall.relay');
-
-    Route::prefix('discovery')->name('discovery.')->group(function (): void {
-        Route::get('/onvif-sweep', OnvifSweepController::class)->name('onvif-sweep');
-    });
 });

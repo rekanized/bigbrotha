@@ -100,6 +100,11 @@ class MediaMtxConfigService
         return rtrim($this->browserBaseUrl($request), '/').'/'.$path.'/whep';
     }
 
+    public function browserReaderUrlForPath(string $path, ?Request $request = null): string
+    {
+        return rtrim($this->browserBaseUrl($request), '/').'/'.$path.'/reader.js';
+    }
+
     public function internalPlayerUrl(string $path): string
     {
         return rtrim((string) config('mediamtx.webrtc.internal_base_url'), '/').'/'.$path;

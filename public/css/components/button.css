@@ -15,6 +15,49 @@
     transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
+.button__content {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.button__icon-slot {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    flex: 0 0 1.1rem;
+}
+
+.button__icon,
+.button__spinner {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.button__spinner {
+    display: none;
+    animation: button-spinner-rotate 0.8s linear infinite;
+}
+
+button[data-loading] .button__icon {
+    display: none;
+}
+
+button[data-loading] .button__spinner {
+    display: block;
+}
+
+button[data-loading].button {
+    opacity: 0.56;
+    cursor: wait;
+    pointer-events: none;
+    transform: none;
+    box-shadow: none;
+}
+
 .button:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-raised);
@@ -56,4 +99,14 @@
     pointer-events: none;
     transform: none;
     box-shadow: none;
+}
+
+@keyframes button-spinner-rotate {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }

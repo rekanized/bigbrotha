@@ -75,4 +75,44 @@ XML, 500),
 
         app(OnvifDeviceProbeService::class)->probe('http://192.168.1.90/onvif/device_service', 'operator', 'wrong-password');
     }
+
+    public function test_it_reads_primary_network_details_from_onvif_interfaces(): void
+    {
+        Http::fake([
+            '*' => Http::response(<<<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:tds="http://www.onvif.org/ver10/device/wsdl"
+    xmlns:tt="http://www.onvif.org/ver10/schema">
+    <s:Body>
+        <tds:GetNetworkInterfacesResponse>
+            <tds:NetworkInterfaces token="eth0">
+                <tt:Info>
+                    <tt:HwAddress>aa-bb-cc-dd-ee-ff</tt:HwAddress>
+                </tt:Info>
+                <tt:IPv4>
+                    <tt:Config>
+                        <tt:Manual>
+                            <tt:Address>192.168.1.90</tt:Address>
+                        </tt:Manual>
+                    </tt:Config>
+                </tt:IPv4>
+            </tds:NetworkInterfaces>
+        </tds:GetNetworkInterfacesResponse>
+    </s:Body>
+</s:Envelope>
+XML, 200),
+        ]);
+
+        $result = app(OnvifDeviceProbeService::class)->fetchPrimaryNetworkDetails('http://192.168.1.90/onvif/device_service', 'operator', 'secret');
+
+        $this->assertSame('192.168.1.90', $result['ipv4_address']);
+        $this->assertSame('AA:BB:CC:DD:EE:FF', $result['mac_address']);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request->url() === 'http://192.168.1.90/onvif/device_service'
+                && str_contains($request->body(), 'http://www.onvif.org/ver10/device/wsdl/GetNetworkInterfaces')
+                && str_contains($request->body(), '<tds:GetNetworkInterfaces />');
+        });
+    }
 }

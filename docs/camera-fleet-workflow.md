@@ -2,47 +2,42 @@
 
 ## Goal
 
-The Camera Fleet is the main operator workflow for turning discovered or known devices into managed camera records with saved RTSP profiles and preview diagnostics.
+The Camera Fleet is the main operator workflow for turning known ONVIF or RTSP devices into managed camera records with saved RTSP profiles and preview diagnostics.
 
 ## Entry Paths
 
-### ONVIF Sweep
-
-Use `/discovery/onvif-sweep` to run WS-Discovery across the network.
-
-Best when:
-
-- cameras respond to multicast.
-- the network allows WS-Discovery traffic.
-
 ### Manual ONVIF Probe
 
-The same screen supports direct ONVIF endpoint verification with:
+Use `/camera-fleet` and choose `Add camera` to start the probe-first create flow with:
 
 - ONVIF URL.
 - optional username.
 - optional password.
 
+If a camera is RTSP-only and does not expose ONVIF device services, switch the create modal into RTSP-only mode and save the manual RTSP endpoint without probing.
+
 Best when:
 
-- multicast discovery returns nothing.
 - a specific device address is already known.
 - authentication is required to validate the device.
 
-Successful manual probes can be saved directly into the fleet.
+Successful probes now hydrate the Camera Fleet draft before the first database insert.
 
 ## Provisioning Flow
 
-Verified manual probe results can create or update a camera using:
+Verified manual probe results now hydrate the create form with:
 
 - device service URL.
+- resolved IP address when ONVIF interface data returns one.
+- MAC address when ONVIF interface data returns one.
 - credentials.
 - manufacturer.
 - model.
 - serial number.
 - verification metadata.
+- discovered RTSP media profiles and primary stream defaults when the camera exposes them.
 
-The provisioning flow tries to match existing cameras before creating duplicates.
+Operators can then review and adjust the draft before the camera record is inserted.
 
 ## Camera Fleet Screen
 
@@ -66,6 +61,7 @@ The modal is the main management surface for a selected camera.
 
 It supports:
 
+- probing a new ONVIF endpoint before first save.
 - editing network and endpoint fields.
 - editing credentials.
 - toggling ONVIF and RTSP support.

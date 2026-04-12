@@ -58,7 +58,23 @@
                     <p class="panel-copy">Pending and failed job counts grouped by queue, with the next pending job shown for triage.</p>
                 </div>
 
-                <button class="button button--soft queue-monitor__action-button" type="button" wire:click="refreshQueueSnapshot" wire:loading.attr="disabled" wire:target="refreshQueueSnapshot">Refresh now</button>
+                <button class="button button--soft queue-monitor__action-button" type="button" wire:click="refreshQueueSnapshot" wire:loading.attr="disabled" wire:target="refreshQueueSnapshot">
+                    <span class="button__content">
+                        <span class="button__icon-slot" aria-hidden="true">
+                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"></path>
+                                <path d="M21 3v5h-5"></path>
+                                <path d="M21 12a9 9 0 0 1-15.3 6.36L3 16"></path>
+                                <path d="M3 21v-5h5"></path>
+                            </svg>
+                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                            </svg>
+                        </span>
+                        <span>Refresh now</span>
+                    </span>
+                </button>
             </div>
 
             @if ($queueSummary === [])
@@ -151,7 +167,24 @@
                 </div>
 
                 @if ($failedJobTotal > 0)
-                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="clearFailedJobs" wire:loading.attr="disabled" wire:target="clearFailedJobs">Delete all</button>
+                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="clearFailedJobs" wire:loading.attr="disabled" wire:target="clearFailedJobs">
+                        <span class="button__content">
+                            <span class="button__icon-slot" aria-hidden="true">
+                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 7h16"></path>
+                                    <path d="M10 11v6"></path>
+                                    <path d="M14 11v6"></path>
+                                    <path d="M6 7l1 12h10l1-12"></path>
+                                    <path d="M9 7V5h6v2"></path>
+                                </svg>
+                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                </svg>
+                            </span>
+                            <span>Delete all</span>
+                        </span>
+                    </button>
                 @endif
             </div>
 
@@ -181,8 +214,39 @@
                             <div>{{ $job['failed_at_label'] }}</div>
                             <div>
                                 <div class="queue-monitor__action-stack">
-                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">Retry</button>
-                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="deleteFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="deleteFailedJob({{ $job['id'] }})">Delete</button>
+                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"></path>
+                                                    <path d="M21 3v5h-5"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Retry</span>
+                                        </span>
+                                    </button>
+                                    <button class="button button--soft queue-monitor__action-button" type="button" wire:click="deleteFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="deleteFailedJob({{ $job['id'] }})">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M4 7h16"></path>
+                                                    <path d="M10 11v6"></path>
+                                                    <path d="M14 11v6"></path>
+                                                    <path d="M6 7l1 12h10l1-12"></path>
+                                                    <path d="M9 7V5h6v2"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Delete</span>
+                                        </span>
+                                    </button>
                                 </div>
                             </div>
                         </div>

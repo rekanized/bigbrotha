@@ -27,18 +27,15 @@ docker compose pull
 docker compose up -d
 ```
 
-### Docker ONVIF Discovery Network
+### Docker Camera Network Reachability
 
-The main `docker-compose.yml` attaches the `app` container to a LAN-facing `camera_lan` `ipvlan` L2 network so ONVIF WS-Discovery can probe from the camera segment.
+The `app` container must be able to reach camera HTTP, ONVIF, and RTSP endpoints on the camera LAN or routed camera subnet.
 
 ```bash
-export DISCOVERY_PARENT_INTERFACE=eth0
-export DISCOVERY_SUBNET=192.168.1.0/24
-export DISCOVERY_GATEWAY=192.168.1.1
 docker compose up -d
 ```
 
-Set those values to match the real camera LAN before starting the stack. This keeps the normal `bigbrotha` bridge network for `web`, `worker`, `scheduler`, and `database`, while giving the `app` container a second LAN-facing interface that WS-Discovery can probe from.
+Before starting the stack, confirm the Docker host and bridge network have a usable route and firewall allowance to the camera network. The current onboarding flow uses a direct ONVIF probe from Camera Fleet instead of multicast discovery.
 
 ### Docker Hub Startup
 
@@ -70,7 +67,7 @@ Docker runtime notes:
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
 - Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.
 - Compose also sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX relies on the configured public host instead of advertising Docker interface addresses that browsers cannot use.
-- ONVIF WS-Discovery over Docker usually needs a LAN-facing interface in addition to the normal bridge network. The main compose file now requires `DISCOVERY_PARENT_INTERFACE`, `DISCOVERY_SUBNET`, and `DISCOVERY_GATEWAY` so the `app` container can join that LAN-facing `ipvlan` L2 network.
+- Direct camera onboarding now uses unicast ONVIF requests from Camera Fleet, so the Docker requirement is routed reachability from the `app` container to the camera network instead of a dedicated WS-Discovery-specific interface.
 - if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.
 - Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
 - the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.

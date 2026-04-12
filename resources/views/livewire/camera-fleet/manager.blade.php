@@ -3,19 +3,19 @@
         <div class="fleet-manager__workflow-header">
             <div>
                 <span class="eyebrow">Fleet workflow</span>
-                <p class="fleet-manager__workflow-copy">Save the camera, refresh RTSP profiles, capture a preview, then apply a recording policy before operators rely on the feed.</p>
+                <p class="fleet-manager__workflow-copy">Probe the ONVIF endpoint, review the hydrated draft, save the camera, then test streams and apply recording policy before operators rely on the feed.</p>
             </div>
         </div>
 
         <div class="fleet-manager__workflow-steps" aria-label="Camera fleet workflow">
             <article class="fleet-manager__workflow-step">
                 <span class="fleet-manager__workflow-step-number">01</span>
-                <strong>Save verified device</strong>
+                <strong>Probe endpoint</strong>
             </article>
 
             <article class="fleet-manager__workflow-step">
                 <span class="fleet-manager__workflow-step-number">02</span>
-                <strong>Refresh RTSP profiles</strong>
+                <strong>Save hydrated draft</strong>
             </article>
 
             <article class="fleet-manager__workflow-step">
@@ -72,12 +72,25 @@
         <div class="panel-heading">
             <div>
                 <h2 class="panel-title">Fleet inventory</h2>
-                <p class="panel-copy">Review every saved camera, inspect the latest preview thumbnail, and open the editor for RTSP retrieval, preview testing, and configuration changes.</p>
+                <p class="panel-copy">Review every saved camera, inspect the latest preview thumbnail, and open the editor for direct ONVIF probing, RTSP retrieval, preview testing, and configuration changes.</p>
             </div>
 
             <div class="probe-actions">
-                <a class="button button--soft" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Run ONVIF sweep</a>
-                <button class="button button--primary" type="button" wire:click="newCamera">Add camera</button>
+                <button class="button button--primary" type="button" wire:click="newCamera">
+                    <span class="button__content">
+                        <span class="button__icon-slot" aria-hidden="true">
+                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 5v14"></path>
+                                <path d="M5 12h14"></path>
+                            </svg>
+                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                            </svg>
+                        </span>
+                        <span>Add camera</span>
+                    </span>
+                </button>
             </div>
         </div>
 
@@ -102,10 +115,23 @@
         @if ($cameras->isEmpty())
             <div class="empty-state">
                 <strong>No cameras are in the fleet yet.</strong>
-                <p>Create one here or save a verified device from the ONVIF sweep.</p>
+                <p>Start with a direct ONVIF probe, let Camera Fleet hydrate the draft, then save the verified camera here.</p>
                 <div class="probe-actions">
-                    <button class="button button--primary" type="button" wire:click="newCamera">Create camera</button>
-                    <a class="button button--soft" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Open ONVIF sweep</a>
+                    <button class="button button--primary" type="button" wire:click="newCamera">
+                        <span class="button__content">
+                            <span class="button__icon-slot" aria-hidden="true">
+                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 5v14"></path>
+                                    <path d="M5 12h14"></path>
+                                </svg>
+                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                </svg>
+                            </span>
+                            <span>Create camera</span>
+                        </span>
+                    </button>
                 </div>
             </div>
         @else
@@ -202,9 +228,90 @@
 
                         <div class="camera-row__footer">
                             <div class="camera-row__actions">
-                                <button class="button button--primary" type="button" wire:click="editCamera({{ $camera->id }})">Edit camera</button>
-                                <button class="button button--soft" type="button" wire:click="toggleEnabled({{ $camera->id }})">{{ $camera->is_enabled ? 'Disable' : 'Enable' }}</button>
-                                <button class="button button--soft" type="button" wire:click="deleteCamera({{ $camera->id }})">Delete</button>
+                                <button class="button button--primary" type="button" wire:click="editCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="editCamera({{ $camera->id }})">
+                                    <span class="button__content">
+                                        <span class="button__icon-slot" aria-hidden="true">
+                                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 20h9"></path>
+                                                <path d="M16.5 3.5l4 4L7 21H3v-4z"></path>
+                                            </svg>
+                                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                            </svg>
+                                        </span>
+                                        <span>Edit camera</span>
+                                    </span>
+                                </button>
+                                <button class="button button--soft" type="button" wire:click="toggleEnabled({{ $camera->id }})" wire:loading.attr="disabled" wire:target="toggleEnabled({{ $camera->id }})">
+                                    <span class="button__content">
+                                        <span class="button__icon-slot" aria-hidden="true">
+                                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 2v10"></path>
+                                                <path d="M7.05 4.93a7 7 0 1 0 9.9 0"></path>
+                                            </svg>
+                                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                            </svg>
+                                        </span>
+                                        <span>{{ $camera->is_enabled ? 'Disable' : 'Enable' }}</span>
+                                    </span>
+                                </button>
+                                @if ($pendingDeleteCameraId === $camera->id)
+                                    <button class="button button--primary" type="button" wire:click="deleteCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="deleteCamera({{ $camera->id }})">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M4 7h16"></path>
+                                                    <path d="M10 11v6"></path>
+                                                    <path d="M14 11v6"></path>
+                                                    <path d="M6 7l1 12h10l1-12"></path>
+                                                    <path d="M9 7V5h6v2"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Confirm delete</span>
+                                        </span>
+                                    </button>
+                                    <button class="button button--soft" type="button" wire:click="cancelDeleteCamera">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M6 6l12 12"></path>
+                                                    <path d="M18 6L6 18"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Cancel</span>
+                                        </span>
+                                    </button>
+                                @else
+                                    <button class="button button--soft" type="button" wire:click="requestDeleteCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="requestDeleteCamera({{ $camera->id }})">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M4 7h16"></path>
+                                                    <path d="M10 11v6"></path>
+                                                    <path d="M14 11v6"></path>
+                                                    <path d="M6 7l1 12h10l1-12"></path>
+                                                    <path d="M9 7V5h6v2"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Delete</span>
+                                        </span>
+                                    </button>
+                                @endif
                             </div>
                         </div>
                     </article>
@@ -217,19 +324,49 @@
         <div class="fleet-modal" role="dialog" aria-modal="true" aria-labelledby="camera-editor-title">
             <button class="fleet-modal__backdrop" type="button" wire:click="closeEditorModal" aria-label="Close camera editor"></button>
 
-            <section class="fleet-modal__panel screen-card screen-card--spacious" wire:click.stop>
+            <section class="fleet-modal__panel" wire:click.stop>
                 <div class="panel-heading">
                     <div>
                         <h2 id="camera-editor-title" class="panel-title">{{ $editingCameraId ? 'Edit camera' : 'Add camera' }}</h2>
-                        <p class="panel-copy">Maintain network identity, ONVIF endpoint, credentials, RTSP defaults, and recording policy for the selected camera record.</p>
+                        <p class="panel-copy">{{ $editingCameraId ? 'Maintain network identity, ONVIF endpoint, credentials, RTSP defaults, and recording policy for the selected camera record.' : 'Begin with a direct ONVIF probe for ONVIF-capable devices, or switch to RTSP-only mode when the camera exposes only a raw stream URL.' }}</p>
                     </div>
 
                     <div class="probe-actions">
                         @if ($editingCameraId)
-                            <button class="button button--soft" type="button" wire:click="fetchRtspProfiles" wire:loading.attr="disabled" wire:target="fetchRtspProfiles">Refresh streams</button>
+                            <button class="button button--soft" type="button" wire:click="fetchRtspProfiles" wire:loading.attr="disabled" wire:target="fetchRtspProfiles">
+                                <span class="button__content">
+                                    <span class="button__icon-slot" aria-hidden="true">
+                                        <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"></path>
+                                            <path d="M21 3v5h-5"></path>
+                                            <path d="M21 12a9 9 0 0 1-15.3 6.36L3 16"></path>
+                                            <path d="M3 21v-5h5"></path>
+                                        </svg>
+                                        <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                            <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                        </svg>
+                                    </span>
+                                    <span>Refresh streams</span>
+                                </span>
+                            </button>
                         @endif
 
-                        <button class="button button--soft" type="button" wire:click="closeEditorModal">Close</button>
+                        <button class="button button--soft" type="button" wire:click="closeEditorModal">
+                            <span class="button__content">
+                                <span class="button__icon-slot" aria-hidden="true">
+                                    <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M6 6l12 12"></path>
+                                        <path d="M18 6L6 18"></path>
+                                    </svg>
+                                    <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                    </svg>
+                                </span>
+                                <span>Close</span>
+                            </span>
+                        </button>
                     </div>
                 </div>
 
@@ -242,6 +379,18 @@
                         <div class="notice notice--danger">{{ $errorMessage }}</div>
                     @endif
 
+                    @if ($probeStatusMessage)
+                        <div class="notice notice--success">{{ $probeStatusMessage }}</div>
+                    @endif
+
+                    @if ($probeWarningMessage)
+                        <div class="notice notice--danger">{{ $probeWarningMessage }}</div>
+                    @endif
+
+                    @if ($probeErrorMessage)
+                        <div class="notice notice--danger">{{ $probeErrorMessage }}</div>
+                    @endif
+
                     @if ($rtspStatusMessage)
                         <div class="notice notice--success">{{ $rtspStatusMessage }}</div>
                     @endif
@@ -251,39 +400,179 @@
                     @endif
                 </div>
 
-                @if ($selectedCamera)
-                    <div class="detail-grid">
-                        <article class="detail-card">
-                            <span class="detail-card__label">Camera ID</span>
-                            <strong>#{{ $selectedCamera->id }}</strong>
-                        </article>
+                @if (!$editingCameraId)
+                    <section class="form-section">
+                        <div class="form-section__header">
+                            <div>
+                                <h3 class="panel-title">Camera intake</h3>
+                                <p class="panel-copy">Use the ONVIF probe for cameras that expose device services, or bypass it for RTSP-only cameras that need a manual stream definition.</p>
+                            </div>
+                        </div>
 
-                        <article class="detail-card">
-                            <span class="detail-card__label">Saved ONVIF endpoint</span>
-                            <strong>{{ $selectedCamera->onvifEndpoint() ?? 'Unavailable' }}</strong>
-                        </article>
+                        @if ($form['supports_onvif'] ?? true)
+                            <div class="camera-form-grid">
+                                <label class="field-stack field-stack--wide">
+                                    <span>ONVIF endpoint URL</span>
+                                    <input class="form-input" type="url" placeholder="http://192.168.1.90/onvif/device_service" wire:model="probeEndpointUrl">
+                                    @error('probeEndpointUrl')
+                                        <small class="field-error">{{ $message }}</small>
+                                    @enderror
+                                </label>
 
-                        <article class="detail-card">
-                            <span class="detail-card__label">Primary RTSP endpoint</span>
-                            <strong>{{ $selectedCamera->rtspEndpoint() ?? 'No primary RTSP stream saved' }}</strong>
-                        </article>
+                                <label class="field-stack">
+                                    <span>Probe username</span>
+                                    <input class="form-input" type="text" autocomplete="username" wire:model="form.username">
+                                    @error('form.username')
+                                        <small class="field-error">{{ $message }}</small>
+                                    @enderror
+                                </label>
 
-                        <article class="detail-card">
-                            <span class="detail-card__label">Stored credentials</span>
-                            <strong>{{ $hasStoredPassword ? 'Username and password saved' : 'No saved password' }}</strong>
-                        </article>
+                                <label class="field-stack">
+                                    <span>Probe password</span>
+                                    <input class="form-input" type="password" autocomplete="current-password" wire:model="form.password">
+                                    @error('form.password')
+                                        <small class="field-error">{{ $message }}</small>
+                                    @enderror
+                                </label>
+                            </div>
 
-                        <article class="detail-card">
-                            <span class="detail-card__label">Recording policy</span>
-                            <strong>{{ $recordingModes[$selectedCamera->recording_mode] ?? 'Off' }}</strong>
-                        </article>
+                            <div class="probe-actions">
+                                <button class="button button--primary" type="button" wire:click="probeEndpoint" wire:loading.attr="disabled" wire:target="probeEndpoint">
+                                    <span class="button__content">
+                                        <span class="button__icon-slot" aria-hidden="true">
+                                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <circle cx="11" cy="11" r="6"></circle>
+                                                <path d="M20 20l-4-4"></path>
+                                            </svg>
+                                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                            </svg>
+                                        </span>
+                                        <span>Probe endpoint</span>
+                                    </span>
+                                </button>
 
-                        <article class="detail-card">
-                            <span class="detail-card__label">Latest recorded segment</span>
-                            <strong>{{ $selectedCamera->recording_last_recorded_at?->diffForHumans() ?? 'No segment saved yet' }}</strong>
-                        </article>
-                    </div>
+                                <button class="button button--soft" type="button" wire:click="enableRtspOnlyMode">
+                                    <span class="button__content">
+                                        <span class="button__icon-slot" aria-hidden="true">
+                                            <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                                                <path d="M10 10l5 2-5 2z"></path>
+                                            </svg>
+                                            <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                            </svg>
+                                        </span>
+                                        <span>This is an RTSP-only camera</span>
+                                    </span>
+                                </button>
+                            </div>
+
+                            <div class="probe-meta-row">
+                                <p class="probe-note">The probe verifies ONVIF device information, attempts to read interface details such as MAC address, and then requests ONVIF media profiles to prefill RTSP stream URLs.</p>
+                                @if ($probeLastCheckedAt)
+                                    <span class="status-pill">Last probe {{ $probeLastCheckedAt }}</span>
+                                @endif
+                                @if ($probeResponse !== [])
+                                    <span class="status-pill status-pill--good">{{ $probeResponse['rtsp_profile_count'] ?? count($rtspProfiles) }} RTSP profile{{ (int) ($probeResponse['rtsp_profile_count'] ?? count($rtspProfiles)) === 1 ? '' : 's' }} discovered</span>
+                                @endif
+                            </div>
+
+                            @if ($probeResponse !== [])
+                                <div class="detail-grid">
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">ONVIF endpoint</span>
+                                        <strong>{{ $probeResponse['service_url'] }}</strong>
+                                    </article>
+
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">Identity</span>
+                                        <strong>{{ trim(($probeResponse['manufacturer'] ?? '').' '.($probeResponse['model'] ?? '')) ?: 'Camera responded' }}</strong>
+                                    </article>
+
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">Local IP</span>
+                                        <strong>{{ $probeResponse['ipv4_address'] ?? $form['local_ip'] }}</strong>
+                                    </article>
+
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">MAC address</span>
+                                        <strong>{{ $probeResponse['mac_address'] ?? 'Not returned' }}</strong>
+                                    </article>
+
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">Serial number</span>
+                                        <strong>{{ $probeResponse['serial_number'] ?? 'Not returned' }}</strong>
+                                    </article>
+
+                                    <article class="detail-card">
+                                        <span class="detail-card__label">Primary RTSP stream</span>
+                                        <strong>{{ $probeResponse['primary_rtsp_uri'] ?? 'No media URI returned' }}</strong>
+                                    </article>
+                                </div>
+                            @endif
+                        @else
+                            <div class="empty-state empty-state--compact">
+                                <strong>RTSP-only mode is enabled.</strong>
+                                <p>Configure the manual RTSP endpoint below, save the camera, and then use Camera Fleet to register and test the saved stream.</p>
+                                <div class="probe-actions">
+                                    <button class="button button--soft" type="button" wire:click="enableOnvifProbeMode">
+                                        <span class="button__content">
+                                            <span class="button__icon-slot" aria-hidden="true">
+                                                <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <circle cx="11" cy="11" r="6"></circle>
+                                                    <path d="M20 20l-4-4"></path>
+                                                </svg>
+                                                <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                    <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                </svg>
+                                            </span>
+                                            <span>Use ONVIF probe instead</span>
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                        @endif
+                    </section>
                 @endif
+
+                @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
+                    @if ($selectedCamera)
+                        <div class="detail-grid">
+                            <article class="detail-card">
+                                <span class="detail-card__label">Camera ID</span>
+                                <strong>#{{ $selectedCamera->id }}</strong>
+                            </article>
+
+                            <article class="detail-card">
+                                <span class="detail-card__label">Saved ONVIF endpoint</span>
+                                <strong>{{ $selectedCamera->onvifEndpoint() ?? 'Unavailable' }}</strong>
+                            </article>
+
+                            <article class="detail-card">
+                                <span class="detail-card__label">Primary RTSP endpoint</span>
+                                <strong>{{ $selectedCamera->rtspEndpoint() ?? 'No primary RTSP stream saved' }}</strong>
+                            </article>
+
+                            <article class="detail-card">
+                                <span class="detail-card__label">Stored credentials</span>
+                                <strong>{{ $hasStoredPassword ? 'Username and password saved' : 'No saved password' }}</strong>
+                            </article>
+
+                            <article class="detail-card">
+                                <span class="detail-card__label">Recording policy</span>
+                                <strong>{{ $recordingModes[$selectedCamera->recording_mode] ?? 'Off' }}</strong>
+                            </article>
+
+                            <article class="detail-card">
+                                <span class="detail-card__label">Latest recorded segment</span>
+                                <strong>{{ $selectedCamera->recording_last_recorded_at?->diffForHumans() ?? 'No segment saved yet' }}</strong>
+                            </article>
+                        </div>
+                    @endif
 
                 <section class="form-section">
                     <div class="form-section__header">
@@ -338,6 +627,14 @@
                             <span>Serial number</span>
                             <input class="form-input" type="text" wire:model="form.serial_number">
                             @error('form.serial_number')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>MAC address</span>
+                            <input class="form-input" type="text" placeholder="AA:BB:CC:DD:EE:FF" wire:model="form.mac_address">
+                            @error('form.mac_address')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
                         </label>
@@ -632,11 +929,37 @@
 
                     <div class="probe-actions">
                         <button class="button button--primary" type="button" wire:click="saveCamera" wire:loading.attr="disabled" wire:target="saveCamera" data-role="camera-save-button">
-                            <span wire:loading.remove wire:target="saveCamera">{{ $editingCameraId ? 'Save changes' : 'Create camera' }}</span>
-                            <span wire:loading wire:target="saveCamera">Saving camera...</span>
+                            <span class="button__content">
+                                <span class="button__icon-slot" aria-hidden="true">
+                                    <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 5h11l3 3v11H5z"></path>
+                                        <path d="M9 5v6h6"></path>
+                                        <path d="M9 19v-5h6v5"></path>
+                                    </svg>
+                                    <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                    </svg>
+                                </span>
+                                <span>{{ $editingCameraId ? 'Save changes' : 'Create camera' }}</span>
+                            </span>
                         </button>
 
-                        <button class="button button--soft" type="button" wire:click="newCamera">Reset</button>
+                        <button class="button button--soft" type="button" wire:click="newCamera">
+                            <span class="button__content">
+                                <span class="button__icon-slot" aria-hidden="true">
+                                    <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"></path>
+                                        <path d="M21 3v5h-5"></path>
+                                    </svg>
+                                    <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                    </svg>
+                                </span>
+                                <span>Reset</span>
+                            </span>
+                        </button>
                     </div>
                 </section>
 
@@ -644,19 +967,24 @@
                     <div class="panel-heading">
                         <div>
                             <h3 class="panel-title">RTSP stream URLs</h3>
-                            <p class="panel-copy">Fetch ONVIF media profiles when they are available, or register the saved RTSP endpoint directly when the camera is RTSP-only.</p>
+                            <p class="panel-copy">Fetch ONVIF media profiles when they are available, or review the stream URLs already hydrated from the create-time probe before the first save.</p>
                         </div>
                     </div>
 
-                    @if ($editingCameraId === null)
+                    @if ($editingCameraId === null && ($form['supports_onvif'] ?? true) && $probeResponse === [])
                         <div class="empty-state empty-state--compact">
-                            <strong>Create or save a camera first.</strong>
-                            <p>Profile retrieval depends on a saved ONVIF endpoint and saved credentials.</p>
+                            <strong>Probe a camera first.</strong>
+                            <p>The create flow now hydrates RTSP stream URLs from the direct ONVIF probe before the first save.</p>
+                        </div>
+                    @elseif ($editingCameraId === null && !($form['supports_onvif'] ?? true) && $rtspProfiles === [])
+                        <div class="empty-state empty-state--compact">
+                            <strong>This RTSP-only draft has no saved profile list yet.</strong>
+                            <p>Save the camera first. After that, Camera Fleet can register the configured RTSP endpoint as a manual profile and run a stream test.</p>
                         </div>
                     @elseif ($rtspProfiles === [])
                         <div class="empty-state empty-state--compact">
-                            <strong>No RTSP stream URLs have been saved for this camera yet.</strong>
-                            <p>Use the refresh control above to query ONVIF media profiles or save the configured RTSP endpoint as a manual stream when ONVIF is unavailable.</p>
+                            <strong>No RTSP stream URLs are available yet.</strong>
+                            <p>{{ $editingCameraId ? 'Use the refresh control above to query ONVIF media profiles or save the configured RTSP endpoint as a manual stream when ONVIF is unavailable.' : 'The endpoint responded to ONVIF, but no media profiles were returned during the create-time hydration step.' }}</p>
                         </div>
                     @else
                         <div class="stream-list">
@@ -736,10 +1064,25 @@
                                     </div>
 
                                     <div class="probe-actions">
-                                        <button class="button button--soft" type="button" wire:click="testRtspProfile({{ $loop->index }})" wire:loading.attr="disabled" wire:target="testRtspProfile">
-                                            <span wire:loading.remove wire:target="testRtspProfile">Run stream test</span>
-                                            <span wire:loading wire:target="testRtspProfile">Testing stream...</span>
-                                        </button>
+                                        @if ($editingCameraId)
+                                            <button class="button button--soft" type="button" wire:click="testRtspProfile({{ $loop->index }})" wire:loading.attr="disabled" wire:target="testRtspProfile({{ $loop->index }})">
+                                                <span class="button__content">
+                                                    <span class="button__icon-slot" aria-hidden="true">
+                                                        <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                                                            <path d="M10 10l5 2-5 2z"></path>
+                                                        </svg>
+                                                        <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                            <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                                            <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                                        </svg>
+                                                    </span>
+                                                    <span>Run stream test</span>
+                                                </span>
+                                            </button>
+                                        @else
+                                            <span class="probe-note">Save the camera before preview capture and live stream tests are available.</span>
+                                        @endif
                                     </div>
                                 </article>
                             @endforeach
@@ -785,6 +1128,12 @@
                         </div>
                     @endif
                 </section>
+                @else
+                    <div class="empty-state empty-state--compact">
+                        <strong>Probe a reachable ONVIF endpoint or switch to RTSP-only mode.</strong>
+                        <p>ONVIF-capable devices should be verified first so Camera Fleet can prefill identity, network, and stream values before the record is inserted.</p>
+                    </div>
+                @endif
             </section>
         </div>
     @endif

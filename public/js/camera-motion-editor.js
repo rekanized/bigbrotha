@@ -144,6 +144,10 @@
                 this.saveButton = nextSaveButton;
                 this.saveButton?.addEventListener('click', this.handleSaveButtonClick, true);
             }
+
+            if (this.player === null) {
+                this.restartPlayer();
+            }
         }
 
         initializeMask() {

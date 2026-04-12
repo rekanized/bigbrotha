@@ -45,7 +45,7 @@ class LiveWallSessionController extends Controller
                 'path' => $path,
             ],
             'whep_url' => $whepUrl,
-            'reader_url' => preg_replace('#/whep$#', '/reader.js', $whepUrl),
+            'reader_url' => $relayConfig->browserReaderUrlForPath($path, $request),
             'access_token' => $accessTokenService->issueReadToken($request->user(), $path),
             'expires_in' => $accessTokenService->ttl(),
         ]);

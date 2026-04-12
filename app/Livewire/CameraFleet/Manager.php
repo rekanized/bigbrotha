@@ -3,6 +3,8 @@
 namespace App\Livewire\CameraFleet;
 
 use App\Models\Camera;
+use App\Services\ApplicationSettingsService;
+use App\Services\CameraFleet\OnvifCameraDraftService;
 use App\Services\CameraStorageService;
 use App\Services\Onvif\OnvifRtspStreamService;
 use App\Services\Onvif\RtspStreamDiagnosticsService;
@@ -21,6 +23,8 @@ class Manager extends Component
 
     public ?int $editingCameraId = null;
 
+    public ?int $pendingDeleteCameraId = null;
+
     /**
      * @var array<string, mixed>
      */
@@ -31,9 +35,29 @@ class Manager extends Component
      */
     public array $rtspProfiles = [];
 
+    public string $probeEndpointUrl = '';
+
+    /**
+     * @var array<string, mixed>
+     */
+    public array $probeResponse = [];
+
+    /**
+     * @var array<string, mixed>
+     */
+    public array $draftMetadata = [];
+
     public ?string $statusMessage = null;
 
     public ?string $errorMessage = null;
+
+    public ?string $probeStatusMessage = null;
+
+    public ?string $probeErrorMessage = null;
+
+    public ?string $probeWarningMessage = null;
+
+    public ?string $probeLastCheckedAt = null;
 
     public ?string $rtspStatusMessage = null;
 
@@ -56,10 +80,91 @@ class Manager extends Component
         $this->resetErrorBag();
     }
 
+    public function enableRtspOnlyMode(): void
+    {
+        if ($this->editingCameraId !== null) {
+            return;
+        }
+
+        $this->form['supports_onvif'] = false;
+        $this->form['supports_rtsp'] = true;
+        $this->probeEndpointUrl = '';
+        $this->probeResponse = [];
+        $this->draftMetadata = [];
+        $this->rtspProfiles = [];
+        $this->probeLastCheckedAt = null;
+        $this->probeErrorMessage = null;
+        $this->probeWarningMessage = null;
+        $this->probeStatusMessage = 'RTSP-only mode enabled. Configure the stream settings below and save the camera when ready.';
+        $this->resetValidation('probeEndpointUrl');
+    }
+
+    public function enableOnvifProbeMode(): void
+    {
+        if ($this->editingCameraId !== null) {
+            return;
+        }
+
+        $this->form['supports_onvif'] = true;
+        $this->probeStatusMessage = null;
+        $this->probeErrorMessage = null;
+        $this->probeWarningMessage = null;
+        $this->resetValidation('probeEndpointUrl');
+    }
+
+    public function probeEndpoint(): void
+    {
+        $this->statusMessage = null;
+        $this->errorMessage = null;
+        $this->probeStatusMessage = null;
+        $this->probeErrorMessage = null;
+        $this->probeWarningMessage = null;
+        $this->rtspStatusMessage = null;
+        $this->rtspErrorMessage = null;
+        $this->probeResponse = [];
+        $this->draftMetadata = [];
+        $this->rtspProfiles = [];
+        $this->resetErrorBag();
+
+        $validated = Validator::make([
+            'probeEndpointUrl' => $this->probeEndpointUrl,
+            'form' => $this->form,
+        ], [
+            'probeEndpointUrl' => ['required', 'url:http,https', 'max:2048'],
+            'form.username' => ['nullable', 'string', 'max:255', 'required_with:form.password'],
+            'form.password' => ['nullable', 'string', 'max:255', 'required_with:form.username'],
+        ])->validate();
+
+        try {
+            $draft = app(OnvifCameraDraftService::class)->probe(
+                $validated['probeEndpointUrl'],
+                $this->nullableString($validated['form']['username'] ?? null),
+                $this->nullableString($validated['form']['password'] ?? null),
+            );
+
+            $this->form = array_merge($this->defaultForm(), $draft['form']);
+            $this->probeResponse = $draft['probe_response'];
+            $this->draftMetadata = $draft['metadata'];
+            $this->rtspProfiles = $draft['rtsp_profiles'];
+            $this->probeLastCheckedAt = app(ApplicationSettingsService::class)->formatDateTime(now()->utc()) ?? now()->format('Y-m-d H:i:s T');
+            $this->probeStatusMessage = 'Endpoint verified. Review the hydrated draft and save the camera into the fleet when it looks correct.';
+            $this->probeWarningMessage = $draft['warnings'] !== [] ? implode(' ', $draft['warnings']) : null;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            $this->probeResponse = [];
+            $this->draftMetadata = [];
+            $this->rtspProfiles = [];
+            $this->probeLastCheckedAt = null;
+            $this->probeErrorMessage = $exception->getMessage();
+        }
+    }
+
     public function editCamera(int $cameraId): void
     {
         $camera = Camera::query()->findOrFail($cameraId);
 
+        $this->pendingDeleteCameraId = null;
         $this->editingCameraId = $camera->id;
         $this->form = [
             'name' => $camera->name,
@@ -68,6 +173,7 @@ class Manager extends Component
             'manufacturer' => $camera->manufacturer ?? '',
             'model' => $camera->model ?? '',
             'serial_number' => $camera->serial_number ?? '',
+            'mac_address' => $camera->mac_address ?? '',
             'http_port' => $camera->http_port,
             'onvif_port' => $camera->onvif_port,
             'onvif_path' => $camera->onvif_path,
@@ -91,9 +197,16 @@ class Manager extends Component
             'recording_motion_width' => $camera->recordingMotionArea()['width'],
             'recording_motion_height' => $camera->recordingMotionArea()['height'],
         ];
+        $this->probeEndpointUrl = $camera->onvifEndpoint() ?? '';
+        $this->probeResponse = [];
+        $this->draftMetadata = is_array($camera->metadata) ? $camera->metadata : [];
         $this->rtspProfiles = $camera->rtspProfiles();
         $this->statusMessage = null;
         $this->errorMessage = null;
+        $this->probeStatusMessage = null;
+        $this->probeErrorMessage = null;
+        $this->probeWarningMessage = null;
+        $this->probeLastCheckedAt = null;
         $this->rtspStatusMessage = null;
         $this->rtspErrorMessage = null;
         $this->isEditorModalOpen = true;
@@ -115,6 +228,7 @@ class Manager extends Component
             'form.manufacturer' => ['nullable', 'string', 'max:255'],
             'form.model' => ['nullable', 'string', 'max:255'],
             'form.serial_number' => ['nullable', 'string', 'max:255'],
+            'form.mac_address' => ['nullable', 'mac_address'],
             'form.http_port' => ['required', 'integer', 'between:1,65535'],
             'form.onvif_port' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'integer', 'between:1,65535'],
             'form.onvif_path' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'string', 'max:255'],
@@ -154,6 +268,14 @@ class Manager extends Component
             if ($recordingMode === Camera::RECORDING_MODE_MOTION && ($motionMask['selected_pixels'] ?? 0) < 1) {
                 $validator->errors()->add('form.recording_motion_mask', 'Select at least one motion zone pixel before enabling movement recording.');
             }
+
+            if (
+                $this->editingCameraId === null
+                && (bool) ($this->form['supports_onvif'] ?? false)
+                && $this->probeResponse === []
+            ) {
+                $validator->errors()->add('probeEndpointUrl', 'Probe a reachable ONVIF endpoint before creating a new camera.');
+            }
         });
 
         $validated = $validator->validate()['form'];
@@ -175,6 +297,7 @@ class Manager extends Component
             'manufacturer' => $this->nullableString($validated['manufacturer']),
             'model' => $this->nullableString($validated['model']),
             'serial_number' => $this->nullableString($validated['serial_number']),
+            'mac_address' => $this->nullableString($validated['mac_address']),
             'http_port' => (int) $validated['http_port'],
             'onvif_port' => (int) $onvifPort,
             'onvif_path' => Str::start(trim((string) $onvifPath), '/'),
@@ -195,6 +318,20 @@ class Manager extends Component
             'recording_motion_mask' => $motionMask,
         ]);
 
+        $metadata = is_array($camera->metadata) ? $camera->metadata : [];
+
+        if ($this->draftMetadata !== []) {
+            $metadata = array_merge($metadata, $this->draftMetadata);
+        }
+
+        if ($this->rtspProfiles !== []) {
+            $metadata['rtsp_profiles'] = $this->rtspProfiles;
+        }
+
+        if ($metadata !== []) {
+            $camera->metadata = $metadata;
+        }
+
         if ($camera->exists) {
             if ($password !== '') {
                 $camera->password = $password;
@@ -206,6 +343,7 @@ class Manager extends Component
         $camera->save();
         app(CameraStorageService::class)->ensureCameraDirectories($camera);
 
+        $this->pendingDeleteCameraId = null;
         $this->editingCameraId = $camera->id;
         $this->editCamera($camera->id);
         $this->statusMessage = $camera->wasRecentlyCreated
@@ -231,6 +369,8 @@ class Manager extends Component
         $camera = Camera::query()->findOrFail($cameraId);
         $camera->forceFill(['is_enabled' => !$camera->is_enabled])->save();
 
+        $this->pendingDeleteCameraId = null;
+
         if ($this->editingCameraId === $camera->id) {
             $this->form['is_enabled'] = $camera->is_enabled;
         }
@@ -241,12 +381,35 @@ class Manager extends Component
         $this->errorMessage = null;
     }
 
+    public function requestDeleteCamera(int $cameraId): void
+    {
+        $camera = Camera::query()->findOrFail($cameraId);
+
+        $this->pendingDeleteCameraId = $camera->id;
+        $this->statusMessage = null;
+        $this->errorMessage = 'Confirm deletion to remove '.$camera->name.' and its stored previews and recordings.';
+    }
+
+    public function cancelDeleteCamera(): void
+    {
+        $this->pendingDeleteCameraId = null;
+        $this->errorMessage = null;
+    }
+
     public function deleteCamera(int $cameraId): void
     {
+        if ($this->pendingDeleteCameraId !== $cameraId) {
+            $this->requestDeleteCamera($cameraId);
+
+            return;
+        }
+
         $camera = Camera::query()->findOrFail($cameraId);
         $name = $camera->name;
         app(CameraStorageService::class)->deleteCameraDirectories($camera);
         $camera->delete();
+
+        $this->pendingDeleteCameraId = null;
 
         if ($this->editingCameraId === $cameraId) {
             $this->resetEditorState();
@@ -403,10 +566,18 @@ class Manager extends Component
     private function resetEditorState(): void
     {
         $this->editingCameraId = null;
+        $this->pendingDeleteCameraId = null;
         $this->form = $this->defaultForm();
         $this->rtspProfiles = [];
+        $this->probeEndpointUrl = '';
+        $this->probeResponse = [];
+        $this->draftMetadata = [];
         $this->statusMessage = null;
         $this->errorMessage = null;
+        $this->probeStatusMessage = null;
+        $this->probeErrorMessage = null;
+        $this->probeWarningMessage = null;
+        $this->probeLastCheckedAt = null;
         $this->rtspStatusMessage = null;
         $this->rtspErrorMessage = null;
         $this->resetErrorBag();
@@ -424,6 +595,7 @@ class Manager extends Component
             'manufacturer' => '',
             'model' => '',
             'serial_number' => '',
+            'mac_address' => '',
             'http_port' => 80,
             'onvif_port' => 80,
             'onvif_path' => '/onvif/device_service',

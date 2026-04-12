@@ -21,9 +21,8 @@ This affects:
 - authenticated root redirects and operator pages.
 - Camera Fleet pages.
 - preview routes.
-- ONVIF Sweep pages.
 
-This does not affect UDP multicast WS-Discovery.
+This does not grant network reachability to camera HTTP, ONVIF, or RTSP endpoints by itself.
 
 If `WEBSITE_ALLOWED_IPS` is blank, the HTTP restriction is effectively disabled.
 
@@ -55,26 +54,19 @@ Current expectation:
 - relay detection should validate the expected MediaMTX binary and config path from process arguments.
 - secure player bootstrap should use `ensureRunning()` rather than a raw status check so the relay can self-heal before returning `503`.
 
-## ONVIF Discovery Reality
+## ONVIF Probe Reality
 
-`OnvifWsDiscoveryService` has already been hardened to:
+If the direct ONVIF probe in Camera Fleet fails, likely causes are outside Laravel:
 
-- probe from detected LAN IPv4 addresses.
-- send typed and untyped probes.
-- parse namespace variants.
 
-If discovery still returns no devices, likely causes are outside Laravel:
+- the device service URL is wrong.
+- the camera is not reachable from this host or container.
+- the ONVIF endpoint requires credentials that were not supplied.
+- the camera exposes ONVIF device information but not media profiles or network-interface details.
 
-- multicast blocked by network topology.
-- VLAN or router behavior.
-- host network restrictions.
-- Docker bridge isolation between the container and the camera LAN.
-- camera-side discovery disabled.
-- devices not responding on the current segment.
+The practical workflow is to start from the direct probe step inside `/camera-fleet`, confirm the ONVIF device response, then adjust the hydrated draft before saving.
 
-The practical fallback is the manual ONVIF probe flow on `/discovery/onvif-sweep`.
-
-For the repository Docker stack, multicast discovery usually requires attaching the `app` container to the camera LAN with an `ipvlan`/host-network-style solution; the default bridge-only compose network is not enough to assume WS-Discovery will work. The repository `docker-compose.yml` now includes an active `camera_lan` `ipvlan` L2 network that must be configured with the correct parent interface, subnet, and gateway before startup.
+For the repository Docker stack, the important requirement is simple routed reachability from the `app` container to the camera LAN or routed camera subnet. Confirm firewall and network pathing before changing Laravel code.
 
 ## Preview Storage History
 
@@ -304,9 +296,7 @@ If MediaMTX starts the camera path but the log shows `method ANNOUNCE failed: 40
 
 When changing this platform, the most relevant tests are:
 
-- `tests/Unit/OnvifWsDiscoveryServiceTest.php`
 - `tests/Feature/OnvifDeviceProbeServiceTest.php`
-- `tests/Unit/OnvifCameraProvisioningServiceTest.php`
 - `tests/Feature/OnvifRtspStreamServiceTest.php`
 - `tests/Feature/RtspStreamDiagnosticsServiceTest.php`
 - `tests/Feature/CameraFleetManagerTest.php`

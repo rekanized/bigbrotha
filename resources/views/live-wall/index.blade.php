@@ -249,7 +249,7 @@
                                 <div class="live-wall-wall-switcher__mobile-links">
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('discovery.onvif-sweep') }}" wire:navigate>Discovery</a>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('recordings.index') }}" wire:navigate>Recordings</a>
                                 </div>
                             </div>
                         </details>

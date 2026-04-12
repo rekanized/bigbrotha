@@ -32,7 +32,6 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - `/live-wall/{camera}/stream` via `App\Http\Controllers\LiveWallStreamController@mjpeg`.
 - `/live-wall/{camera}/relay` via `App\Http\Controllers\LiveWallStreamController@relay`.
 - `/relay/auth/mediamtx` via `App\Http\Controllers\Relay\MediaMtxAuthController`.
-- `/discovery/onvif-sweep` via `App\Http\Controllers\Discovery\OnvifSweepController` and `App\Livewire\Discovery\OnvifSweep`.
 
 ## Core Domain Object
 
@@ -61,9 +60,8 @@ Important model helpers:
 
 ## Discovery And Provisioning
 
-- `App\Services\Discovery\OnvifWsDiscoveryService` handles WS-Discovery multicast probing.
 - `App\Services\Onvif\OnvifDeviceProbeService` performs manual authenticated SOAP `GetDeviceInformation` requests.
-- `App\Services\Onvif\OnvifCameraProvisioningService` maps verified probe results into `Camera` records.
+- `App\Services\CameraFleet\OnvifCameraDraftService` now drives the new-camera intake flow by combining direct ONVIF probing, network-interface hydration, and ONVIF media-profile lookup into a pre-save camera draft inside `App\Livewire\CameraFleet\Manager`.
 
 ## Stream Services
 

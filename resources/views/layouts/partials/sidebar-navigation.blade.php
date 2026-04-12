@@ -35,18 +35,10 @@
             'label' => 'Setup',
             'items' => [
                 [
-                    'label' => 'ONVIF Sweep',
-                    'icon' => 'DS',
-                    'symbol' => 'radar',
-                    'caption' => 'Sweep the network or probe directly',
-                    'href' => route('discovery.onvif-sweep'),
-                    'active' => request()->routeIs('discovery.onvif-sweep'),
-                ],
-                [
                     'label' => 'Camera Fleet',
                     'icon' => 'CF',
                     'symbol' => 'videocam',
-                    'caption' => 'Save cameras, credentials, and stream defaults',
+                    'caption' => 'Probe endpoints, save cameras, and manage stream defaults',
                     'href' => route('camera-fleet.index'),
                     'active' => request()->routeIs('camera-fleet.*'),
                 ],
