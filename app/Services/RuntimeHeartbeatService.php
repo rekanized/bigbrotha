@@ -18,6 +18,11 @@ class RuntimeHeartbeatService
         $this->writeHeartbeat($this->schedulerPath(), 'scheduler', $context);
     }
 
+    public function touchRecordingTick(string $context = 'tick'): void
+    {
+        $this->writeHeartbeat($this->recordingTickPath(), 'recording-tick', $context);
+    }
+
     /**
      * @return array{path: string, exists: bool, updated_at: Carbon|null, age_seconds: int|null}
      */
@@ -34,6 +39,14 @@ class RuntimeHeartbeatService
         return $this->status($this->schedulerPath());
     }
 
+    /**
+     * @return array{path: string, exists: bool, updated_at: Carbon|null, age_seconds: int|null}
+     */
+    public function recordingTickStatus(): array
+    {
+        return $this->status($this->recordingTickPath());
+    }
+
     public function workerPath(): string
     {
         if (!$this->workerContainerMode()) {
@@ -46,6 +59,11 @@ class RuntimeHeartbeatService
     public function schedulerPath(): string
     {
         return (string) config('recording.health.scheduler_heartbeat_path', storage_path('app/private/bootstrap/recordings-scheduler.heartbeat'));
+    }
+
+    public function recordingTickPath(): string
+    {
+        return (string) config('recording.health.scheduler_tick_heartbeat_path', storage_path('app/private/bootstrap/recordings-tick.heartbeat'));
     }
 
     /**

@@ -46,6 +46,7 @@ class RecordingContainerHealthService
 
         if ($role === 'scheduler') {
             $checks[] = $this->checkSchedulerHeartbeat();
+            $checks[] = $this->checkRecordingTickHeartbeat();
         }
 
         $failed = array_values(array_filter($checks, static fn (array $check): bool => !$check['ok']));
@@ -155,6 +156,19 @@ class RecordingContainerHealthService
             label: 'Scheduler heartbeat',
             status: $this->heartbeats->schedulerStatus(),
             maxAgeSeconds: max(60, (int) config('recording.health.scheduler_max_age_seconds', 180)),
+        );
+    }
+
+    /**
+     * @return array{name: string, ok: bool, message: string}
+     */
+    private function checkRecordingTickHeartbeat(): array
+    {
+        return $this->checkHeartbeat(
+            name: 'recording_tick_heartbeat',
+            label: 'Recording tick heartbeat',
+            status: $this->heartbeats->recordingTickStatus(),
+            maxAgeSeconds: max(90, (int) config('recording.health.scheduler_tick_max_age_seconds', 240)),
         );
     }
 

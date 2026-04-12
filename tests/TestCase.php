@@ -32,6 +32,7 @@ abstract class TestCase extends BaseTestCase
         config()->set('recording.motion.runtime_dir', $this->testStoragePath.'/app/private/motion-recorders');
         config()->set('recording.health.worker_heartbeat_path', $this->testStoragePath.'/app/private/bootstrap/recordings-worker.heartbeat');
         config()->set('recording.health.scheduler_heartbeat_path', $this->testStoragePath.'/app/private/bootstrap/recordings-scheduler.heartbeat');
+        config()->set('recording.health.scheduler_tick_heartbeat_path', $this->testStoragePath.'/app/private/bootstrap/recordings-tick.heartbeat');
         config()->set('ffmpeg.temporary_directory', $this->testStoragePath.'/app/private/ffmpeg-temp');
     }
 

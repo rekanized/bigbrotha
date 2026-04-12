@@ -59,6 +59,14 @@ return [
                 ((int) env('SCHEDULER_INTERVAL_SECONDS', 60)) * 3
             ))
         ),
+        'scheduler_tick_heartbeat_path' => env('CAMERA_RECORDING_SCHEDULER_TICK_HEARTBEAT_PATH', storage_path('app/private/bootstrap/recordings-tick.heartbeat')),
+        'scheduler_tick_max_age_seconds' => max(
+            120,
+            (int) env('CAMERA_RECORDING_SCHEDULER_TICK_HEALTH_MAX_AGE_SECONDS', max(
+                240,
+                ((int) env('SCHEDULER_INTERVAL_SECONDS', 60)) * 4
+            ))
+        ),
     ],
 
     'continuous' => [

@@ -70,6 +70,7 @@ class RecordingContainerHealthCommandTest extends TestCase
     {
         $this->writeBootstrapMarker();
         config()->set('recording.health.scheduler_max_age_seconds', 60);
+        app(RuntimeHeartbeatService::class)->touchRecordingTick('test');
 
         $path = app(RuntimeHeartbeatService::class)->schedulerPath();
         File::put($path, json_encode([
@@ -81,6 +82,24 @@ class RecordingContainerHealthCommandTest extends TestCase
 
         $this->assertSame(1, $exitCode);
         $this->assertStringContainsString('Scheduler heartbeat is stale', Artisan::output());
+    }
+
+    public function test_scheduler_healthcheck_fails_when_the_recording_tick_heartbeat_is_stale(): void
+    {
+        $this->writeBootstrapMarker();
+        config()->set('recording.health.scheduler_tick_max_age_seconds', 60);
+        app(RuntimeHeartbeatService::class)->touchScheduler('test');
+
+        $path = app(RuntimeHeartbeatService::class)->recordingTickPath();
+        File::put($path, json_encode([
+            'updated_at' => now()->utc()->toIso8601String(),
+        ], JSON_THROW_ON_ERROR));
+        touch($path, now()->utc()->subMinutes(10)->getTimestamp());
+
+        $exitCode = Artisan::call('camera-recordings:healthcheck', ['role' => 'scheduler']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Recording tick heartbeat is stale', Artisan::output());
     }
 
     private function writeBootstrapMarker(): void

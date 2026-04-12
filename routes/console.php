@@ -9,6 +9,7 @@ use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
 use App\Services\RecordingContainerHealthService;
+use App\Services\RuntimeHeartbeatService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
 use App\Services\MotionRecordingSegmenterService;
@@ -332,6 +333,7 @@ Artisan::command('camera-recordings:tick', function (): int {
     }
 
     $this->components->info($message);
+    app(RuntimeHeartbeatService::class)->touchRecordingTick('camera-recordings:tick');
 
     return 0;
 })->purpose('Queue recording work for cameras with active recording policies');
@@ -744,22 +746,22 @@ Artisan::command('camera-recordings:reconcile-review-asset-queue {--dry-run}', f
 
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
-    ->withoutOverlapping();
+    ->withoutOverlapping(45);
 
 Schedule::command('camera-recordings:ensure-worker')
     ->everyMinute()
-    ->withoutOverlapping();
+    ->withoutOverlapping(5);
 
 if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
     Schedule::command('camera-recordings:build-review-assets --missing --limit='.(string) config('recording.review_assets.scheduler_limit', 4))
         ->everyMinute()
-        ->withoutOverlapping();
+        ->withoutOverlapping(15);
 }
 
 Schedule::command('camera-recordings:tick')
     ->everyMinute()
-    ->withoutOverlapping();
+    ->withoutOverlapping(5);
 
 Schedule::command('camera-recordings:prune')
     ->hourly()
-    ->withoutOverlapping();
+    ->withoutOverlapping(180);
