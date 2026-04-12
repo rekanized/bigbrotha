@@ -2,12 +2,18 @@
 
 namespace App\Providers;
 
+use App\Services\ApplicationSettingsService;
+use App\Services\RuntimeHeartbeatService;
 use FFMpeg\FFMpeg;
 use FFMpeg\FFProbe;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
-use App\Services\ApplicationSettingsService;
 use Throwable;
 
 class AppServiceProvider extends ServiceProvider
@@ -52,6 +58,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->normalizeSharedRuntimePaths();
+        $this->registerWorkerHeartbeatHooks();
 
         $settings = $this->app->make(ApplicationSettingsService::class);
 
@@ -130,5 +137,53 @@ class AppServiceProvider extends ServiceProvider
         if (is_file($path)) {
             @chmod($path, 0664);
         }
+    }
+
+    private function registerWorkerHeartbeatHooks(): void
+    {
+        if (!$this->isRecordingWorkerConsoleProcess()) {
+            return;
+        }
+
+        $heartbeats = $this->app->make(RuntimeHeartbeatService::class);
+        $touch = static function (string $context) use ($heartbeats): void {
+            try {
+                $heartbeats->touchWorker($context);
+            } catch (Throwable) {
+            }
+        };
+
+        $touch('boot');
+
+        Queue::looping(static function () use ($touch): void {
+            $touch('looping');
+        });
+
+        Queue::before(static function (JobProcessing $event) use ($touch): void {
+            $touch('before:'.$event->job->resolveName());
+        });
+
+        Queue::after(static function (JobProcessed $event) use ($touch): void {
+            $touch('after:'.$event->job->resolveName());
+        });
+
+        Queue::exceptionOccurred(static function (JobExceptionOccurred $event) use ($touch): void {
+            $touch('exception:'.$event->job->resolveName());
+        });
+
+        Queue::failing(static function (JobFailed $event) use ($touch): void {
+            $touch('failed:'.$event->job->resolveName());
+        });
+    }
+
+    private function isRecordingWorkerConsoleProcess(): bool
+    {
+        if (PHP_SAPI !== 'cli') {
+            return false;
+        }
+
+        $args = array_values(array_filter($_SERVER['argv'] ?? [], 'is_string'));
+
+        return in_array('queue:work', $args, true);
     }
 }

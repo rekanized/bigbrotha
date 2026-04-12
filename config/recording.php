@@ -34,6 +34,32 @@ return [
         'log_path' => env('CAMERA_RECORDING_WORKER_LOG_PATH', storage_path('logs/recordings-queue-worker.log')),
     ],
 
+    'health' => [
+        'worker_heartbeat_path' => env('CAMERA_RECORDING_WORKER_HEARTBEAT_PATH', storage_path('app/private/bootstrap/recordings-worker.heartbeat')),
+        'worker_max_age_seconds' => max(
+            120,
+            (int) env('CAMERA_RECORDING_WORKER_HEALTH_MAX_AGE_SECONDS', max(
+                (int) env('CAMERA_RECORDING_JOB_TIMEOUT_SECONDS', 240),
+                (int) env('CAMERA_REVIEW_ASSET_JOB_TIMEOUT_SECONDS', 240)
+            ) + 120)
+        ),
+        'worker_max_queued_age_seconds' => max(
+            120,
+            (int) env('CAMERA_RECORDING_WORKER_HEALTH_MAX_QUEUED_AGE_SECONDS', max(
+                (int) env('CAMERA_RECORDING_STALE_SECONDS', 420),
+                (int) env('CAMERA_RECORDING_JOB_TIMEOUT_SECONDS', 240) + 180
+            ))
+        ),
+        'scheduler_heartbeat_path' => env('CAMERA_RECORDING_SCHEDULER_HEARTBEAT_PATH', storage_path('app/private/bootstrap/recordings-scheduler.heartbeat')),
+        'scheduler_max_age_seconds' => max(
+            90,
+            (int) env('CAMERA_RECORDING_SCHEDULER_HEALTH_MAX_AGE_SECONDS', max(
+                180,
+                ((int) env('SCHEDULER_INTERVAL_SECONDS', 60)) * 3
+            ))
+        ),
+    ],
+
     'continuous' => [
         'segmenter_enabled' => filter_var(env('CAMERA_CONTINUOUS_SEGMENTER_ENABLED', true), FILTER_VALIDATE_BOOL),
         'segment_time_delta' => max(0, (float) env('CAMERA_CONTINUOUS_SEGMENT_TIME_DELTA', 0.05)),

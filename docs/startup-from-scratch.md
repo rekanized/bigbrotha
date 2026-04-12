@@ -63,6 +63,8 @@ Docker runtime notes:
 - the `app` container bootstraps itself automatically: after the database is reachable it runs `php artisan migrate --force` when the `users` table is missing or has zero rows, and then starts MediaMTX automatically.
 - after that first successful bootstrap, the app stores a database initialization marker in shared app storage. If a later startup finds an empty database while that marker already exists, startup refuses to auto-migrate and exits with an error so a lost or swapped PostgreSQL volume is not masked by a fresh bootstrap.
 - the app image has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
+- the `worker` container now has its own Docker healthcheck that fails when the queue worker process disappears, the worker heartbeat stops advancing, or recordings jobs sit in the database queue too long.
+- the `scheduler` container now has its own Docker healthcheck that fails when the schedule loop heartbeat stops advancing.
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
 - Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.

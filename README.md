@@ -349,6 +349,7 @@ Container notes:
 - MediaMTX is bundled into the app image at `/usr/local/bin/mediamtx` and is started automatically during app bootstrap, while Laravel can still self-heal it later through `ensureRunning()` if needed. You do not need to run `php artisan relay:status` as part of normal startup.
 - Compose sets `MEDIAMTX_LOG_PATH=/app/storage/logs/mediamtx.log`, so the detached MediaMTX process writes to a real file inside shared storage instead of inheriting a short-lived bootstrap shell stdout pipe.
 - The app image now has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
+- The `worker` and `scheduler` services now also have dedicated Docker healthchecks. The worker healthcheck fails on a missing queue process, a stale worker heartbeat, or an aging recordings queue backlog, while the scheduler healthcheck fails on a stale scheduler heartbeat.
 - The `web` service also has a lightweight healthcheck through Nginx, and Compose waits for the `app` service to become healthy before starting `web`, `worker`, and `scheduler`.
 - Motion capture through the relay path continues to work in Docker because Compose injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554`, but the default recording path still reads directly from cameras unless `CAMERA_MOTION_USE_RELAY_SOURCE=true` is explicitly enabled.
 - Direct camera onboarding now uses a unicast ONVIF probe from Camera Fleet, so the Docker requirement is straightforward reachability from the `app` container to camera HTTP, ONVIF, and RTSP endpoints.
@@ -366,7 +367,7 @@ docker compose logs --tail=100 app web worker scheduler
 What you should see:
 
 - `database`, `app`, `web`, `worker`, and `scheduler` running.
-- `app` and `web` showing `healthy` in `docker compose ps` once startup settles.
+- `app`, `web`, `worker`, and `scheduler` showing `healthy` in `docker compose ps` once startup settles.
 - `php artisan relay:status` reporting MediaMTX installed, running, and API reachable.
 - relay output visible in `docker compose logs app` because MediaMTX writes to stdout in the container.
 - no repeated crash-loop output from `worker` or `scheduler`.

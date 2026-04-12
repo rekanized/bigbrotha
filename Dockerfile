@@ -76,10 +76,12 @@ RUN mkdir -p \
 
 COPY docker/entrypoint.sh /usr/local/bin/container-entrypoint
 COPY docker/healthcheck-app.sh /usr/local/bin/healthcheck-app
+COPY docker/healthcheck-worker.sh /usr/local/bin/healthcheck-worker
+COPY docker/healthcheck-scheduler.sh /usr/local/bin/healthcheck-scheduler
 COPY docker/run-worker.sh /usr/local/bin/run-worker
 COPY docker/run-scheduler.sh /usr/local/bin/run-scheduler
 
-RUN chmod +x /usr/local/bin/container-entrypoint /usr/local/bin/healthcheck-app /usr/local/bin/run-worker /usr/local/bin/run-scheduler
+RUN chmod +x /usr/local/bin/container-entrypoint /usr/local/bin/healthcheck-app /usr/local/bin/healthcheck-worker /usr/local/bin/healthcheck-scheduler /usr/local/bin/run-worker /usr/local/bin/run-scheduler
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["/usr/local/bin/healthcheck-app"]
 

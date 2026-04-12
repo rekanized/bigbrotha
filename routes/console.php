@@ -8,6 +8,7 @@ use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingWorkerService;
+use App\Services\RecordingContainerHealthService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
 use App\Services\MotionRecordingSegmenterService;
@@ -348,6 +349,32 @@ Artisan::command('camera-recordings:ensure-worker', function (): int {
 
     return 1;
 })->purpose('Ensure the bounded recordings queue worker is running');
+
+Artisan::command('camera-recordings:healthcheck {role}', function (RecordingContainerHealthService $health): int {
+    try {
+        $result = $health->check((string) $this->argument('role'));
+    } catch (\InvalidArgumentException $exception) {
+        $this->components->error($exception->getMessage());
+
+        return 1;
+    }
+
+    if ($result['ok']) {
+        $this->components->info($result['summary']);
+
+        return 0;
+    }
+
+    foreach ($result['checks'] as $check) {
+        if ($check['ok']) {
+            continue;
+        }
+
+        $this->components->error($check['message']);
+    }
+
+    return 1;
+})->purpose('Validate app, worker, or scheduler container health for recording operations');
 
 Artisan::command('camera-recordings:install-worker-service {--no-start} {--graceful}', function (): int {
     $result = app(RecordingWorkerService::class)->installSystemdUserService(!$this->option('no-start'));

@@ -10,6 +10,10 @@ fi
 
 [ -f "$APP_BOOTSTRAP_MARKER" ]
 
+cd "$APP_ROOT"
+
+php artisan camera-recordings:healthcheck app --no-interaction >/dev/null
+
 php -r '
     $connection = @fsockopen("127.0.0.1", 9000, $errno, $error, 2);
 

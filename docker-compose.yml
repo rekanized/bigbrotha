@@ -91,6 +91,12 @@ services:
       APP_WAIT_FOR_APP_BOOTSTRAP: "true"
     image: rekanized/bigbrotha-app:latest
     command: ["run-worker"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck-worker"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     restart: unless-stopped
 
   scheduler:
@@ -106,6 +112,12 @@ services:
       APP_WAIT_FOR_APP_BOOTSTRAP: "true"
     image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     command: ["run-scheduler"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck-scheduler"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     restart: unless-stopped
 
   database:
