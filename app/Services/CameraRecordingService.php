@@ -1661,6 +1661,10 @@ class CameraRecordingService
      */
     private function preferredMotionCaptureSource(Camera $camera, array $source): array
     {
+        if (!(bool) config('recording.motion.use_relay_source', false)) {
+            return $source;
+        }
+
         return $this->resolveBufferedRecordingSource(
             $camera,
             is_numeric($source['index'] ?? null) ? (int) $source['index'] : null,
