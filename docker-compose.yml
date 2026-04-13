@@ -18,6 +18,7 @@ x-laravel-environment: &laravel-environment
   GOOGLE_REDIRECT_URI: ${APP_URL}/auth/google/callback
   LOG_CHANNEL: stderr
   MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
+  MEDIAMTX_AUTH_READER_ALLOWED_IPS: ${MEDIAMTX_AUTH_READER_ALLOWED_IPS-127.0.0.1,::1,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
   MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
   MEDIAMTX_INSTALL_MODE: bundled
   MEDIAMTX_LOG_PATH: /app/storage/logs/mediamtx.log

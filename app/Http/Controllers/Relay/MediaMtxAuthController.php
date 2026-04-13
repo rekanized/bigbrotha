@@ -64,7 +64,7 @@ class MediaMtxAuthController extends Controller
 
         return hash_equals($expectedUser, $user)
             && hash_equals($expectedPass, $password)
-            && IpUtils::checkIp($publisherIp, ['127.0.0.1', '::1']);
+            && IpUtils::checkIp($publisherIp, $this->publisherAllowedIps());
     }
 
     private function isInternalReader(Request $request, string $path, string $action, string $protocol): bool
@@ -85,6 +85,35 @@ class MediaMtxAuthController extends Controller
 
         return hash_equals($expectedUser, $user)
             && hash_equals($expectedPass, $password)
-            && IpUtils::checkIp($readerIp, ['127.0.0.1', '::1']);
+            && IpUtils::checkIp($readerIp, $this->readerAllowedIps());
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function publisherAllowedIps(): array
+    {
+        return $this->allowedIpsFromConfig('mediamtx.auth.publisher_allowed_ips');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function readerAllowedIps(): array
+    {
+        return $this->allowedIpsFromConfig('mediamtx.auth.reader_allowed_ips');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function allowedIpsFromConfig(string $key): array
+    {
+        $configured = array_values(array_filter(array_map(
+            static fn (mixed $value): string => is_string($value) ? trim($value) : '',
+            (array) config($key, []),
+        )));
+
+        return $configured !== [] ? $configured : ['127.0.0.1', '::1'];
     }
 }

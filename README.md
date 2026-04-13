@@ -162,6 +162,7 @@ What the containerized stack changes:
 - the app image also includes `smbclient`, `tar`, and the PHP PostgreSQL extension, so the container does not rely on host-installed media or storage helpers.
 - the `worker` service replaces the host systemd recordings worker.
 - the `scheduler` service replaces the host cron entry for `php artisan schedule:run`.
+- the `scheduler` container also runs one immediate `camera-recordings:tick` during startup so motion and continuous recorder processes are restored before the next minute boundary.
 - the `web` service proxies `/__webrtc/` to MediaMTX running inside the `app` container and proxies PHP requests to `php-fpm`.
 - the only required host dependency for this deployment path is Docker with Compose support.
 
@@ -340,6 +341,7 @@ Container notes:
 - The `app` container bootstraps itself automatically: when the `users` table is missing or contains zero rows it runs `php artisan migrate --force` before serving `php-fpm`.
 - After the first successful bootstrap, the app writes a database initialization marker into shared app storage. If a later startup sees an empty database while that marker already exists, startup now refuses to auto-migrate and exits loudly instead of silently reinitializing a fresh schema over what is likely a lost or swapped database volume.
 - Compose forces `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` so MediaMTX running in the `app` container can reach Laravel through the internal Nginx service instead of trying to call the public host from inside the container network.
+- Compose also allows internal RTSP relay readers from Docker bridge CIDRs through `MEDIAMTX_AUTH_READER_ALLOWED_IPS`, so the `scheduler` and `worker` containers can read `rtsp://app:8554/...` without tripping the loopback-only MediaMTX auth check.
 - Compose forces `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so relay-backed recording workflows can reach the relay from any Laravel container on the compose network.
 - The MediaMTX config now separately prefers `MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL`, then `MEDIAMTX_RTSP_PUBLISH_BASE_URL`, for the relay's own nested source-path reads. In Docker that keeps `runOnDemand` loopback reads on `127.0.0.1:8554` instead of hairpinning back through the `app` service hostname.
 - Compose sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX does not advertise Docker-only interface IPs as browser ICE candidates.

@@ -35,6 +35,8 @@ class MediaMtxConfigDefaultsTest extends TestCase
             $this->assertNotSame('', $config['auth']['callback_secret']);
             $this->assertSame($appKey, $config['auth']['token_secret']);
             $this->assertSame(180, $config['auth']['token_ttl']);
+            $this->assertSame(['127.0.0.1', '::1'], $config['auth']['reader_allowed_ips']);
+            $this->assertSame(['127.0.0.1', '::1'], $config['auth']['publisher_allowed_ips']);
             $this->assertSame('publisher', $config['auth']['publisher_user']);
             $this->assertNotSame('', $config['auth']['publisher_pass']);
             $this->assertSame('1200k', $config['transcode']['video_bitrate']);

@@ -73,4 +73,22 @@ class MediaMtxAuthCallbackTest extends TestCase
             'token' => '',
         ])->assertNoContent();
     }
+
+    public function test_mediamtx_auth_callback_accepts_internal_rtsp_reader_from_a_configured_docker_bridge_ip(): void
+    {
+        config()->set('mediamtx.auth.callback_secret', 'relay-secret');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'reader-pass');
+        config()->set('mediamtx.auth.reader_allowed_ips', ['127.0.0.1', '::1', '172.16.0.0/12']);
+
+        $this->post(route('relay.auth.mediamtx', ['secret' => 'relay-secret']), [
+            'user' => 'internal-reader',
+            'password' => 'reader-pass',
+            'ip' => '172.23.0.5',
+            'path' => 'camera-7-source',
+            'action' => 'read',
+            'protocol' => 'rtsp',
+            'token' => '',
+        ])->assertNoContent();
+    }
 }

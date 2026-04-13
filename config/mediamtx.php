@@ -161,6 +161,8 @@ return [
         'callback_secret' => $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_SECRET') ?? hash('sha256', ($appKey !== '' ? $appKey : $defaultAuthCallbackUrl).'|mediamtx-auth-callback'),
         'token_secret' => $configuredTokenSecret,
         'token_ttl' => 180,
+        'reader_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_READER_ALLOWED_IPS') ?? ['127.0.0.1', '::1'],
+        'publisher_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_PUBLISHER_ALLOWED_IPS') ?? ['127.0.0.1', '::1'],
         'reader_user' => 'internal-reader',
         'reader_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-reader'), 0, 32),
         'publisher_user' => 'publisher',
