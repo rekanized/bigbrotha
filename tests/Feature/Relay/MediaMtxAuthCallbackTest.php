@@ -56,4 +56,21 @@ class MediaMtxAuthCallbackTest extends TestCase
             'token' => '',
         ])->assertNoContent();
     }
+
+    public function test_mediamtx_auth_callback_accepts_the_internal_local_rtsp_reader_for_live_paths(): void
+    {
+        config()->set('mediamtx.auth.callback_secret', 'relay-secret');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'reader-pass');
+
+        $this->post(route('relay.auth.mediamtx', ['secret' => 'relay-secret']), [
+            'user' => 'internal-reader',
+            'password' => 'reader-pass',
+            'ip' => '127.0.0.1',
+            'path' => 'camera-7-live',
+            'action' => 'read',
+            'protocol' => 'rtsp',
+            'token' => '',
+        ])->assertNoContent();
+    }
 }

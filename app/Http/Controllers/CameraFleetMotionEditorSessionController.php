@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Camera;
+use App\Services\Onvif\RtspStreamDiagnosticsService;
 use App\Services\Relay\MediaMtxAccessTokenService;
 use App\Services\Relay\MediaMtxConfigService;
 use App\Services\Relay\MediaMtxProcessService;
@@ -16,6 +17,7 @@ class CameraFleetMotionEditorSessionController extends Controller
         Request $request,
         Camera $camera,
         MediaMtxConfigService $relayConfig,
+        RtspStreamDiagnosticsService $diagnostics,
         MediaMtxAccessTokenService $accessTokenService,
         MediaMtxProcessService $relayProcess,
     ): JsonResponse {
@@ -31,9 +33,17 @@ class CameraFleetMotionEditorSessionController extends Controller
 
         $profileIndex = $request->query('profileIndex');
         $selectedProfileIndex = is_numeric($profileIndex) ? (int) $profileIndex : null;
-        $definition = $relayConfig->cameraRecordingRelayDefinition($camera, $selectedProfileIndex);
+        $definition = $relayConfig->cameraMotionEditorRelayDefinition($camera, $selectedProfileIndex);
 
-        abort_unless(is_array($definition), Response::HTTP_NOT_FOUND);
+        if (! is_array($definition)) {
+            $definition = $this->refreshMotionEditorRelayDefinition($camera, $selectedProfileIndex, $relayConfig, $diagnostics);
+        }
+
+        if (! is_array($definition)) {
+            return response()->json([
+                'message' => 'The selected recording stream is not available for live motion editing right now.',
+            ], Response::HTTP_NOT_FOUND);
+        }
 
         $whepUrl = $relayConfig->browserWhepUrlForPath($definition['path'], $request);
 
@@ -49,5 +59,34 @@ class CameraFleetMotionEditorSessionController extends Controller
             'access_token' => $accessTokenService->issueReadToken($request->user(), $definition['path']),
             'expires_in' => $accessTokenService->ttl(),
         ]);
+    }
+
+    private function refreshMotionEditorRelayDefinition(
+        Camera $camera,
+        ?int $selectedProfileIndex,
+        MediaMtxConfigService $relayConfig,
+        RtspStreamDiagnosticsService $diagnostics,
+    ): ?array {
+        $recordingDefinition = $relayConfig->cameraRecordingRelayDefinition($camera, $selectedProfileIndex);
+
+        if (! is_array($recordingDefinition) || ! is_numeric($recordingDefinition['index'] ?? null)) {
+            return null;
+        }
+
+        $profileIndex = (int) $recordingDefinition['index'];
+        $profiles = $camera->rtspProfiles();
+        $profile = $profiles[$profileIndex] ?? null;
+
+        if (! is_array($profile) || ! is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+            return null;
+        }
+
+        $profiles[$profileIndex] = $diagnostics->testAndPreview($camera, $profile, $profileIndex);
+        $metadata = $camera->metadata ?? [];
+        $metadata['rtsp_profiles'] = array_values($profiles);
+        $camera->forceFill(['metadata' => $metadata])->save();
+        $camera->refresh();
+
+        return $relayConfig->cameraMotionEditorRelayDefinition($camera, $selectedProfileIndex);
     }
 }

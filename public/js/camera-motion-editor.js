@@ -33,6 +33,9 @@
             this.profileInput = null;
             this.saveButton = null;
             this.player = null;
+            this.playerRestartTimer = null;
+            this.playerRestartAttempts = 0;
+            this.maxPlayerRestartAttempts = 40;
             this.maskSyncTimer = null;
             this.thresholdSyncTimer = null;
             this.sampleFrameHandle = null;
@@ -76,7 +79,6 @@
             this.refreshMetrics();
             this.renderMask();
             this.renderActivity();
-            this.restartPlayer();
             this.startSampling();
         }
 
@@ -109,6 +111,13 @@
             if (this.sampleFrameHandle !== null) {
                 window.cancelAnimationFrame(this.sampleFrameHandle);
             }
+
+            if (this.playerRestartTimer !== null) {
+                window.clearTimeout(this.playerRestartTimer);
+                this.playerRestartTimer = null;
+            }
+
+            this.playerRestartAttempts = 0;
 
             if (this.player && typeof this.player.close === 'function') {
                 this.player.close();
@@ -530,17 +539,44 @@
         }
 
         restartPlayer() {
-            if (!(this.playerRoot instanceof HTMLElement) || typeof window.BigBrothaWhepPlayer !== 'function' || this.sessionUrlBase() === '') {
+            if (!(this.playerRoot instanceof HTMLElement) || this.sessionUrlBase() === '') {
                 return;
             }
+
+            if (typeof window.BigBrothaWhepPlayer !== 'function') {
+                if (this.playerRestartTimer === null && this.playerRestartAttempts < this.maxPlayerRestartAttempts) {
+                    this.playerRestartAttempts += 1;
+                    this.playerRestartTimer = window.setTimeout(() => {
+                        this.playerRestartTimer = null;
+                        this.restartPlayer();
+                    }, Math.min(1000, 100 * this.playerRestartAttempts));
+                }
+
+                return;
+            }
+
+            this.playerRestartAttempts = 0;
 
             if (this.player && typeof this.player.close === 'function') {
                 this.player.close();
             }
 
             this.playerRoot.dataset.sessionUrl = this.sessionUrl();
-            this.player = new window.BigBrothaWhepPlayer(this.playerRoot);
-            this.player.start();
+
+            try {
+                this.player = new window.BigBrothaWhepPlayer(this.playerRoot);
+                this.player.start();
+            } catch (error) {
+                this.player = null;
+
+                if (this.playerRestartTimer === null && this.playerRestartAttempts < this.maxPlayerRestartAttempts) {
+                    this.playerRestartAttempts += 1;
+                    this.playerRestartTimer = window.setTimeout(() => {
+                        this.playerRestartTimer = null;
+                        this.restartPlayer();
+                    }, Math.min(1000, 100 * this.playerRestartAttempts));
+                }
+            }
         }
 
         startSampling() {

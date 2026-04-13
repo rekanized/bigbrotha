@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\ApplicationSettingsService;
+use App\Services\Relay\MediaMtxPathStatusService;
 use App\Services\RuntimeHeartbeatService;
 use FFMpeg\FFMpeg;
 use FFMpeg\FFProbe;
@@ -23,6 +24,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->scoped(MediaMtxPathStatusService::class, static fn (): MediaMtxPathStatusService => new MediaMtxPathStatusService());
+
         $this->app->singleton(FFProbe::class, function ($app) {
             $config = $app['config']->get('ffmpeg');
 

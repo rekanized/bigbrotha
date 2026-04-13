@@ -106,7 +106,7 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
-        $recordingBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-recording');
+        $recordingBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-recording-profile-0');
 
         $this->assertStringContainsString("-thread_queue_size '1024'", $recordingBlock);
         $this->assertStringContainsString("-timeout '20000000'", $recordingBlock);

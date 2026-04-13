@@ -793,6 +793,220 @@ class CameraRecordingMotionCommandTest extends TestCase
         }
     }
 
+    public function test_it_prefers_the_saved_rtsp_path_profile_when_motion_recording_profile_selection_is_automatic(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.69',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'mainStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'path' => '/stream1',
+                    ],
+                    [
+                        'name' => 'subStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+            'recording_profile_index' => null,
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        $source = app(CameraRecordingService::class)->resolveRecordingSource($camera);
+
+        $this->assertNotNull($source);
+        $this->assertSame(1, $source['index']);
+        $this->assertSame('rtsp://192.168.1.69:554/stream2', $source['authenticated_uri']);
+    }
+
+    public function test_it_uses_the_resolved_source_index_for_motion_relay_paths_when_selection_is_automatic(): void
+    {
+        config()->set('recording.motion.use_relay_source', true);
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.69',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'mainStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'path' => '/stream1',
+                    ],
+                    [
+                        'name' => 'subStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+            'recording_profile_index' => null,
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')
+            ->once()
+            ->with(
+                \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                \Mockery::on(fn (array $source): bool => ($source['index'] ?? null) === 1
+                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-recording-profile-1'
+                    && ($source['transport'] ?? null) === 'tcp'),
+            )
+            ->andReturn([
+                'started' => true,
+                'running' => true,
+                'pid' => 1234,
+            ]);
+        $segmenter->shouldReceive('closedSegmentsSince')
+            ->once()
+            ->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')
+            ->once()
+            ->with(
+                \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                \Mockery::type(\Illuminate\Support\Carbon::class),
+                true,
+            )
+            ->andReturn(0);
+
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $this->assertSame([
+            'started' => true,
+            'finalized' => 0,
+            'running' => true,
+        ], $result);
+    }
+
+    public function test_it_reuses_the_live_relay_for_motion_capture_when_the_recording_source_matches_the_live_profile(): void
+    {
+        config()->set('recording.motion.use_relay_source', false);
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.69',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'mainStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'path' => '/stream1',
+                        'resolution' => '1920x1080',
+                    ],
+                    [
+                        'name' => 'subStream',
+                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'path' => '/stream2',
+                        'resolution' => '1280x720',
+                        'probe_status' => 'Healthy',
+                    ],
+                ],
+            ],
+            'recording_profile_index' => null,
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')
+            ->once()
+            ->with(
+                \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                \Mockery::on(fn (array $source): bool => ($source['index'] ?? null) === 1
+                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-live'
+                    && ($source['transport'] ?? null) === 'tcp'),
+            )
+            ->andReturn([
+                'started' => true,
+                'running' => true,
+                'pid' => 1234,
+            ]);
+        $segmenter->shouldReceive('closedSegmentsSince')
+            ->once()
+            ->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')
+            ->once()
+            ->with(
+                \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
+                \Mockery::type(\Illuminate\Support\Carbon::class),
+                true,
+            )
+            ->andReturn(0);
+
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $this->assertSame([
+            'started' => true,
+            'finalized' => 0,
+            'running' => true,
+        ], $result);
+    }
+
     public function test_it_rolls_an_active_motion_event_into_a_new_clip_once_it_reaches_the_stitch_limit(): void
     {
         config()->set('recording.motion.pre_roll_seconds', 8);

@@ -29,6 +29,7 @@ class CameraRecordingService
         private readonly CameraStorageService $storage,
         private readonly RecordingReviewAssetService $reviewAssets,
         private readonly RecordingMotionDetectorService $motionDetector,
+        private readonly CameraLiveStreamService $liveStreams,
         private readonly ContinuousRecordingSegmenterService $continuousSegmenter,
         private readonly MotionRecordingSegmenterService $motionSegmenter,
     ) {
@@ -308,6 +309,27 @@ class CameraRecordingService
             }
         }
 
+        if ($selectedIndex === null) {
+            foreach ($profiles as $index => $profile) {
+                if (!is_array($profile) || !$this->profileMatchesConfiguredRtspPath($camera, $profile)) {
+                    continue;
+                }
+
+                $uri = $this->stringOrNull($profile['uri'] ?? null);
+
+                if ($uri === null) {
+                    continue;
+                }
+
+                return [
+                    'index' => $index,
+                    'profile' => $profile,
+                    'authenticated_uri' => $this->injectCredentials($uri, $camera->username, $camera->password),
+                    'transport' => $this->transport($camera),
+                ];
+            }
+        }
+
         foreach ($profiles as $index => $profile) {
             if (!is_array($profile)) {
                 continue;
@@ -343,6 +365,53 @@ class CameraRecordingService
             'authenticated_uri' => $this->injectCredentials($endpoint, $camera->username, $camera->password),
             'transport' => $this->transport($camera),
         ];
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function profileMatchesConfiguredRtspPath(Camera $camera, array $profile): bool
+    {
+        $configuredPath = $this->stringOrNull($camera->rtsp_path);
+        $profilePath = $this->profileRtspPath($profile);
+
+        if ($configuredPath !== null && $profilePath !== null && $configuredPath === $profilePath) {
+            return true;
+        }
+
+        $configuredEndpoint = $this->stringOrNull($camera->rtspEndpoint());
+        $profileUri = $this->stringOrNull($profile['uri'] ?? null);
+
+        return $configuredEndpoint !== null && $profileUri !== null && $configuredEndpoint === $profileUri;
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function profileRtspPath(array $profile): ?string
+    {
+        $savedPath = $this->stringOrNull($profile['path'] ?? null);
+
+        if ($savedPath !== null) {
+            return $savedPath;
+        }
+
+        $uri = $this->stringOrNull($profile['uri'] ?? null);
+
+        if ($uri === null) {
+            return null;
+        }
+
+        $parts = parse_url($uri);
+
+        if (!is_array($parts)) {
+            return null;
+        }
+
+        $path = (string) ($parts['path'] ?? '');
+        $query = isset($parts['query']) ? '?'.$parts['query'] : '';
+
+        return $path !== '' || $query !== '' ? $path.$query : null;
     }
 
     /**
@@ -1561,32 +1630,99 @@ class CameraRecordingService
      */
     private function preferredMotionCaptureSource(Camera $camera, array $source): array
     {
-        if (!(bool) config('recording.motion.use_relay_source', false)) {
-            return $source;
+        if ((bool) config('recording.motion.use_relay_source', false)) {
+            return $this->recordingRelayCaptureSource($camera, $source) ?? $source;
         }
 
+        return $this->sharedLiveRelayCaptureSource($camera, $source) ?? $source;
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    private function recordingRelayCaptureSource(Camera $camera, array $source): ?array
+    {
+        $relayReader = $this->relayReaderConfig();
+
+        if ($relayReader === null) {
+            return null;
+        }
+
+        $resolvedProfileIndex = is_numeric($source['index'] ?? null)
+            ? (int) $source['index']
+            : null;
+        $path = $resolvedProfileIndex === null
+            ? 'camera-'.$camera->getKey().'-recording'
+            : 'camera-'.$camera->getKey().'-recording-profile-'.$resolvedProfileIndex;
+
+        return $this->relayCaptureSource($source, $relayReader['base_url'].'/'.$path, $relayReader['user'], $relayReader['pass']);
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    private function sharedLiveRelayCaptureSource(Camera $camera, array $source): ?array
+    {
+        $relayReader = $this->relayReaderConfig();
+
+        if ($relayReader === null) {
+            return null;
+        }
+
+        $liveSource = $this->liveStreams->selectedWebRtcSource($camera);
+
+        if ($liveSource === null || ! $this->sourcesMatch($source, $liveSource)) {
+            return null;
+        }
+
+        return $this->relayCaptureSource($source, $relayReader['base_url'].'/camera-'.$camera->getKey().'-live', $relayReader['user'], $relayReader['pass']);
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}
+     */
+    private function relayCaptureSource(array $source, string $baseUri, string $readerUser, string $readerPass): array
+    {
+        return [
+            'index' => $source['index'],
+            'profile' => $source['profile'],
+            'authenticated_uri' => $this->injectCredentials($baseUri, $readerUser, $readerPass),
+            'transport' => 'tcp',
+        ];
+    }
+
+    /**
+     * @return array{user: string, pass: string, base_url: string}|null
+     */
+    private function relayReaderConfig(): ?array
+    {
         $readerUser = trim((string) config('mediamtx.auth.reader_user', ''));
         $readerPass = trim((string) config('mediamtx.auth.reader_pass', ''));
         $internalBaseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url', ''), '/');
 
         if ($readerUser === '' || $readerPass === '' || $internalBaseUrl === '') {
-            return $source;
+            return null;
         }
 
-        $configuredProfileIndex = is_numeric($camera->recording_profile_index)
-            ? (int) $camera->recording_profile_index
-            : null;
-        $path = $configuredProfileIndex === null
-            ? 'camera-'.$camera->getKey().'-recording'
-            : 'camera-'.$camera->getKey().'-recording-profile-'.$configuredProfileIndex;
-        $relayUri = $this->injectCredentials($internalBaseUrl.'/'.$path, $readerUser, $readerPass);
-
         return [
-            'index' => $source['index'],
-            'profile' => $source['profile'],
-            'authenticated_uri' => $relayUri,
-            'transport' => 'tcp',
+            'user' => $readerUser,
+            'pass' => $readerPass,
+            'base_url' => $internalBaseUrl,
         ];
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $left
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $right
+     */
+    private function sourcesMatch(array $left, array $right): bool
+    {
+        return is_numeric($left['index'] ?? null)
+            && is_numeric($right['index'] ?? null)
+            && (int) $left['index'] === (int) $right['index'];
     }
 
 

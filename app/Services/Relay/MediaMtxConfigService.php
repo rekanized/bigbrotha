@@ -13,6 +13,7 @@ class MediaMtxConfigService
     public function __construct(
         private readonly CameraLiveStreamService $streamService,
         private readonly CameraRecordingService $recordingService,
+        private readonly MediaMtxPathStatusService $pathStatusService,
     ) {
     }
 
@@ -43,6 +44,16 @@ class MediaMtxConfigService
     }
 
     /**
+     * @return array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function cameraLivePlaybackDefinition(Camera $camera): ?array
+    {
+        $definition = $this->cameraRelayDefinition($camera);
+
+        return $this->playableRelayDefinition($definition);
+    }
+
+    /**
      * @return array{mode: 'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
@@ -55,12 +66,33 @@ class MediaMtxConfigService
 
         return [
             'mode' => 'recording',
-            'path' => $this->recordingPathName($camera, $profileIndex),
+            'path' => $this->recordingPathName($camera, $selection['index']),
             'index' => $selection['index'],
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
             'transport' => $selection['transport'],
         ];
+    }
+
+    /**
+     * @return array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function cameraMotionEditorRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
+    {
+        $recordingDefinition = $this->cameraRecordingRelayDefinition($camera, $profileIndex);
+
+        if ($recordingDefinition === null) {
+            return null;
+        }
+
+        $liveDefinition = $this->cameraLivePlaybackDefinition($camera);
+
+        if ($liveDefinition !== null
+            && $this->definitionsMatchProfile($liveDefinition, $recordingDefinition)) {
+            return $liveDefinition;
+        }
+
+        return $this->playableRelayDefinition($recordingDefinition);
     }
 
     public function recordingPathName(Camera $camera, ?int $profileIndex = null): string
@@ -72,7 +104,7 @@ class MediaMtxConfigService
 
     public function browserPlayerUrl(Camera $camera, ?Request $request = null): ?string
     {
-        $definition = $this->cameraRelayDefinition($camera);
+        $definition = $this->cameraLivePlaybackDefinition($camera);
 
         if ($definition === null) {
             return null;
@@ -86,7 +118,7 @@ class MediaMtxConfigService
 
     public function browserWhepUrl(Camera $camera, ?Request $request = null): ?string
     {
-        $definition = $this->cameraRelayDefinition($camera);
+        $definition = $this->cameraLivePlaybackDefinition($camera);
 
         if ($definition === null) {
             return null;
@@ -232,6 +264,66 @@ class MediaMtxConfigService
                 return $definitions;
             })
             ->values();
+    }
+
+    /**
+     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $left
+     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $right
+     */
+    private function definitionsMatchProfile(array $left, array $right): bool
+    {
+        if (($left['index'] ?? null) !== null && ($right['index'] ?? null) !== null) {
+            return $left['index'] === $right['index'];
+        }
+
+        return $this->stringOrNull($left['profile']['uri'] ?? null) !== null
+            && $this->stringOrNull($left['profile']['uri'] ?? null) === $this->stringOrNull($right['profile']['uri'] ?? null);
+    }
+
+    /**
+     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null  $definition
+     * @return array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    private function playableRelayDefinition(?array $definition): ?array
+    {
+        if (!is_array($definition)) {
+            return null;
+        }
+
+        if ($this->definitionSupportsColdStart($definition) || isset($this->pathStatusService->activePaths()[$definition['path']])) {
+            return $definition;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     */
+    private function definitionSupportsColdStart(array $definition): bool
+    {
+        $probeStatus = $this->stringOrNull($definition['profile']['probe_status'] ?? null);
+
+        if ($probeStatus === null) {
+            return true;
+        }
+
+        if (strcasecmp($probeStatus, 'Healthy') !== 0) {
+            return false;
+        }
+
+        return ($definition['profile']['transport_persistable'] ?? false) === true;
+    }
+
+    private function stringOrNull(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 
     private function browserBaseUrl(?Request $request = null): string

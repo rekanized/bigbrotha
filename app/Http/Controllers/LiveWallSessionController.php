@@ -32,11 +32,14 @@ class LiveWallSessionController extends Controller
         );
 
         $liveSelection = $streamService->selectWallProfile($camera);
-        $whepUrl = $relayConfig->browserWhepUrl($camera, $request);
+        $definition = $relayConfig->cameraLivePlaybackDefinition($camera);
+        $whepUrl = $definition !== null
+            ? $relayConfig->browserWhepUrlForPath($definition['path'], $request)
+            : null;
 
         abort_unless(is_array($liveSelection) && is_string($whepUrl) && $whepUrl !== '', Response::HTTP_NOT_FOUND);
 
-        $path = $relayConfig->cameraPathName($camera);
+        $path = $definition['path'];
 
         return response()->json([
             'camera' => [

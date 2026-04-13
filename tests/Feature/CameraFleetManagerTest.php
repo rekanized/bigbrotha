@@ -7,6 +7,7 @@ use App\Models\Camera;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
+use App\Services\Onvif\RtspStreamDiagnosticsService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -229,6 +230,171 @@ BASH);
             ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
+    }
+
+    public function test_it_persists_the_working_transport_when_stream_test_falls_back(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Back Door',
+            'local_ip' => '192.168.1.88',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'rtsp_transport' => 'udp',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'token' => 'profile_main',
+                        'uri' => 'rtsp://192.168.1.88:554/stream1',
+                        'path' => '/stream1',
+                    ],
+                ],
+            ],
+        ]);
+
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        File::ensureDirectoryExists($binaryDirectory);
+
+        $ffprobeBinary = $binaryDirectory.'/ffprobe-manager-udp-fallback.sh';
+        File::put($ffprobeBinary, <<<'BASH'
+#!/usr/bin/env bash
+transport=""
+previous=""
+for arg in "$@"; do
+    if [[ "$previous" == "-rtsp_transport" ]]; then
+        transport="$arg"
+    fi
+    previous="$arg"
+done
+
+if [[ "$transport" == "udp" ]]; then
+    echo 'rtsp://operator:secret@192.168.1.88:554/stream1: Operation not permitted' >&2
+    exit 1
+fi
+
+printf '%s' '{"streams":[{"codec_name":"h264","width":1920,"height":1080}]}'
+BASH);
+        chmod($ffprobeBinary, 0755);
+
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-manager-udp-fallback.sh';
+        File::put($ffmpegBinary, <<<'BASH'
+#!/usr/bin/env bash
+output="${!#}"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII=' | base64 -d > "$output"
+BASH);
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->call('testRtspProfile', 0)
+            ->assertSet('rtspErrorMessage', null);
+
+        $camera->refresh();
+
+        $this->assertSame('tcp', $camera->rtsp_transport);
+        $this->assertSame('Healthy', $camera->rtspProfiles()[0]['probe_status']);
+        $this->assertSame('TCP', $camera->rtspProfiles()[0]['transport']);
+        $this->assertNotNull($camera->rtspProfiles()[0]['preview_path']);
+    }
+
+    public function test_it_does_not_persist_relay_transport_when_only_the_relay_succeeds(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Hallway',
+            'local_ip' => '192.168.1.71',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'rtsp_transport' => 'udp',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MinorStream',
+                        'token' => 'profile_minor',
+                        'uri' => 'rtsp://192.168.1.71:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        File::ensureDirectoryExists($binaryDirectory);
+
+        $ffprobeBinary = $binaryDirectory.'/ffprobe-manager-relay-only.sh';
+        File::put($ffprobeBinary, <<<'BASH'
+#!/usr/bin/env bash
+joined="$*"
+
+if [[ "$joined" == *"camera-1-live"* ]]; then
+    printf '%s' '{"streams":[{"codec_name":"h264","width":1280,"height":720}]}'
+    exit 0
+fi
+
+echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+exit 1
+BASH);
+        chmod($ffprobeBinary, 0755);
+
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-manager-relay-only.sh';
+        File::put($ffmpegBinary, <<<'BASH'
+#!/usr/bin/env bash
+joined="$*"
+
+if [[ "$joined" != *"camera-1-live"* ]]; then
+    echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+    exit 1
+fi
+
+output="${!#}"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII=' | base64 -d > "$output"
+BASH);
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [
+                    [
+                        'name' => 'camera-'.$camera->id.'-live',
+                        'ready' => true,
+                        'online' => true,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->call('testRtspProfile', 0)
+            ->assertSet('rtspErrorMessage', null);
+
+        $camera->refresh();
+
+        $this->assertSame('udp', $camera->rtsp_transport);
+        $this->assertSame('relay', $camera->rtspProfiles()[0]['probe_source']);
+        $this->assertFalse((bool) ($camera->rtspProfiles()[0]['transport_persistable'] ?? true));
+        $this->assertSame('TCP', $camera->rtspProfiles()[0]['transport']);
     }
 
     public function test_it_can_create_a_rtsp_only_camera_without_probing_onvif(): void
@@ -515,6 +681,13 @@ XML, 200),
 
         config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
         config()->set('mediamtx.auth.token_secret', 'test-secret');
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
 
         $this->mock(MediaMtxProcessService::class, function ($mock): void {
             $mock->shouldReceive('ensureRunning')->once()->andReturn([
@@ -534,10 +707,363 @@ XML, 200),
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id, 'profileIndex' => 0]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
-            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-recording-profile-0')
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
             ->assertJsonPath('profile_index', 0)
-            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-recording-profile-0/reader.js');
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+    }
+
+    public function test_motion_editor_session_uses_the_saved_recording_profile_when_no_query_index_is_given(): void
+    {
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-secret');
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Kids Bedroom',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'recording_profile_index' => 1,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'path' => '/stream1',
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $operator = User::factory()->create();
+
+        $this->mock(MediaMtxProcessService::class, function ($mock): void {
+            $mock->shouldReceive('ensureRunning')->once()->andReturn([
+                'installed' => true,
+                'running' => true,
+                'api_reachable' => true,
+                'config_changed' => false,
+                'binary_path' => '/tmp/mediamtx',
+                'config_path' => '/tmp/mediamtx.yml',
+                'log_path' => '/tmp/mediamtx.log',
+                'pid' => 321,
+            ]);
+        });
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
+            ->assertOk()
+            ->assertJsonPath('camera.id', $camera->id)
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('profile_index', 1)
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+    }
+
+    public function test_motion_editor_session_reuses_an_active_live_relay_when_it_matches_the_selected_recording_profile(): void
+    {
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-secret');
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.66',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'rtsp_path' => '/stream2',
+            'recording_profile_index' => 1,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.66:554/stream1',
+                        'path' => '/stream1',
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [
+                    [
+                        'name' => 'camera-'.$camera->id.'-live',
+                        'ready' => true,
+                        'online' => true,
+                    ],
+                    [
+                        'name' => 'camera-'.$camera->id.'-recording-profile-1',
+                        'ready' => false,
+                        'online' => false,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $operator = User::factory()->create();
+
+        $this->mock(MediaMtxProcessService::class, function ($mock): void {
+            $mock->shouldReceive('ensureRunning')->once()->andReturn([
+                'installed' => true,
+                'running' => true,
+                'api_reachable' => true,
+                'config_changed' => false,
+                'binary_path' => '/tmp/mediamtx',
+                'config_path' => '/tmp/mediamtx.yml',
+                'log_path' => '/tmp/mediamtx.log',
+                'pid' => 321,
+            ]);
+        });
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
+            ->assertOk()
+            ->assertJsonPath('camera.id', $camera->id)
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('profile_index', 1)
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+    }
+
+    public function test_motion_editor_session_returns_not_found_when_only_indirect_fallbacks_exist_for_the_selected_profile(): void
+    {
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-secret');
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.66',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'rtsp_path' => '/stream2',
+            'recording_profile_index' => 1,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.66:554/stream1',
+                        'path' => '/stream1',
+                        'probe_status' => 'Failed',
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Healthy',
+                        'probe_source' => 'motion-buffer',
+                        'transport_persistable' => false,
+                    ],
+                ],
+            ],
+        ]);
+
+        $operator = User::factory()->create();
+
+        $this->mock(RtspStreamDiagnosticsService::class, function ($mock) use ($camera): void {
+            $mock->shouldReceive('testAndPreview')
+                ->once()
+                ->withArgs(function (Camera $diagnosticCamera, array $profile, int $profileIndex) use ($camera): bool {
+                    return $diagnosticCamera->is($camera)
+                        && $profileIndex === 1
+                        && ($profile['path'] ?? null) === '/stream2';
+                })
+                ->andReturn([
+                    'token' => 'profile_2',
+                    'name' => 'minorStream',
+                    'encoding' => 'H264',
+                    'resolution' => '1280x720',
+                    'uri' => 'rtsp://192.168.1.66:554/stream2',
+                    'path' => '/stream2',
+                    'probe_status' => 'Healthy',
+                    'probe_source' => 'motion-buffer',
+                    'transport_persistable' => false,
+                ]);
+        });
+
+        $this->mock(MediaMtxProcessService::class, function ($mock): void {
+            $mock->shouldReceive('ensureRunning')->once()->andReturn([
+                'installed' => true,
+                'running' => true,
+                'api_reachable' => true,
+                'config_changed' => false,
+                'binary_path' => '/tmp/mediamtx',
+                'config_path' => '/tmp/mediamtx.yml',
+                'log_path' => '/tmp/mediamtx.log',
+                'pid' => 321,
+            ]);
+        });
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
+            ->assertNotFound()
+            ->assertJsonPath('message', 'The selected recording stream is not available for live motion editing right now.');
+    }
+
+    public function test_motion_editor_session_reprobes_a_stale_selected_recording_profile_before_returning_not_found(): void
+    {
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-secret');
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Tapo C200',
+            'local_ip' => '192.168.1.72',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'operator',
+            'password' => 'secret',
+            'rtsp_path' => '/stream2',
+            'recording_profile_index' => null,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.72:554/stream1',
+                        'path' => '/stream1',
+                        'probe_status' => 'Failed',
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.72:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Healthy',
+                        'probe_source' => 'relay',
+                        'transport_persistable' => false,
+                    ],
+                ],
+            ],
+        ]);
+
+        $operator = User::factory()->create();
+
+        $this->mock(RtspStreamDiagnosticsService::class, function ($mock) use ($camera): void {
+            $mock->shouldReceive('testAndPreview')
+                ->once()
+                ->withArgs(function (Camera $diagnosticCamera, array $profile, int $profileIndex) use ($camera): bool {
+                    return $diagnosticCamera->is($camera)
+                        && $profileIndex === 1
+                        && ($profile['path'] ?? null) === '/stream2';
+                })
+                ->andReturn([
+                    'token' => 'profile_2',
+                    'name' => 'minorStream',
+                    'encoding' => 'H264',
+                    'resolution' => '1280x720',
+                    'uri' => 'rtsp://192.168.1.72:554/stream2',
+                    'path' => '/stream2',
+                    'probe_status' => 'Healthy',
+                    'probe_source' => 'direct',
+                    'transport_persistable' => true,
+                    'transport' => 'TCP',
+                    'video_codec' => 'h264',
+                    'video_resolution' => '1280x720',
+                ]);
+        });
+
+        $this->mock(MediaMtxProcessService::class, function ($mock): void {
+            $mock->shouldReceive('ensureRunning')->once()->andReturn([
+                'installed' => true,
+                'running' => true,
+                'api_reachable' => true,
+                'config_changed' => false,
+                'binary_path' => '/tmp/mediamtx',
+                'config_path' => '/tmp/mediamtx.yml',
+                'log_path' => '/tmp/mediamtx.log',
+                'pid' => 321,
+            ]);
+        });
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
+            ->assertOk()
+            ->assertJsonPath('camera.id', $camera->id)
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('profile_index', 1)
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+
+        $camera->refresh();
+
+        $this->assertSame('direct', $camera->rtspProfiles()[1]['probe_source']);
+        $this->assertTrue($camera->rtspProfiles()[1]['transport_persistable']);
     }
 
     public function test_it_falls_back_to_a_placeholder_image_when_a_saved_preview_is_invalid(): void

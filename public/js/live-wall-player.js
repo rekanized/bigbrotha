@@ -610,13 +610,51 @@
                 return 'Your sign-in session has expired. Sign in again to resume the stream.';
             }
 
+            if (response.status === 404) {
+                const unavailableMessage = await this.readStructuredErrorMessage(response);
+
+                return unavailableMessage || 'This stream is not available right now.';
+            }
+
             if (response.status === 503) {
                 return 'The shared media relay is unavailable right now.';
             }
 
-            const body = (await response.text()).trim();
+            const structuredMessage = await this.readStructuredErrorMessage(response);
 
-            return body !== '' ? body : fallbackMessage;
+            if (structuredMessage !== '') {
+                return structuredMessage;
+            }
+
+            const body = (await response.text()).trim();
+            const normalizedBody = body.replace(/\s+/g, ' ').trim();
+
+            if (normalizedBody === '') {
+                return fallbackMessage;
+            }
+
+            if (normalizedBody.startsWith('{') || normalizedBody.startsWith('[') || normalizedBody.startsWith('<!DOCTYPE') || normalizedBody.startsWith('<html')) {
+                return fallbackMessage;
+            }
+
+            return normalizedBody.length > 240 ? fallbackMessage : normalizedBody;
+        }
+
+        async readStructuredErrorMessage(response) {
+            const contentType = response.headers.get('content-type') || '';
+
+            if (!contentType.includes('application/json')) {
+                return '';
+            }
+
+            try {
+                const payload = await response.clone().json();
+                const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+
+                return message;
+            } catch (error) {
+                return '';
+            }
         }
     }
 

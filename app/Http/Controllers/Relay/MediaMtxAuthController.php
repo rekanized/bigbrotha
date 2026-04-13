@@ -69,7 +69,7 @@ class MediaMtxAuthController extends Controller
 
     private function isInternalReader(Request $request, string $path, string $action, string $protocol): bool
     {
-        if ($action !== 'read' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-recording(?:-profile-\d+)?$/', $path)) {
+        if ($action !== 'read' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-(live|recording(?:-profile-\d+)?)$/', $path)) {
             return false;
         }
 

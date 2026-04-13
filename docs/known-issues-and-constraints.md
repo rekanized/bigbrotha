@@ -41,6 +41,7 @@ Current design assumptions:
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.
 - The internal ffmpeg publisher used by MediaMTX `runOnDemand` uses credentials from `config/mediamtx.php`, derived from `APP_KEY` by default unless explicitly overridden.
+- The internal relay reader for live-preview and recording fallback reads also uses the dedicated reader credentials from `config/mediamtx.php` and is expected to come from loopback only.
 
 ## Relay Process Detection
 

@@ -66,11 +66,11 @@ Important model helpers:
 ## Stream Services
 
 - `App\Services\Onvif\OnvifRtspStreamService` retrieves ONVIF media capabilities, profiles, and RTSP stream URIs.
-- `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity and captures preview frames.
+- `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity, captures preview frames, falls back from UDP to TCP when needed, and can reuse an active MediaMTX live or recording relay for the same profile when a camera rejects another direct RTSP session.
 - `App\Services\CameraStorageService` manages per-camera storage folders, stages ffmpeg writes locally when needed, routes the logical `cameras/...` private tree onto either the local private disk or the admin-configured SMB disk, and verifies remote camera-disk uploads before removing the local staged file.
 - `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
 - `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, keeps a persistent per-camera short-segment motion buffer through `App\Services\MotionRecordingSegmenterService`, opens a motion event on the first detected motion segment, preserves configurable pre-roll context from the rolling buffer, extends the event while new motion segments continue to arrive, finalizes the event only after a full quiet post-trigger window has elapsed, stitches the closed buffer segments with ffmpeg concat into the saved recording, reuses that locally staged stitched clip for later SMB upload retries so the raw motion buffer can still prune back to its idle window during storage outages, can optionally read from the local MediaMTX recording relay when `recording.motion.use_relay_source` is enabled, otherwise reads directly from the camera to avoid an extra always-on relay publisher per motion feed, keeps any relay-based recording path on a copy-oriented codec path instead of the live wall's browser-safe audio transcode, and prunes expired footage.
-- `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras.
+- `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras and lets the motion-mask editor reuse an already-active live relay when it matches the selected recording profile, avoiding extra RTSP sessions on single-session cameras.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
 - `App\Services\Relay\MediaMtxInstaller` downloads the pinned MediaMTX release into private storage.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay process, and checks relay health.
@@ -162,12 +162,13 @@ MediaMTX currently uses one HTTP auth callback for two different trust models:
 - browser reads:
 	- authenticated by Laravel-issued short-lived signed tokens.
 	- expected action/protocol pair is `read` and `webrtc`.
-- internal ffmpeg publisher:
+- internal relay processes:
 	- authenticated by dedicated internal relay credentials defined in `config/mediamtx.php` and derived from `APP_KEY` by default.
-	- expected action/protocol pair is `publish` and `rtsp`.
+	- expected action/protocol pair is `publish` and `rtsp` for the local run-on-demand publisher.
+	- expected action/protocol pair is `read` and `rtsp` for loopback-only diagnostics or recording reads against `camera-*-live` and `camera-*-recording*` paths.
 	- expected source IP is loopback only.
 
-This split keeps relay auth enabled for public-facing WebRTC while still allowing the local on-demand publisher to function.
+This split keeps relay auth enabled for public-facing WebRTC while still allowing local relay publishers and readers to function.
 
 Current relay management behavior:
 

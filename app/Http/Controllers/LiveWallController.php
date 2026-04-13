@@ -55,15 +55,20 @@ class LiveWallController extends Controller
                 }
 
                 $liveSelection = $streamService->selectWallProfile($camera);
-                $whepUrl = $relayConfig->browserWhepUrl($camera, $request);
-                $path = $relayConfig->cameraPathName($camera);
+                $liveDefinition = $relayConfig->cameraLivePlaybackDefinition($camera);
+                $whepUrl = $liveDefinition !== null
+                    ? $relayConfig->browserWhepUrlForPath($liveDefinition['path'], $request)
+                    : null;
+                $path = $liveDefinition['path'] ?? null;
                 $readerUrl = is_string($whepUrl) && $whepUrl !== ''
-                    ? $relayConfig->browserReaderUrlForPath($path, $request)
+                    ? $relayConfig->browserReaderUrlForPath((string) $path, $request)
                     : null;
 
                 $sessionBootstrap = null;
+                $sessionUrl = null;
 
                 if ($canBootstrapSessions && is_array($liveSelection) && is_string($whepUrl) && $whepUrl !== '' && is_string($readerUrl) && $readerUrl !== '') {
+                    $sessionUrl = route('live-wall.session', ['camera' => $camera]);
                     $sessionBootstrap = [
                         'whep_url' => $whepUrl,
                         'reader_url' => $readerUrl,
@@ -81,7 +86,7 @@ class LiveWallController extends Controller
                     'rowSpan' => max(1, $tile->row_span),
                     'liveSelection' => $liveSelection,
                     'playerPageUrl' => route('live-wall.player', ['camera' => $camera]),
-                    'sessionUrl' => $canBootstrapSessions ? route('live-wall.session', ['camera' => $camera]) : null,
+                    'sessionUrl' => $sessionUrl,
                     'webrtcWhepUrl' => $whepUrl,
                     'readerUrl' => $readerUrl,
                     'sessionBootstrap' => $sessionBootstrap,

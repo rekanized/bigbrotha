@@ -512,6 +512,11 @@ class Manager extends Component
 
         try {
             $profiles[$profileIndex] = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, $profile, $profileIndex);
+            $workingTransport = strtolower((string) ($profiles[$profileIndex]['transport'] ?? ''));
+
+            if (($profiles[$profileIndex]['transport_persistable'] ?? false) === true && in_array($workingTransport, ['tcp', 'udp'], true)) {
+                $camera->rtsp_transport = $workingTransport;
+            }
 
             $metadata = is_array($camera->metadata) ? $camera->metadata : [];
             $metadata['rtsp_profiles'] = array_values($profiles);
