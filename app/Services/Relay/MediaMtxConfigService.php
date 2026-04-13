@@ -601,7 +601,7 @@ class MediaMtxConfigService
 
     private function internalReaderUrl(string $path): string
     {
-        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url', ''), '/');
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.local_internal_base_url', config('mediamtx.rtsp.publish_base_url', config('mediamtx.rtsp.internal_base_url', ''))), '/');
         $readerUser = rawurlencode((string) config('mediamtx.auth.reader_user', ''));
         $readerPass = rawurlencode((string) config('mediamtx.auth.reader_pass', ''));
 

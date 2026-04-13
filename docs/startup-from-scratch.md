@@ -69,6 +69,7 @@ Docker runtime notes:
 - Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
 - Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
 - Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.
+- The relay's own nested source-path reads now prefer `MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL`, then `MEDIAMTX_RTSP_PUBLISH_BASE_URL`, so Docker deployments can keep worker-facing relay reads on `rtsp://app:8554` without forcing MediaMTX to hairpin through Docker DNS for its own local live-path bootstrap.
 - Compose also sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX relies on the configured public host instead of advertising Docker interface addresses that browsers cannot use.
 - Direct camera onboarding now uses unicast ONVIF requests from Camera Fleet, so the Docker requirement is routed reachability from the `app` container to the camera network instead of a dedicated WS-Discovery-specific interface.
 - if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.

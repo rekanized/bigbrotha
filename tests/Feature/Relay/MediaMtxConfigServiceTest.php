@@ -174,6 +174,48 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-b:v', $config);
     }
 
+    public function test_live_run_on_demand_prefers_local_loopback_reader_url_over_cross_container_internal_url(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-local-reader-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://app:8554');
+        config()->set('mediamtx.rtsp.publish_base_url', 'rtsp://127.0.0.1:8554');
+
+        $camera = Camera::query()->create([
+            'name' => 'Docker Relay Camera',
+            'local_ip' => '192.168.1.94',
+            'http_port' => 80,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MinorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.94:554/minor',
+                    ],
+                ],
+            ],
+        ]);
+
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+        $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
+
+        $this->assertStringContainsString("rtsp://internal-reader:", $liveBlock);
+        $this->assertStringContainsString("@127.0.0.1:8554/camera-{$camera->id}-source-profile-0", $liveBlock);
+        $this->assertStringNotContainsString("@app:8554/camera-{$camera->id}-source-profile-0", $liveBlock);
+    }
+
     private function pathBlock(string $config, string $path): string
     {
         $pattern = '/^  '.preg_quote($path, '/').":\n(?:    .*\n)*/m";

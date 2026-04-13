@@ -25,6 +25,7 @@ class MediaMtxConfigDefaultsTest extends TestCase
 
             $this->assertSame('1.17.1', $config['version']);
             $this->assertTrue($config['auto_start']);
+            $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['local_internal_base_url']);
             $this->assertSame($appUrl.'/__webrtc', $config['webrtc']['public_base_url']);
             $this->assertSame([$appUrl], $config['webrtc']['allow_origins']);
             $this->assertSame(['monitor.example.test'], $config['webrtc']['additional_hosts']);
@@ -38,6 +39,21 @@ class MediaMtxConfigDefaultsTest extends TestCase
             $this->assertNotSame('', $config['auth']['publisher_pass']);
             $this->assertSame('1200k', $config['transcode']['video_bitrate']);
             $this->assertSame(30, $config['transcode']['gop']);
+        });
+    }
+
+    public function test_local_internal_rtsp_base_url_falls_back_to_publish_base_url_when_present(): void
+    {
+        $this->withEnvironmentOverrides([
+            'MEDIAMTX_RTSP_INTERNAL_BASE_URL' => 'rtsp://app:8554',
+            'MEDIAMTX_RTSP_PUBLISH_BASE_URL' => 'rtsp://127.0.0.1:8554',
+            'MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL' => '',
+        ], function (): void {
+            $config = require base_path('config/mediamtx.php');
+
+            $this->assertSame('rtsp://app:8554', $config['rtsp']['internal_base_url']);
+            $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['publish_base_url']);
+            $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['local_internal_base_url']);
         });
     }
 
