@@ -229,7 +229,7 @@ class MediaMtxConfigService
         }
 
         $lines[] = 'pathDefaults:';
-        $lines[] = '  sourceOnDemandStartTimeout: '.config('mediamtx.transcode.start_timeout', '20s');
+        $lines[] = '  sourceOnDemandStartTimeout: '.$this->sourceStartTimeout();
         $lines[] = '  sourceOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
         $lines[] = '  overridePublisher: true';
         $lines[] = 'paths:';
@@ -247,7 +247,7 @@ class MediaMtxConfigService
             $lines[] = '    runOnDemand: >-';
             $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition);
             $lines[] = '    runOnDemandRestart: false';
-            $lines[] = '    runOnDemandStartTimeout: '.config('mediamtx.transcode.start_timeout', '20s');
+            $lines[] = '    runOnDemandStartTimeout: '.$this->runOnDemandStartTimeout($definition);
             $lines[] = '    runOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
         }
 
@@ -648,6 +648,28 @@ class MediaMtxConfigService
     private function nullableScalar(string $value): string
     {
         return trim($value) === '' ? "''" : $value;
+    }
+
+    /**
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     */
+    private function runOnDemandStartTimeout(array $definition): string
+    {
+        if ($definition['mode'] === 'live' && $definition['path'] !== $definition['source_path']) {
+            return $this->liveStartTimeout();
+        }
+
+        return $this->sourceStartTimeout();
+    }
+
+    private function sourceStartTimeout(): string
+    {
+        return (string) config('mediamtx.transcode.start_timeout', '30s');
+    }
+
+    private function liveStartTimeout(): string
+    {
+        return (string) config('mediamtx.transcode.live_start_timeout', $this->sourceStartTimeout());
     }
 
     private function authCallbackUrl(): string

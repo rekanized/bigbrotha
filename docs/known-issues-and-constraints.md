@@ -225,13 +225,14 @@ If the player stays on `Loading secure stream…`, check these in order:
 	- `closed: source of path ... has timed out`: the camera source did not come up in time.
 	- `method ANNOUNCE failed: 401 Unauthorized`: the internal ffmpeg publisher was rejected by MediaMTX auth.
 	- `authHTTPAddress is empty`: the auth callback URL resolved to blank config.
-4. verify the generated `storage/app/private/mediamtx/mediamtx.yml` contains:
+4. if the relay uses the two-stage `camera-*-source*` to `camera-*-live*` topology, remember that a cold live start has to wait for the upstream source path to ingest from the camera first. Keep the live-path `runOnDemandStartTimeout` higher than the source-path timeout so chained startup does not collapse at the same 20 to 30 second boundary on both legs.
+5. verify the generated `storage/app/private/mediamtx/mediamtx.yml` contains:
 	- the expected `authHTTPAddress` with the callback secret.
 	- a `runOnDemand` RTSP publish target that includes the internal publisher credentials.
-5. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
-6. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
-7. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
-8. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
+6. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
+7. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
+8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
+9. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
 
 ## Nginx Reverse Proxy Requirements
 

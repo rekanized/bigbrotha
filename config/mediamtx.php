@@ -175,7 +175,8 @@ return [
         'audio_channels' => 1,
         'audio_sample_rate' => 48000,
         'gop' => 30,
-        'start_timeout' => '20s',
+        'start_timeout' => '30s',
+        'live_start_timeout' => '45s',
         'close_after' => '30s',
     ],
 ];

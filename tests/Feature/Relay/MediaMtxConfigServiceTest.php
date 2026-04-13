@@ -70,6 +70,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $liveBlock);
         $this->assertStringContainsString("'libopus'", $liveBlock);
         $this->assertStringContainsString("-max_muxing_queue_size '1024'", $liveBlock);
+        $this->assertStringContainsString('runOnDemandStartTimeout: 45s', $liveBlock);
+        $this->assertStringContainsString('runOnDemandStartTimeout: 30s', $sourceBlock);
         $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $config);
         $this->assertStringNotContainsString('libx264', $liveBlock);
         $this->assertStringNotContainsString('-rw_timeout', $liveBlock);
