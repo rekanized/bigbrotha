@@ -7,6 +7,7 @@ use App\Jobs\ProcessCameraRecordingJob;
 use App\Models\Camera;
 use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
+use App\Services\Relay\MediaMtxPathNamer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Arr;
@@ -32,6 +33,7 @@ class CameraRecordingService
         private readonly CameraLiveStreamService $liveStreams,
         private readonly ContinuousRecordingSegmenterService $continuousSegmenter,
         private readonly MotionRecordingSegmenterService $motionSegmenter,
+        private readonly MediaMtxPathNamer $pathNamer,
     ) {
     }
 
@@ -365,6 +367,35 @@ class CameraRecordingService
             'authenticated_uri' => $this->injectCredentials($endpoint, $camera->username, $camera->password),
             'transport' => $this->transport($camera),
         ];
+    }
+
+    /**
+     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function resolveBufferedRecordingSource(Camera $camera, ?int $profileIndex = null): ?array
+    {
+        $source = $this->resolveRecordingSource($camera, $profileIndex);
+
+        if ($source === null) {
+            return null;
+        }
+
+        $relayReader = $this->relayReaderConfig();
+
+        if ($relayReader === null) {
+            return null;
+        }
+
+        $resolvedProfileIndex = is_numeric($source['index'] ?? null)
+            ? (int) $source['index']
+            : null;
+
+        return $this->relayCaptureSource(
+            $source,
+            $relayReader['base_url'].'/'.$this->pathNamer->sourcePathName($camera, $resolvedProfileIndex),
+            $relayReader['user'],
+            $relayReader['pass'],
+        );
     }
 
     /**
@@ -1630,54 +1661,10 @@ class CameraRecordingService
      */
     private function preferredMotionCaptureSource(Camera $camera, array $source): array
     {
-        if ((bool) config('recording.motion.use_relay_source', false)) {
-            return $this->recordingRelayCaptureSource($camera, $source) ?? $source;
-        }
-
-        return $this->sharedLiveRelayCaptureSource($camera, $source) ?? $source;
-    }
-
-    /**
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
-     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
-     */
-    private function recordingRelayCaptureSource(Camera $camera, array $source): ?array
-    {
-        $relayReader = $this->relayReaderConfig();
-
-        if ($relayReader === null) {
-            return null;
-        }
-
-        $resolvedProfileIndex = is_numeric($source['index'] ?? null)
-            ? (int) $source['index']
-            : null;
-        $path = $resolvedProfileIndex === null
-            ? 'camera-'.$camera->getKey().'-recording'
-            : 'camera-'.$camera->getKey().'-recording-profile-'.$resolvedProfileIndex;
-
-        return $this->relayCaptureSource($source, $relayReader['base_url'].'/'.$path, $relayReader['user'], $relayReader['pass']);
-    }
-
-    /**
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
-     * @return array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
-     */
-    private function sharedLiveRelayCaptureSource(Camera $camera, array $source): ?array
-    {
-        $relayReader = $this->relayReaderConfig();
-
-        if ($relayReader === null) {
-            return null;
-        }
-
-        $liveSource = $this->liveStreams->selectedWebRtcSource($camera);
-
-        if ($liveSource === null || ! $this->sourcesMatch($source, $liveSource)) {
-            return null;
-        }
-
-        return $this->relayCaptureSource($source, $relayReader['base_url'].'/camera-'.$camera->getKey().'-live', $relayReader['user'], $relayReader['pass']);
+        return $this->resolveBufferedRecordingSource(
+            $camera,
+            is_numeric($source['index'] ?? null) ? (int) $source['index'] : null,
+        ) ?? $source;
     }
 
     /**
@@ -1712,17 +1699,6 @@ class CameraRecordingService
             'pass' => $readerPass,
             'base_url' => $internalBaseUrl,
         ];
-    }
-
-    /**
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $left
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $right
-     */
-    private function sourcesMatch(array $left, array $right): bool
-    {
-        return is_numeric($left['index'] ?? null)
-            && is_numeric($right['index'] ?? null)
-            && (int) $left['index'] === (int) $right['index'];
     }
 
 

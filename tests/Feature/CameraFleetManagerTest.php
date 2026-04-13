@@ -837,7 +837,7 @@ XML, 200),
                         'online' => true,
                     ],
                     [
-                        'name' => 'camera-'.$camera->id.'-recording-profile-1',
+                        'name' => 'camera-'.$camera->id.'-source-profile-1',
                         'ready' => false,
                         'online' => false,
                     ],
@@ -871,7 +871,7 @@ XML, 200),
             ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
     }
 
-    public function test_motion_editor_session_returns_not_found_when_only_indirect_fallbacks_exist_for_the_selected_profile(): void
+    public function test_motion_editor_session_uses_a_profile_specific_live_path_when_the_default_live_path_is_not_playable(): void
     {
         config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
         config()->set('mediamtx.auth.token_secret', 'test-secret');
@@ -918,27 +918,6 @@ XML, 200),
 
         $operator = User::factory()->create();
 
-        $this->mock(RtspStreamDiagnosticsService::class, function ($mock) use ($camera): void {
-            $mock->shouldReceive('testAndPreview')
-                ->once()
-                ->withArgs(function (Camera $diagnosticCamera, array $profile, int $profileIndex) use ($camera): bool {
-                    return $diagnosticCamera->is($camera)
-                        && $profileIndex === 1
-                        && ($profile['path'] ?? null) === '/stream2';
-                })
-                ->andReturn([
-                    'token' => 'profile_2',
-                    'name' => 'minorStream',
-                    'encoding' => 'H264',
-                    'resolution' => '1280x720',
-                    'uri' => 'rtsp://192.168.1.66:554/stream2',
-                    'path' => '/stream2',
-                    'probe_status' => 'Healthy',
-                    'probe_source' => 'motion-buffer',
-                    'transport_persistable' => false,
-                ]);
-        });
-
         $this->mock(MediaMtxProcessService::class, function ($mock): void {
             $mock->shouldReceive('ensureRunning')->once()->andReturn([
                 'installed' => true,
@@ -955,11 +934,15 @@ XML, 200),
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
-            ->assertNotFound()
-            ->assertJsonPath('message', 'The selected recording stream is not available for live motion editing right now.');
+            ->assertOk()
+            ->assertJsonPath('camera.id', $camera->id)
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
+            ->assertJsonPath('profile_index', 1)
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
     }
 
-    public function test_motion_editor_session_reprobes_a_stale_selected_recording_profile_before_returning_not_found(): void
+    public function test_motion_editor_session_does_not_reprobe_the_camera_when_a_profile_specific_live_path_can_be_issued(): void
     {
         config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example.test/__webrtc');
         config()->set('mediamtx.auth.token_secret', 'test-secret');
@@ -1013,30 +996,6 @@ XML, 200),
 
         $operator = User::factory()->create();
 
-        $this->mock(RtspStreamDiagnosticsService::class, function ($mock) use ($camera): void {
-            $mock->shouldReceive('testAndPreview')
-                ->once()
-                ->withArgs(function (Camera $diagnosticCamera, array $profile, int $profileIndex) use ($camera): bool {
-                    return $diagnosticCamera->is($camera)
-                        && $profileIndex === 1
-                        && ($profile['path'] ?? null) === '/stream2';
-                })
-                ->andReturn([
-                    'token' => 'profile_2',
-                    'name' => 'minorStream',
-                    'encoding' => 'H264',
-                    'resolution' => '1280x720',
-                    'uri' => 'rtsp://192.168.1.72:554/stream2',
-                    'path' => '/stream2',
-                    'probe_status' => 'Healthy',
-                    'probe_source' => 'direct',
-                    'transport_persistable' => true,
-                    'transport' => 'TCP',
-                    'video_codec' => 'h264',
-                    'video_resolution' => '1280x720',
-                ]);
-        });
-
         $this->mock(MediaMtxProcessService::class, function ($mock): void {
             $mock->shouldReceive('ensureRunning')->once()->andReturn([
                 'installed' => true,
@@ -1055,15 +1014,15 @@ XML, 200),
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
-            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
             ->assertJsonPath('profile_index', 1)
-            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
 
         $camera->refresh();
 
-        $this->assertSame('direct', $camera->rtspProfiles()[1]['probe_source']);
-        $this->assertTrue($camera->rtspProfiles()[1]['transport_persistable']);
+        $this->assertSame('relay', $camera->rtspProfiles()[1]['probe_source']);
+        $this->assertFalse($camera->rtspProfiles()[1]['transport_persistable']);
     }
 
     public function test_it_falls_back_to_a_placeholder_image_when_a_saved_preview_is_invalid(): void

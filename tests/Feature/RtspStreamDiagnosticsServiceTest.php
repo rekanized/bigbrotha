@@ -331,7 +331,7 @@ BASH);
 #!/usr/bin/env bash
 joined="$*"
 
-if [[ "$joined" == *"camera-1-recording-profile-1"* ]]; then
+if [[ "$joined" == *"camera-1-source-profile-1"* ]]; then
     printf '%s' '{"streams":[{"codec_name":"h264","width":1280,"height":720}]}'
     exit 0
 fi
@@ -346,7 +346,7 @@ BASH);
 #!/usr/bin/env bash
 joined="$*"
 
-if [[ "$joined" != *"camera-1-recording-profile-1"* ]]; then
+if [[ "$joined" != *"camera-1-source-profile-1"* ]]; then
     echo 'rtsp://operator:secret@192.168.1.67:554/stream2: Operation not permitted' >&2
     exit 1
 fi
@@ -370,7 +370,7 @@ BASH);
                         'online' => false,
                     ],
                     [
-                        'name' => 'camera-'.$camera->id.'-recording-profile-1',
+                        'name' => 'camera-'.$camera->id.'-source-profile-1',
                         'ready' => true,
                         'online' => true,
                     ],

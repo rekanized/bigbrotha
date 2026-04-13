@@ -14,11 +14,12 @@ class MediaMtxConfigService
         private readonly CameraLiveStreamService $streamService,
         private readonly CameraRecordingService $recordingService,
         private readonly MediaMtxPathStatusService $pathStatusService,
+        private readonly MediaMtxPathNamer $pathNamer,
     ) {
     }
 
     /**
-     * @return array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraRelayDefinition(Camera $camera): ?array
     {
@@ -31,6 +32,7 @@ class MediaMtxConfigService
         return [
             'mode' => 'live',
             'path' => $this->cameraPathName($camera),
+            'source_path' => $this->sourcePathName($camera, $selection['index']),
             'index' => $selection['index'],
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
@@ -40,11 +42,16 @@ class MediaMtxConfigService
 
     public function cameraPathName(Camera $camera): string
     {
-        return 'camera-'.$camera->getKey().'-live';
+        return $this->pathNamer->livePathName($camera);
+    }
+
+    public function sourcePathName(Camera $camera, ?int $profileIndex = null): string
+    {
+        return $this->pathNamer->sourcePathName($camera, $profileIndex);
     }
 
     /**
-     * @return array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraLivePlaybackDefinition(Camera $camera): ?array
     {
@@ -54,9 +61,17 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
+    {
+        return $this->cameraSourceRelayDefinition($camera, $profileIndex);
+    }
+
+    /**
+     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function cameraSourceRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
         $selection = $this->recordingService->resolveRecordingSource($camera, $profileIndex);
 
@@ -65,8 +80,9 @@ class MediaMtxConfigService
         }
 
         return [
-            'mode' => 'recording',
-            'path' => $this->recordingPathName($camera, $selection['index']),
+            'mode' => 'source',
+            'path' => $this->sourcePathName($camera, $selection['index']),
+            'source_path' => $this->sourcePathName($camera, $selection['index']),
             'index' => $selection['index'],
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
@@ -75,31 +91,51 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     */
+    public function cameraProfilePlaybackDefinition(Camera $camera, ?int $profileIndex = null): ?array
+    {
+        $selection = $this->recordingService->resolveRecordingSource($camera, $profileIndex);
+
+        if ($selection === null) {
+            return null;
+        }
+
+        return [
+            'mode' => 'live',
+            'path' => $this->pathNamer->liveProfilePathName($camera, $selection['index']),
+            'source_path' => $this->sourcePathName($camera, $selection['index']),
+            'index' => $selection['index'],
+            'profile' => $selection['profile'],
+            'authenticated_uri' => $selection['authenticated_uri'],
+            'transport' => $selection['transport'],
+        ];
+    }
+
+    /**
+     * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     public function cameraMotionEditorRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
-        $recordingDefinition = $this->cameraRecordingRelayDefinition($camera, $profileIndex);
+        $sourceDefinition = $this->cameraSourceRelayDefinition($camera, $profileIndex);
 
-        if ($recordingDefinition === null) {
+        if ($sourceDefinition === null) {
             return null;
         }
 
         $liveDefinition = $this->cameraLivePlaybackDefinition($camera);
 
         if ($liveDefinition !== null
-            && $this->definitionsMatchProfile($liveDefinition, $recordingDefinition)) {
+            && $this->definitionsMatchProfile($liveDefinition, $sourceDefinition)) {
             return $liveDefinition;
         }
 
-        return $this->playableRelayDefinition($recordingDefinition);
+        return $this->cameraProfilePlaybackDefinition($camera, $sourceDefinition['index']);
     }
 
     public function recordingPathName(Camera $camera, ?int $profileIndex = null): string
     {
-        return $profileIndex === null
-            ? 'camera-'.$camera->getKey().'-recording'
-            : 'camera-'.$camera->getKey().'-recording-profile-'.$profileIndex;
+        return $this->sourcePathName($camera, $profileIndex);
     }
 
     public function browserPlayerUrl(Camera $camera, ?Request $request = null): ?string
@@ -144,8 +180,9 @@ class MediaMtxConfigService
 
     public function buildConfig(): string
     {
-        $definitions = $this->enabledRelayDefinitions()
-            ->merge($this->recordingRelayDefinitions())
+        $definitions = $this->sourceRelayDefinitions()
+            ->merge($this->enabledRelayDefinitions())
+            ->merge($this->profilePlaybackDefinitions())
             ->unique('path')
             ->values();
         $ffmpegBinary = $this->streamService->ffmpegBinary();
@@ -208,7 +245,7 @@ class MediaMtxConfigService
             $lines[] = '  '.$definition['path'].':';
             $lines[] = '    source: publisher';
             $lines[] = '    runOnDemand: >-';
-            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition['mode'], $definition['profile'], $definition['authenticated_uri'], $definition['transport']);
+            $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition);
             $lines[] = '    runOnDemandRestart: false';
             $lines[] = '    runOnDemandStartTimeout: '.config('mediamtx.transcode.start_timeout', '20s');
             $lines[] = '    runOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
@@ -218,7 +255,7 @@ class MediaMtxConfigService
     }
 
     /**
-    * @return Collection<int, array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+    * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
     private function enabledRelayDefinitions(): Collection
     {
@@ -233,9 +270,9 @@ class MediaMtxConfigService
     }
 
     /**
-    * @return Collection<int, array{mode: 'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     * @return Collection<int, array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
-    private function recordingRelayDefinitions(): Collection
+    private function sourceRelayDefinitions(): Collection
     {
         return Camera::query()
             ->where('supports_rtsp', true)
@@ -243,7 +280,7 @@ class MediaMtxConfigService
             ->get()
             ->flatMap(function (Camera $camera): array {
                 $definitions = [];
-                $defaultDefinition = $this->cameraRecordingRelayDefinition($camera);
+                $defaultDefinition = $this->cameraSourceRelayDefinition($camera);
 
                 if ($defaultDefinition !== null) {
                     $definitions[] = $defaultDefinition;
@@ -254,7 +291,7 @@ class MediaMtxConfigService
                         continue;
                     }
 
-                    $definition = $this->cameraRecordingRelayDefinition($camera, (int) $index);
+                    $definition = $this->cameraSourceRelayDefinition($camera, (int) $index);
 
                     if ($definition !== null) {
                         $definitions[] = $definition;
@@ -267,8 +304,37 @@ class MediaMtxConfigService
     }
 
     /**
-     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $left
-     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $right
+     * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     */
+    private function profilePlaybackDefinitions(): Collection
+    {
+        return Camera::query()
+            ->where('supports_rtsp', true)
+            ->orderBy('name')
+            ->get()
+            ->flatMap(function (Camera $camera): array {
+                $definitions = [];
+
+                foreach ($camera->rtspProfiles() as $index => $profile) {
+                    if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+                        continue;
+                    }
+
+                    $definition = $this->cameraProfilePlaybackDefinition($camera, (int) $index);
+
+                    if ($definition !== null) {
+                        $definitions[] = $definition;
+                    }
+                }
+
+                return $definitions;
+            })
+            ->values();
+    }
+
+    /**
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $left
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $right
      */
     private function definitionsMatchProfile(array $left, array $right): bool
     {
@@ -281,8 +347,8 @@ class MediaMtxConfigService
     }
 
     /**
-     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null  $definition
-     * @return array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null  $definition
+    * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     private function playableRelayDefinition(?array $definition): ?array
     {
@@ -298,7 +364,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @param  array{mode: 'live'|'recording', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
      */
     private function definitionSupportsColdStart(array $definition): bool
     {
@@ -342,13 +408,17 @@ class MediaMtxConfigService
     }
 
     /**
-     * @param  array<string, string|null>  $profile
      */
-    private function buildRunOnDemandCommand(string $ffmpegBinary, string $mode, array $profile, string $authenticatedUri, string $transport): string
+    private function buildRunOnDemandCommand(string $ffmpegBinary, array $definition): string
     {
-        return $mode === 'recording'
-            ? $this->buildRecordingRunOnDemandCommand($ffmpegBinary, $authenticatedUri, $transport)
-            : $this->buildLiveRunOnDemandCommand($ffmpegBinary, $profile, $authenticatedUri, $transport);
+        return $definition['mode'] === 'source'
+            ? $this->buildSourceRunOnDemandCommand($ffmpegBinary, $definition['authenticated_uri'], $definition['transport'])
+            : $this->buildLiveRunOnDemandCommand(
+                $ffmpegBinary,
+                $definition['profile'],
+                $this->internalReaderUrl($definition['source_path']),
+                'tcp',
+            );
     }
 
     /**
@@ -463,7 +533,7 @@ class MediaMtxConfigService
         return implode(' ', $command);
     }
 
-    private function buildRecordingRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
+    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
     {
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
         $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
@@ -527,6 +597,19 @@ class MediaMtxConfigService
         );
 
         return implode(' ', $command);
+    }
+
+    private function internalReaderUrl(string $path): string
+    {
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url', ''), '/');
+        $readerUser = rawurlencode((string) config('mediamtx.auth.reader_user', ''));
+        $readerPass = rawurlencode((string) config('mediamtx.auth.reader_pass', ''));
+
+        if ($readerUser === '' || $readerPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
+            return $baseUrl.'/'.$path;
+        }
+
+        return 'rtsp://'.$readerUser.':'.$readerPass.'@'.substr($baseUrl, strlen('rtsp://')).'/'.$path;
     }
 
     /**

@@ -307,7 +307,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
         $this->assertFileExists($inputLogPath);
         $this->assertSame(
-            'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-recording',
+            'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-source',
             trim((string) File::get($inputLogPath)),
         );
     }
@@ -840,7 +840,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame('rtsp://192.168.1.69:554/stream2', $source['authenticated_uri']);
     }
 
-    public function test_it_uses_the_resolved_source_index_for_motion_relay_paths_when_selection_is_automatic(): void
+    public function test_it_uses_the_resolved_source_index_for_motion_source_paths_when_selection_is_automatic(): void
     {
         config()->set('recording.motion.use_relay_source', true);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
@@ -891,7 +891,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->with(
                 \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
                 \Mockery::on(fn (array $source): bool => ($source['index'] ?? null) === 1
-                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-recording-profile-1'
+                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-source-profile-1'
                     && ($source['transport'] ?? null) === 'tcp'),
             )
             ->andReturn([
@@ -922,7 +922,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         ], $result);
     }
 
-    public function test_it_reuses_the_live_relay_for_motion_capture_when_the_recording_source_matches_the_live_profile(): void
+    public function test_it_uses_the_shared_source_relay_for_motion_capture_when_the_recording_source_matches_the_live_profile(): void
     {
         config()->set('recording.motion.use_relay_source', false);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
@@ -976,7 +976,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->with(
                 \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
                 \Mockery::on(fn (array $source): bool => ($source['index'] ?? null) === 1
-                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-live'
+                    && ($source['authenticated_uri'] ?? null) === 'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-source-profile-1'
                     && ($source['transport'] ?? null) === 'tcp'),
             )
             ->andReturn([

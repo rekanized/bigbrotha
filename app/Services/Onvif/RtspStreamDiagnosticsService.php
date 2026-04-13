@@ -539,11 +539,11 @@ class RtspStreamDiagnosticsService
             ];
         }
 
-        $recordingDefinition = $this->relayConfig->cameraRecordingRelayDefinition($camera, $profileIndex);
+        $recordingDefinition = $this->relayConfig->cameraSourceRelayDefinition($camera, $profileIndex);
 
         if ($recordingDefinition !== null && $this->relayMatchesProfile($recordingDefinition, $profile, $profileIndex)) {
             $definitions[] = [
-                'label' => 'Recording relay',
+                'label' => 'Buffered source relay',
                 'path' => $recordingDefinition['path'],
                 'transport' => 'tcp',
             ];

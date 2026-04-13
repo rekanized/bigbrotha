@@ -271,7 +271,8 @@ Artisan::command('camera-recordings:tick', function (): int {
                         continue;
                     }
 
-                    $source = $recordings->resolveRecordingSource($camera);
+                    $source = $recordings->resolveBufferedRecordingSource($camera)
+                        ?? $recordings->resolveRecordingSource($camera);
 
                     if ($source === null) {
                         $continuousRecorders->stop($camera);

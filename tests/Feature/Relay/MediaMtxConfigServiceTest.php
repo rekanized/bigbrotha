@@ -46,13 +46,18 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
+    $sourceBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0');
         $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
         $this->assertStringContainsString('camera-'.$camera->id.'-live:', $config);
+    $this->assertStringContainsString('camera-'.$camera->id.'-source-profile-0:', $config);
         $this->assertStringContainsString("webrtcLocalTCPAddress: ''", $config);
+    $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $sourceBlock);
+    $this->assertStringContainsString('-c copy', $sourceBlock);
         $this->assertStringContainsString('-map 0:v:0', $liveBlock);
         $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
-        $this->assertStringContainsString('-c:v copy', $liveBlock);
+    $this->assertStringContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
+    $this->assertStringContainsString('-c:v copy', $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
         $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $liveBlock);
@@ -71,7 +76,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString(' -an ', $liveBlock);
     }
 
-    public function test_build_config_uses_copy_pipeline_for_recording_run_on_demand_commands(): void
+    public function test_build_config_uses_copy_pipeline_for_source_run_on_demand_commands(): void
     {
         $binaryDirectory = storage_path('framework/testing');
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-recording-copy-test';
@@ -106,24 +111,24 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
-        $recordingBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-recording-profile-0');
+        $sourceBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0');
 
-        $this->assertStringContainsString("-thread_queue_size '1024'", $recordingBlock);
-        $this->assertStringContainsString("-timeout '20000000'", $recordingBlock);
-        $this->assertStringContainsString("-rtbufsize '128M'", $recordingBlock);
-        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $recordingBlock);
-        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $recordingBlock);
-        $this->assertStringContainsString("-analyzeduration '1000000'", $recordingBlock);
-        $this->assertStringContainsString("-probesize '262144'", $recordingBlock);
-        $this->assertStringContainsString("-fps_mode 'passthrough'", $recordingBlock);
-        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $recordingBlock);
-        $this->assertStringContainsString('-sn', $recordingBlock);
-        $this->assertStringContainsString('-dn', $recordingBlock);
-        $this->assertStringContainsString('-c copy', $recordingBlock);
-        $this->assertStringNotContainsString('-c:a', $recordingBlock);
-        $this->assertStringNotContainsString('-af', $recordingBlock);
-        $this->assertStringNotContainsString('libopus', $recordingBlock);
-        $this->assertStringNotContainsString('libx264', $recordingBlock);
+        $this->assertStringContainsString("-thread_queue_size '1024'", $sourceBlock);
+        $this->assertStringContainsString("-timeout '20000000'", $sourceBlock);
+        $this->assertStringContainsString("-rtbufsize '128M'", $sourceBlock);
+        $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $sourceBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $sourceBlock);
+        $this->assertStringContainsString("-analyzeduration '1000000'", $sourceBlock);
+        $this->assertStringContainsString("-probesize '262144'", $sourceBlock);
+        $this->assertStringContainsString("-fps_mode 'passthrough'", $sourceBlock);
+        $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $sourceBlock);
+        $this->assertStringContainsString('-sn', $sourceBlock);
+        $this->assertStringContainsString('-dn', $sourceBlock);
+        $this->assertStringContainsString('-c copy', $sourceBlock);
+        $this->assertStringNotContainsString('-c:a', $sourceBlock);
+        $this->assertStringNotContainsString('-af', $sourceBlock);
+        $this->assertStringNotContainsString('libopus', $sourceBlock);
+        $this->assertStringNotContainsString('libx264', $sourceBlock);
     }
 
     public function test_build_config_transcodes_non_h264_video_sources(): void
