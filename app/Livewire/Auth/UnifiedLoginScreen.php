@@ -12,6 +12,8 @@ class UnifiedLoginScreen extends Component
 
     public string $password = '';
 
+    public bool $showLocalForm = false;
+
     public bool $remember = true;
 
     public bool $manualAuthAvailable = false;
@@ -22,10 +24,18 @@ class UnifiedLoginScreen extends Component
     {
         $this->manualAuthAvailable = $settings->manualAuthEnabled();
         $this->googleAuthAvailable = $settings->googleAuthEnabled();
+        $this->showLocalForm = $this->manualAuthAvailable && !$this->googleAuthAvailable;
+    }
+
+    public function beginLocalSignIn(): void
+    {
+        $this->showLocalForm = true;
     }
 
     public function login(LocalAuthenticationService $localAuthentication, AuthenticationSettingsService $settings)
     {
+        $this->showLocalForm = true;
+
         if (!$settings->manualAuthEnabled()) {
             $this->addError('email', 'Local sign-in is disabled for this application.');
 

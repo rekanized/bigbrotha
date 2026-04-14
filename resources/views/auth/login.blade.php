@@ -18,7 +18,7 @@
         @livewireStyles
     </head>
     <body class="auth-page">
-        <main class="auth-shell">
+        <main class="auth-shell auth-shell--wide">
             <livewire:auth.unified-login-screen />
         </main>
 

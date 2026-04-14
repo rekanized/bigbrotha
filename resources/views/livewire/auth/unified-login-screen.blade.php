@@ -1,5 +1,5 @@
 @php
-    $authMethodCount = ($manualAuthAvailable ? 1 : 0) + ($googleAuthAvailable ? 1 : 0);
+    $hasDualAuth = $manualAuthAvailable && $googleAuthAvailable;
 @endphp
 
 <section class="auth-card page-card auth-card--wide">
@@ -25,9 +25,25 @@
         <div class="notice notice--error">No authentication methods are currently enabled. Ask an administrator to restore sign-in access from the admin settings page.</div>
     @endif
 
-    <div class="auth-login-grid{{ $authMethodCount === 1 ? ' auth-login-grid--single' : '' }}">
-        @if ($manualAuthAvailable)
-            <form class="auth-card__section" wire:submit="login">
+    @if ($hasDualAuth)
+        <div class="auth-method-switches" aria-label="Available sign-in methods">
+            <button
+                class="button {{ $showLocalForm ? 'button--primary' : 'button--soft' }} auth-method-switch"
+                type="button"
+                wire:click="beginLocalSignIn"
+            >
+                Local sign-in
+            </button>
+
+            <a class="button button--soft auth-method-switch" href="{{ route('auth.google.redirect') }}">
+                Continue with Google
+            </a>
+        </div>
+    @endif
+
+    @if ($manualAuthAvailable && (!$hasDualAuth || $showLocalForm))
+        <div class="auth-login-grid auth-login-grid--single">
+            <form class="auth-card__section auth-card__section--local" wire:submit="login">
                 <div>
                     <h2 class="panel-title">Local sign-in</h2>
                     <p class="panel-copy">Use the email address and password assigned to your local operator account.</p>
@@ -56,14 +72,12 @@
 
                 <button class="button button--primary auth-card__button" type="submit">Sign in with local account</button>
             </form>
-        @endif
+        </div>
+    @endif
 
-        @if ($manualAuthAvailable && $googleAuthAvailable)
-            <div class="auth-divider" aria-hidden="true">or</div>
-        @endif
-
-        @if ($googleAuthAvailable)
-            <div class="auth-card__section">
+    @if ($googleAuthAvailable && !$manualAuthAvailable)
+        <div class="auth-login-grid auth-login-grid--single">
+            <div class="auth-card__section auth-card__section--single-action">
                 <div>
                     <h2 class="panel-title">Google OAuth</h2>
                     <p class="panel-copy">Use the approved Google account assigned to your operator profile.</p>
@@ -73,8 +87,8 @@
                     Continue with Google
                 </a>
             </div>
-        @endif
-    </div>
+        </div>
+    @endif
 
     <p class="auth-card__footnote">Operator access controls live viewing, recordings, camera management, and admin tooling.</p>
 </section>
