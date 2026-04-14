@@ -3,7 +3,7 @@ name: ${COMPOSE_PROJECT_NAME:-bigbrotha}
 x-app-environment: &app-environment
   APP_ENV: production
   APP_DEBUG: "false"
-  APP_URL: ${APP_URL:-https://monitor-test.schollinetz.com}
+  APP_URL: ${APP_URL:-http://localhost}
   APP_KEY_FILE: /app/bootstrap-persist/app.key
   CACHE_STORE: database
   DB_CONNECTION: pgsql
@@ -15,7 +15,7 @@ x-app-environment: &app-environment
   CAMERA_RECORDING_WORKER_PROCESSES: ${CAMERA_RECORDING_WORKER_PROCESSES:-1}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-https://monitor-test.schollinetz.com/auth/google/callback}
+  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost/auth/google/callback}
   LOG_CHANNEL: stderr
   MEDIAMTX_API_BASE_URL: http://relay:9997
   MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
