@@ -726,6 +726,99 @@ class AdminSettingsTest extends TestCase
         $this->assertFileDoesNotExist($absolutePath);
     }
 
+    public function test_camera_storage_keeps_preview_files_local_when_network_storage_is_enabled(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Preview Lane',
+            'local_ip' => '192.168.1.215',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream6',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $relativePath = 'cameras/'.$camera->id.'/previews/network-preview.jpg';
+        $absolutePath = $storage->writableAbsolutePath($relativePath);
+
+        $this->assertSame(
+            storage_path('app/private/'.$relativePath),
+            $absolutePath,
+        );
+        $this->assertFalse($storage->pathUsesNetworkStorage($relativePath));
+
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'preview');
+        $storage->finalizeStagedWrite($relativePath, $absolutePath);
+
+        $this->assertFileExists($absolutePath);
+        $this->assertFileDoesNotExist(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/previews/network-preview.jpg'));
+    }
+
+    public function test_camera_storage_keeps_review_assets_local_when_network_storage_is_enabled(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Review Lane',
+            'local_ip' => '192.168.1.216',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream7',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $recordingRelativePath = 'cameras/'.$camera->id.'/recordings/2026/04/07/review-check.mkv';
+        $manifestRelativePath = $storage->recordingReviewAssetRelativePath($recordingRelativePath, 'manifest.json');
+        $manifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($recordingRelativePath, 'manifest.json', true);
+
+        $this->assertSame(
+            storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/07/_review/review-check/manifest.json'),
+            $manifestAbsolutePath,
+        );
+        $this->assertFalse($storage->pathUsesNetworkStorage($manifestRelativePath));
+
+        File::ensureDirectoryExists(dirname($manifestAbsolutePath));
+        File::put($manifestAbsolutePath, '{}');
+        $storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
+
+        $this->assertFileExists($manifestAbsolutePath);
+        $this->assertFileDoesNotExist(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/2026/04/07/_review/review-check/manifest.json'));
+    }
+
     public function test_camera_storage_keeps_the_staged_network_file_when_post_upload_verification_fails(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(

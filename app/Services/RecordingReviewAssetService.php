@@ -391,8 +391,7 @@ class RecordingReviewAssetService
             return false;
         }
 
-        return $this->storage->usingNetworkStorage()
-            && str_starts_with(ltrim($relativePath, '/'), 'cameras/');
+        return $this->storage->pathUsesNetworkStorage($relativePath);
     }
 
     /**
@@ -954,8 +953,7 @@ class RecordingReviewAssetService
             return false;
         }
 
-        return $this->storage->usingNetworkStorage()
-            && str_starts_with(ltrim($normalizedPath, '/'), 'cameras/');
+        return $this->storage->pathUsesNetworkStorage($normalizedPath);
     }
 
     private function scrubFrameCount(CameraRecording $recording): int

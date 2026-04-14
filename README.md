@@ -82,7 +82,29 @@ docker compose exec app php artisan relay:sync
 
 BigBrotha now targets a single supported runtime: the Docker Compose stack in `docker-compose.yml`.
 
-Quick start:
+Use `./docker/compose.sh` for routine Compose commands so the selected `.env.docker` file and `COMPOSE_PROJECT_NAME` stay aligned across `pull`, `up`, `ps`, `logs`, and `exec`.
+
+Plain `docker compose up -d` does not read `.env.docker` for Compose-level interpolation. If you skip `--env-file .env.docker` or the wrapper, published host ports and `COMPOSE_PROJECT_NAME` fall back to the defaults baked into [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml).
+
+The default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) consumes published Docker Hub images:
+
+- `rekanized/bigbrotha-app:latest`
+- `rekanized/bigbrotha-web:latest`
+
+Quick start from published images:
+
+```bash
+./docker/compose.sh pull
+./docker/compose.sh up -d
+```
+
+If this host requires Docker commands through sudo, run:
+
+```bash
+sudo ./docker/compose.sh up -d
+```
+
+Quick start from a source checkout that should build images locally:
 
 ```bash
 ./docker/compose-up.sh
@@ -91,8 +113,14 @@ Quick start:
 Review these values before first startup:
 
 - `.env.docker` copied from `.env.docker.example`
+- `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
 - `./.docker-state/app.key` preserved after the first successful boot
+- `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you want to pin a non-default image tag
 - `APP_URL`
+- `WEB_BIND_IP` if the web listener should not bind all host interfaces
+- `WEB_PORT`
+- `MEDIAMTX_ICE_BIND_IP` if the WebRTC ICE listener should not bind all host interfaces
+- `MEDIAMTX_ICE_PORT`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
@@ -101,21 +129,23 @@ Review these values before first startup:
 
 Container notes:
 
-- the app image includes the repository `bin/ffmpeg` and `bin/ffprobe` binaries plus the bundled MediaMTX binary.
+- the published app image includes ffmpeg, ffprobe, and the bundled MediaMTX binary.
 - the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then serves `php-fpm`.
-- `./docker/compose-up.sh` reads `.env.docker` and scales the `worker` service to match `CAMERA_RECORDING_WORKER_PROCESSES`.
+- `./docker/compose.sh` wraps the default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.
+- `./docker/compose-up.sh` reads `.env.docker`, uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml), and scales the `worker` service to match `CAMERA_RECORDING_WORKER_PROCESSES`.
 - the `worker` and `scheduler` containers wait for the app bootstrap marker and rely on Docker healthchecks and restart policies instead of cron or systemd.
 - internal service traffic uses Docker DNS names: `database`, `app`, and `web`.
 - the bundled PostgreSQL service stays internal to the Compose network by default.
+- MediaMTX signaling and API traffic stay internal to the Compose network; only the web port and WebRTC ICE port need to be unique on the host.
 - the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
 - app services can also load `DB_PASSWORD_FILE`, `GOOGLE_CLIENT_ID_FILE`, and `GOOGLE_CLIENT_SECRET_FILE` when you want to move those values out of `.env.docker`.
 
 Verification:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 app web worker scheduler
-docker compose exec app php artisan relay:status
+./docker/compose.sh ps
+./docker/compose.sh logs --tail=100 app web worker scheduler
+./docker/compose.sh exec app php artisan relay:status
 ```
 
 What you should see:
@@ -137,22 +167,22 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 ## Useful Commands
 
 ```bash
-docker compose exec app php artisan test
-docker compose exec app php artisan camera-fleet:refresh-previews
-docker compose exec app php artisan camera-recordings:tick
-docker compose exec app php artisan camera-recordings:prune
-docker compose exec app php artisan camera-recordings:prune-audit
-docker compose exec app php artisan camera-recordings:orphans
-docker compose exec app php artisan camera-recordings:orphans --purge
-docker compose exec app php artisan camera-recordings:build-review-assets --missing
-docker compose exec app php artisan camera-recordings:build-review-assets --missing --limit=10
-docker compose exec app php artisan camera-recordings:queue-review-assets --camera_id=12
-docker compose exec app php artisan camera-recordings:queue-review-assets --date_from=2026-04-01 --date_to=2026-04-03
-docker compose exec app php artisan config:clear
-docker compose exec app php artisan view:clear
-docker compose exec app php artisan relay:sync
-docker compose exec app php artisan relay:start
-docker compose exec app php artisan relay:status
+./docker/compose.sh exec app php artisan test
+./docker/compose.sh exec app php artisan camera-fleet:refresh-previews
+./docker/compose.sh exec app php artisan camera-recordings:tick
+./docker/compose.sh exec app php artisan camera-recordings:prune
+./docker/compose.sh exec app php artisan camera-recordings:prune-audit
+./docker/compose.sh exec app php artisan camera-recordings:orphans
+./docker/compose.sh exec app php artisan camera-recordings:orphans --purge
+./docker/compose.sh exec app php artisan camera-recordings:build-review-assets --missing
+./docker/compose.sh exec app php artisan camera-recordings:build-review-assets --missing --limit=10
+./docker/compose.sh exec app php artisan camera-recordings:queue-review-assets --camera_id=12
+./docker/compose.sh exec app php artisan camera-recordings:queue-review-assets --date_from=2026-04-01 --date_to=2026-04-03
+./docker/compose.sh exec app php artisan config:clear
+./docker/compose.sh exec app php artisan view:clear
+./docker/compose.sh exec app php artisan relay:sync
+./docker/compose.sh exec app php artisan relay:start
+./docker/compose.sh exec app php artisan relay:status
 ```
 
 ## Resume Guidance

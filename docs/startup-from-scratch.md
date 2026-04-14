@@ -16,7 +16,13 @@ Use this when you are bringing up a new BigBrotha deployment from nothing.
 
 BigBrotha now targets a single supported runtime: Docker Compose.
 
-The stack in [docker-compose.yml](../docker-compose.yml) runs these services:
+The default stack in [docker-compose.yml](../docker-compose.yml) runs from published Docker Hub images. Local source builds use [docker-compose.build.yml](../docker-compose.build.yml) as an override.
+
+Use `./docker/compose.sh` for routine Compose commands so the selected `.env.docker` file and `COMPOSE_PROJECT_NAME` stay aligned across the deployment lifecycle.
+
+Plain `docker compose up -d` does not read `.env.docker` for Compose-level interpolation. If you skip `--env-file .env.docker` or the wrapper, published host ports and `COMPOSE_PROJECT_NAME` fall back to the defaults baked into [docker-compose.yml](../docker-compose.yml).
+
+The stack runs these services:
 
 - `app` for Laravel under `php-fpm` plus the bundled MediaMTX relay.
 - `web` for Nginx and `/__webrtc/` proxying.
@@ -35,8 +41,12 @@ The stack in [docker-compose.yml](../docker-compose.yml) runs these services:
 Before startup, review these values in [docker-compose.yml](../docker-compose.yml):
 
 - copy `.env.docker.example` to `.env.docker`
+- `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
+- `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you need to pin specific published tags
 - `APP_URL`
+- `WEB_BIND_IP`
 - `WEB_PORT`
+- `MEDIAMTX_ICE_BIND_IP`
 - `MEDIAMTX_ICE_PORT`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
@@ -46,9 +56,26 @@ Before startup, review these values in [docker-compose.yml](../docker-compose.ym
 
 For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and Google OAuth use.
 
+For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `APP_URL`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`. MediaMTX signaling and API traffic stay internal to the Compose network, so they do not need separate host ports per stack.
+
 If you want file-backed secrets instead of environment values, the app containers also accept `DB_PASSWORD_FILE`, `GOOGLE_CLIENT_ID_FILE`, and `GOOGLE_CLIENT_SECRET_FILE`.
 
 ## 2. Start The Stack
+
+For a normal deployment that should pull published images:
+
+```bash
+./docker/compose.sh pull
+./docker/compose.sh up -d
+```
+
+If this host requires Docker commands through sudo, run:
+
+```bash
+sudo ./docker/compose.sh up -d
+```
+
+For a local source checkout that should build images from the repository:
 
 ```bash
 ./docker/compose-up.sh
@@ -71,9 +98,9 @@ The current onboarding flow uses direct ONVIF probes from Camera Fleet, so this 
 ## 4. Verify Startup
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 app web worker scheduler
-docker compose exec app php artisan relay:status
+./docker/compose.sh ps
+./docker/compose.sh logs --tail=100 app web worker scheduler
+./docker/compose.sh exec app php artisan relay:status
 ```
 
 What you should see:
@@ -85,19 +112,21 @@ What you should see:
 ## 5. Useful Runtime Commands
 
 ```bash
-docker compose exec app php artisan relay:sync
-docker compose exec app php artisan relay:start
-docker compose exec app php artisan relay:status
-docker compose exec app php artisan camera-recordings:tick
-docker compose exec app php artisan camera-recordings:prune
-docker compose exec app php artisan camera-recordings:build-review-assets --missing
-docker compose exec app php artisan test
+./docker/compose.sh exec app php artisan relay:sync
+./docker/compose.sh exec app php artisan relay:start
+./docker/compose.sh exec app php artisan relay:status
+./docker/compose.sh exec app php artisan camera-recordings:tick
+./docker/compose.sh exec app php artisan camera-recordings:prune
+./docker/compose.sh exec app php artisan camera-recordings:build-review-assets --missing
+./docker/compose.sh exec app php artisan test
 ```
 
 ## Notes
 
 - The worker pool is Docker-managed. Do not install host cron jobs or systemd units for queue work.
-- `./docker/compose-up.sh` scales the `worker` service to the same value as `CAMERA_RECORDING_WORKER_PROCESSES`.
+- The default [docker-compose.yml](../docker-compose.yml) is image-first so a deployment can run from Docker Hub without local Docker builds.
+- `./docker/compose.sh` keeps routine Compose commands pinned to the same `.env.docker` file and `COMPOSE_PROJECT_NAME`.
+- `./docker/compose-up.sh` explicitly uses the repo-root compose files, builds from source, and scales the `worker` service to the same value as `CAMERA_RECORDING_WORKER_PROCESSES`.
 - Keep `./.docker-state/app.key` with the deployment. If that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The bundled PostgreSQL service stays internal to the Compose network by default.
 - The relay, database, and Laravel services communicate through Docker DNS names such as `app`, `web`, and `database`.

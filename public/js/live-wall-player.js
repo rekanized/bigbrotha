@@ -20,6 +20,7 @@
         players: [],
         readerScriptPromise: null,
         readerScriptUrl: '',
+        reconnectDelayMs: 15000,
     };
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
@@ -220,6 +221,7 @@
             this.reader = null;
             this.closed = false;
             this.hasRetriedFreshSession = false;
+            this.retryTimeout = null;
 
             this.handleAudioToggle = this.handleAudioToggle.bind(this);
 
@@ -234,6 +236,7 @@
             }
 
             this.closed = false;
+            this.clearRetryTimeout();
 
                 if (this.isAudioSelectable) {
                 this.video.defaultMuted = true;
@@ -477,10 +480,15 @@
                 return;
             }
 
-            this.setMessage(error instanceof Error ? error.message : `Unable to play ${this.label}.`);
+            this.destroyConnection();
+            const failureMessage = error instanceof Error ? error.message : `Unable to play ${this.label}.`;
+            this.setMessage(`${failureMessage} Retrying in 15 seconds.`);
+            this.scheduleReconnect();
         }
 
         destroyConnection() {
+            this.clearRetryTimeout();
+
             if (this.reader && typeof this.reader.close === 'function') {
                 this.reader.close();
                 this.reader = null;
@@ -500,6 +508,7 @@
 
         close() {
             this.closed = true;
+            this.clearRetryTimeout();
 
             if (this.isAudioSelectable) {
                 this.audioToggle.removeEventListener('click', this.handleAudioToggle);
@@ -597,6 +606,33 @@
             });
 
             await state.readerScriptPromise;
+        }
+
+        scheduleReconnect() {
+            if (this.closed) {
+                return;
+            }
+
+            this.clearRetryTimeout();
+            this.retryTimeout = window.setTimeout(() => {
+                this.retryTimeout = null;
+
+                if (this.closed) {
+                    return;
+                }
+
+                this.hasRetriedFreshSession = false;
+                this.connect().catch((error) => {
+                    this.handleFailure(error);
+                });
+            }, state.reconnectDelayMs);
+        }
+
+        clearRetryTimeout() {
+            if (this.retryTimeout !== null) {
+                window.clearTimeout(this.retryTimeout);
+                this.retryTimeout = null;
+            }
         }
 
         setMessage(message) {

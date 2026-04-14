@@ -2,11 +2,12 @@
 
 namespace App\Services\Relay;
 
-use Illuminate\Support\Facades\Http;
-use Throwable;
+use App\Services\Relay\Concerns\InteractsWithMediaMtxApi;
 
 class MediaMtxPathStatusService
 {
+    use InteractsWithMediaMtxApi;
+
     /**
      * @var array<string, true>|null
      */
@@ -21,45 +22,39 @@ class MediaMtxPathStatusService
             return $this->activePaths;
         }
 
-        $baseUrl = rtrim((string) config('mediamtx.api.base_url', ''), '/');
-
-        if ($baseUrl === '') {
+        if ($this->mediaMtxApiBaseUrls() === []) {
             return $this->activePaths = [];
         }
 
-        try {
-            $response = Http::timeout(2)->get($baseUrl.'/v3/paths/list');
+        $payload = $this->mediaMtxApiJson('/v3/paths/list');
 
-            if (!$response->successful()) {
-                return $this->activePaths = [];
-            }
-
-            $items = $response->json('items');
-
-            if (!is_array($items)) {
-                return $this->activePaths = [];
-            }
-
-            $paths = [];
-
-            foreach ($items as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-
-                $name = $this->stringOrNull($item['name'] ?? null);
-
-                if ($name === null || !((bool) ($item['ready'] ?? false) && (bool) ($item['online'] ?? false))) {
-                    continue;
-                }
-
-                $paths[$name] = true;
-            }
-
-            return $this->activePaths = $paths;
-        } catch (Throwable) {
+        if (!is_array($payload)) {
             return $this->activePaths = [];
         }
+
+        $items = $payload['items'] ?? null;
+
+        if (!is_array($items)) {
+            return $this->activePaths = [];
+        }
+
+        $paths = [];
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $name = $this->stringOrNull($item['name'] ?? null);
+
+            if ($name === null || !((bool) ($item['ready'] ?? false) && (bool) ($item['online'] ?? false))) {
+                continue;
+            }
+
+            $paths[$name] = true;
+        }
+
+        return $this->activePaths = $paths;
     }
 
     private function stringOrNull(mixed $value): ?string

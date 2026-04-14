@@ -34,4 +34,6 @@ if [ "$worker_replicas" -lt 1 ]; then
     exit 1
 fi
 
-exec docker compose --env-file "$ENV_FILE" up -d --build --scale worker="$worker_replicas" "$@"
+exec "$ROOT_DIR/docker/compose.sh" \
+    -f "$ROOT_DIR/docker-compose.build.yml" \
+    up -d --build --scale worker="$worker_replicas" "$@"

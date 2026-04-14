@@ -6,6 +6,66 @@
     }
 
     const instances = new Map();
+    const sharedState = {
+        whepPlayerScriptPromise: null,
+        whepPlayerScriptUrl: '',
+    };
+
+    const loadWhepPlayerScript = (scriptUrl) => {
+        if (typeof window.BigBrothaWhepPlayer === 'function') {
+            return Promise.resolve();
+        }
+
+        if (typeof scriptUrl !== 'string' || scriptUrl.trim() === '') {
+            return Promise.resolve();
+        }
+
+        const normalizedUrl = new URL(scriptUrl, window.location.href).toString();
+
+        if (sharedState.whepPlayerScriptPromise instanceof Promise && sharedState.whepPlayerScriptUrl === normalizedUrl) {
+            return sharedState.whepPlayerScriptPromise;
+        }
+
+        const existingScript = Array.from(document.scripts).find((script) => script.src === normalizedUrl);
+
+        sharedState.whepPlayerScriptUrl = normalizedUrl;
+        sharedState.whepPlayerScriptPromise = new Promise((resolve, reject) => {
+            if (existingScript instanceof HTMLScriptElement) {
+                if (existingScript.dataset.loaded === 'true' || typeof window.BigBrothaWhepPlayer === 'function') {
+                    existingScript.dataset.loaded = 'true';
+                    resolve();
+
+                    return;
+                }
+
+                existingScript.addEventListener('load', () => {
+                    existingScript.dataset.loaded = 'true';
+                    resolve();
+                }, { once: true });
+                existingScript.addEventListener('error', () => reject(new Error('The shared player script could not be loaded.')), { once: true });
+
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = normalizedUrl;
+            script.defer = true;
+            script.dataset.bigbrothaWhepPlayerScript = normalizedUrl;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', () => reject(new Error('The shared player script could not be loaded.')), { once: true });
+            document.head.appendChild(script);
+        }).catch((error) => {
+            sharedState.whepPlayerScriptPromise = null;
+            sharedState.whepPlayerScriptUrl = '';
+
+            throw error;
+        });
+
+        return sharedState.whepPlayerScriptPromise;
+    };
 
     class BigBrothaCameraMotionEditor {
         constructor(root) {
@@ -33,6 +93,7 @@
             this.profileInput = null;
             this.saveButton = null;
             this.player = null;
+            this.pendingWhepPlayerLoad = null;
             this.playerRestartTimer = null;
             this.playerRestartAttempts = 0;
             this.maxPlayerRestartAttempts = 40;
@@ -116,6 +177,8 @@
                 window.clearTimeout(this.playerRestartTimer);
                 this.playerRestartTimer = null;
             }
+
+            this.pendingWhepPlayerLoad = null;
 
             this.playerRestartAttempts = 0;
 
@@ -544,6 +607,20 @@
             }
 
             if (typeof window.BigBrothaWhepPlayer !== 'function') {
+                const scriptUrl = this.whepPlayerScriptUrl();
+
+                if (scriptUrl !== '' && this.pendingWhepPlayerLoad === null) {
+                    this.pendingWhepPlayerLoad = loadWhepPlayerScript(scriptUrl)
+                        .catch(() => undefined)
+                        .finally(() => {
+                            this.pendingWhepPlayerLoad = null;
+
+                            if (typeof window.BigBrothaWhepPlayer === 'function' && document.body.contains(this.root)) {
+                                this.restartPlayer();
+                            }
+                        });
+                }
+
                 if (this.playerRestartTimer === null && this.playerRestartAttempts < this.maxPlayerRestartAttempts) {
                     this.playerRestartAttempts += 1;
                     this.playerRestartTimer = window.setTimeout(() => {
@@ -714,6 +791,10 @@
 
         sessionUrlBase() {
             return this.root.dataset.sessionUrlBase || '';
+        }
+
+        whepPlayerScriptUrl() {
+            return this.root.dataset.whepPlayerScriptUrl || '';
         }
 
         sessionUrl() {

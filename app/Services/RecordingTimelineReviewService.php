@@ -236,7 +236,7 @@ class RecordingTimelineReviewService
         $storage = app(CameraStorageService::class);
         $relativePath = $storage->normalizePrivateStorageRelativePath($recording->relative_path);
 
-        if ($storage->usingNetworkStorage() && is_string($relativePath) && str_starts_with(ltrim($relativePath, '/'), 'cameras/')) {
+        if ($storage->pathUsesNetworkStorage($relativePath)) {
             return asset('img/recording-preview-missing.svg');
         }
 

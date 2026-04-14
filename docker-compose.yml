@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:-bigbrotha}
+
 x-app-environment: &app-environment
   APP_ENV: production
   APP_DEBUG: "false"
@@ -28,13 +30,10 @@ x-app-environment: &app-environment
   TRUSTED_PROXIES: "*"
 
 x-app-service: &app-service
-  build:
-    context: .
-    dockerfile: Dockerfile
   env_file:
     - path: ./.env.docker
       required: false
-  image: bigbrotha-app
+  image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
   environment: *app-environment
   restart: unless-stopped
   volumes:
@@ -59,22 +58,23 @@ services:
     command:
       - test -s /app/storage/app/private/mediamtx/mediamtx.yml && exec /usr/local/bin/mediamtx /app/storage/app/private/mediamtx/mediamtx.yml
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9997/v3/paths/list >/dev/null || exit 1"]
+      test:
+        [
+          "CMD",
+          "php",
+          "-r",
+          "$$context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]); $$response = @file_get_contents('http://127.0.0.1:9997/v3/info', false, $$context); if ($$response === false) { exit(1); } foreach ($$http_response_header ?? [] as $$header) { if (preg_match('#^HTTP/\\S+ 2\\d\\d#', $$header) === 1) { exit(0); } } exit(1);",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
     ports:
-      - "${MEDIAMTX_SIGNALING_PORT:-8889}:8889/tcp"
-      - "${MEDIAMTX_API_PORT:-9997}:9997/tcp"
-      - "${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/tcp"
-      - "${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/udp"
+      - "${MEDIAMTX_ICE_BIND_IP:-0.0.0.0}:${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/tcp"
+      - "${MEDIAMTX_ICE_BIND_IP:-0.0.0.0}:${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/udp"
 
   web:
-    build:
-      context: .
-      dockerfile: docker/nginx/Dockerfile
-    image: bigbrotha-web
+    image: ${BIGBROTHA_WEB_IMAGE:-rekanized/bigbrotha-web:latest}
     depends_on:
       app:
         condition: service_healthy
@@ -88,7 +88,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8082}:80"
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8082}:80"
 
   worker:
     <<: *app-service

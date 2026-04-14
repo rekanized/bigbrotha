@@ -32,10 +32,32 @@ class MediaMtxProcessServiceTest extends TestCase
         $this->assertNull($status['pid']);
     }
 
+    public function test_status_falls_back_to_the_configured_api_address_when_the_base_url_port_is_stale(): void
+    {
+        Http::fake([
+            'http://relay:9998/*' => Http::failedConnection(),
+            'http://relay:9997/*' => Http::response(['version' => '1.17.1'], 200),
+        ]);
+
+        config()->set('mediamtx.managed_externally', true);
+        config()->set('mediamtx.api.base_url', 'http://relay:9998');
+        config()->set('mediamtx.api.address', ':9997');
+
+        $configService = $this->createMock(MediaMtxConfigService::class);
+        $configService->expects($this->never())->method($this->anything());
+
+        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+
+        $status = $service->status();
+
+        $this->assertTrue($status['running']);
+        $this->assertTrue($status['api_reachable']);
+    }
+
     public function test_status_cleans_up_a_stale_pid_file_when_no_matching_process_exists(): void
     {
         Http::fake([
-            'http://127.0.0.1:9997/*' => Http::response([], 503),
+            'http://127.0.0.1:19997/*' => Http::response([], 503),
         ]);
 
         $pidPath = storage_path('framework/testing/mediamtx-stale.pid');
@@ -50,7 +72,8 @@ class MediaMtxProcessServiceTest extends TestCase
         config()->set('mediamtx.pid_path', $pidPath);
         config()->set('mediamtx.binary_path', $binaryPath);
         config()->set('mediamtx.config_path', $configPath);
-        config()->set('mediamtx.api.base_url', 'http://127.0.0.1:9997');
+        config()->set('mediamtx.api.base_url', 'http://127.0.0.1:19997');
+        config()->set('mediamtx.api.address', ':19997');
         config()->set('mediamtx.managed_externally', false);
 
         $installer = new class($binaryPath) extends MediaMtxInstaller

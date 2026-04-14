@@ -83,12 +83,13 @@ The admin settings page at `/admin/settings` can now route the logical camera st
 
 Current constraints:
 
-- only the `storage/app/private/cameras` tree is rerouted; other private-storage paths remain local.
+- only durable saved recording clip files under `storage/app/private/cameras/{id}/recordings/YYYY/MM/DD/*` are rerouted; previews, review assets, manifests, sprites, and other private-storage paths remain local.
 - the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrotha/cameras`.
 - do not point the admin SMB path at the parent directory above `cameras`; the logical `cameras/...` tree is expected to live entirely under that dedicated NAS directory.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
-- when SMB mode is enabled, ffmpeg still writes to local staging paths during capture and review-asset generation; Laravel uploads the finished files to the active SMB disk after each local write completes, verifies the remote copy, and only then deletes the local staged file.
+- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads only the finished recording clip to the active SMB disk after the local write completes, verifies the remote copy, and only then deletes the local staged clip.
+- temporary motion buffers, continuous segmenter work files, previews, and review-asset outputs stay on container-local private storage even when clip storage is network-backed.
 - previews, review assets, playback downloads, and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage.
 
 ## Preview Rendering Behavior
@@ -215,6 +216,7 @@ Implications:
 - the implementation mitigates this by preferring lower-cost RTSP substreams when available.
 - MediaMTX requires its own HTTP and ICE ports in addition to the Laravel web port.
 - a separate `/live-wall/{camera}/relay` endpoint is available for a no-transcode path that remuxes copied video into fragmented MP4.
+- live-wall tiles must stay live-only. If a camera feed is unavailable, the tile should fail closed, show the stream error, and retry the live session instead of swapping to a saved preview image.
 
 If browsers still fail to connect over WebRTC, check `webrtcAdditionalHosts`, `webrtcLocalUDPAddress`, `webrtcLocalTCPAddress`, host firewall rules, and TURN requirements before changing the Laravel UI.
 

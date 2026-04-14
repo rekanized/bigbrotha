@@ -863,6 +863,7 @@
                                     class="motion-editor"
                                     data-motion-editor
                                     data-session-url-base="{{ $motionSessionUrlBase }}"
+                                    data-whep-player-script-url="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}"
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
                                     data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
@@ -1160,10 +1161,3 @@
         </div>
     @endif
 </div>
-
-@once
-    @push('scripts')
-        <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
-        <script src="{{ asset('js/camera-motion-editor.js').'?v='.filemtime(public_path('js/camera-motion-editor.js')) }}" defer data-navigate-once></script>
-    @endpush
-@endonce

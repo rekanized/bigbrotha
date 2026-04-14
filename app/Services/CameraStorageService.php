@@ -52,13 +52,19 @@ class CameraStorageService
         $cameraDirectory = (string) $cameraId;
 
         if ($this->usingNetworkStorage()) {
-            foreach ([$cameraDirectory, $cameraDirectory.'/previews', $cameraDirectory.'/recordings'] as $directory) {
+            foreach ([$cameraDirectory, $cameraDirectory.'/recordings'] as $directory) {
                 $this->cameraDisk()->makeDirectory($directory);
+            }
+
+            $localCameraRoot = $this->privateAbsolutePath('cameras/'.$cameraDirectory);
+
+            foreach ([$localCameraRoot, $localCameraRoot.'/previews', $localCameraRoot.'/recordings'] as $path) {
+                $this->ensureWritableDirectory($path);
             }
 
             $stagingRoot = $this->writeStagingAbsolutePath('cameras/'.$cameraDirectory);
 
-            foreach ([$stagingRoot, $stagingRoot.'/previews', $stagingRoot.'/recordings'] as $path) {
+            foreach ([$stagingRoot, $stagingRoot.'/recordings'] as $path) {
                 $this->ensureWritableDirectory($path);
             }
 
@@ -129,6 +135,13 @@ class CameraStorageService
     public function normalizePrivateStorageRelativePath(?string $path): ?string
     {
         return $this->privateStorageRelativePath($path);
+    }
+
+    public function pathUsesNetworkStorage(?string $path): bool
+    {
+        $relativePath = $this->privateStorageRelativePath($path);
+
+        return is_string($relativePath) && $this->usesNetworkCameraStorage($relativePath);
     }
 
     public function recordingRelativePathFromAbsolute(string $absolutePath): string
@@ -234,23 +247,7 @@ class CameraStorageService
             return true;
         }
 
-        if ($this->isCameraRelativePath($relativePath)) {
-            if (!$this->usingNetworkStorage()) {
-                $absolutePath = $this->privateAbsolutePath($relativePath);
-
-                if (!is_file($absolutePath)) {
-                    $this->pruneEmptyRecordingDirectories($relativePath);
-
-                    return true;
-                }
-
-                $deleted = @unlink($absolutePath);
-                clearstatcache(true, $absolutePath);
-                $this->pruneEmptyRecordingDirectories($relativePath);
-
-                return $deleted || !is_file($absolutePath);
-            }
-
+        if ($this->usesNetworkCameraStorage($relativePath)) {
             $diskPath = $this->cameraDiskRelativePath($relativePath);
 
             if (!$this->cameraDisk()->exists($diskPath)) {
@@ -265,6 +262,22 @@ class CameraStorageService
             $this->pruneEmptyRecordingDirectories($relativePath);
 
             return $deleted || !$stillExists;
+        }
+
+        if ($this->isCameraRelativePath($relativePath)) {
+            $absolutePath = $this->privateAbsolutePath($relativePath);
+
+            if (!is_file($absolutePath)) {
+                $this->pruneEmptyRecordingDirectories($relativePath);
+
+                return true;
+            }
+
+            $deleted = @unlink($absolutePath);
+            clearstatcache(true, $absolutePath);
+            $this->pruneEmptyRecordingDirectories($relativePath);
+
+            return $deleted || !is_file($absolutePath);
         }
 
         $absolutePath = $this->privateAbsolutePath($relativePath);
@@ -303,7 +316,7 @@ class CameraStorageService
             ];
         }
 
-        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             return [
                 'relative_path' => $relativePath,
                 'storage_mode' => 'local',
@@ -402,7 +415,7 @@ class CameraStorageService
 
         $extension = strtolower((string) pathinfo($relativePath, PATHINFO_EXTENSION));
 
-        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
 
             if ($absolutePath === null) {
@@ -461,7 +474,7 @@ class CameraStorageService
             return false;
         }
 
-        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
 
             return $absolutePath !== null ? @fopen($absolutePath, 'rb') : false;
@@ -493,14 +506,14 @@ class CameraStorageService
             return self::RECORDING_AVAILABILITY_MISSING;
         }
 
-        if ($this->isCameraRelativePath($relativePath)) {
-            if (!$this->usingNetworkStorage()) {
-                return $this->resolveExistingPrivateAbsolutePath($relativePath) !== null
-                    ? self::RECORDING_AVAILABILITY_PRESENT
-                    : self::RECORDING_AVAILABILITY_MISSING;
-            }
-
+        if ($this->usesNetworkCameraStorage($relativePath)) {
             return $this->networkCameraDiskAvailability($this->cameraDiskRelativePath($relativePath));
+        }
+
+        if ($this->isCameraRelativePath($relativePath)) {
+            return $this->resolveExistingPrivateAbsolutePath($relativePath) !== null
+                ? self::RECORDING_AVAILABILITY_PRESENT
+                : self::RECORDING_AVAILABILITY_MISSING;
         }
 
         return $this->resolveExistingPrivateAbsolutePath($relativePath) !== null
@@ -521,7 +534,7 @@ class CameraStorageService
             return;
         }
 
-        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             return;
         }
 
@@ -652,7 +665,7 @@ class CameraStorageService
             return null;
         }
 
-        if ($this->isCameraRelativePath($relativePath) && $this->usingNetworkStorage()) {
+        if ($this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->resolvePreviewAbsolutePath($relativePath);
 
             if ($absolutePath === null) {
@@ -679,7 +692,7 @@ class CameraStorageService
             return false;
         }
 
-        if ($this->isCameraRelativePath($relativePath) && $this->usingNetworkStorage()) {
+        if ($this->usesNetworkCameraStorage($relativePath)) {
             return true;
         }
 
@@ -718,7 +731,7 @@ class CameraStorageService
             return null;
         }
 
-        if (!$this->isCameraRelativePath($relativePath) || !$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             return $this->resolveExistingPrivateAbsolutePath($relativePath);
         }
 
@@ -926,7 +939,7 @@ class CameraStorageService
             throw new RuntimeException('A writable path under private storage is required.');
         }
 
-        $absolutePath = $this->isCameraRelativePath($relativePath) && $this->usingNetworkStorage()
+        $absolutePath = $this->usesNetworkCameraStorage($relativePath)
             ? $this->writeStagingAbsolutePath($relativePath)
             : $this->privateAbsolutePath($relativePath);
 
@@ -1057,7 +1070,7 @@ class CameraStorageService
             return;
         }
 
-        if (!$this->usingNetworkStorage()) {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->privateAbsolutePath($relativePath);
             $directory = dirname($absolutePath);
             $cameraRecordingsRoot = dirname(dirname(dirname($absolutePath)));
@@ -1110,8 +1123,14 @@ class CameraStorageService
 
         $reviewDirectory = $this->reviewAssetDirectoryRelativePath($relativePath);
 
-        if ($reviewDirectory !== null && $this->privateDirectoryExists($reviewDirectory) && $this->cameraDirectoryEmpty($this->cameraDiskRelativePath($reviewDirectory))) {
-            $this->deletePrivateDirectory($reviewDirectory);
+        if ($reviewDirectory !== null && $this->privateDirectoryExists($reviewDirectory)) {
+            $reviewAbsolutePath = $this->privateAbsolutePath($reviewDirectory);
+            $entries = @scandir($reviewAbsolutePath) ?: [];
+            $entries = array_values(array_diff($entries, ['.', '..']));
+
+            if ($entries === []) {
+                @rmdir($reviewAbsolutePath);
+            }
         }
     }
 
@@ -1123,19 +1142,17 @@ class CameraStorageService
 
     private function deletePrivateDirectory(string $relativeDirectory): void
     {
-        if ($this->isCameraRelativePath($relativeDirectory)) {
-            if (!$this->usingNetworkStorage()) {
-                File::deleteDirectory($this->privateAbsolutePath($relativeDirectory));
-
-                return;
-            }
-
+        if ($this->usesNetworkCameraStorage($relativeDirectory)) {
             $this->cameraDisk()->deleteDirectory($this->cameraDiskRelativePath($relativeDirectory));
 
-            if ($this->usingNetworkStorage()) {
-                File::deleteDirectory($this->writeStagingAbsolutePath($relativeDirectory));
-                File::deleteDirectory($this->readCacheRoot().'/'.$relativeDirectory);
-            }
+            File::deleteDirectory($this->writeStagingAbsolutePath($relativeDirectory));
+            File::deleteDirectory($this->readCacheRoot().'/'.$relativeDirectory);
+
+            return;
+        }
+
+        if ($this->isCameraRelativePath($relativeDirectory)) {
+            File::deleteDirectory($this->privateAbsolutePath($relativeDirectory));
 
             return;
         }
@@ -1151,10 +1168,12 @@ class CameraStorageService
             return false;
         }
 
+        if ($this->usesNetworkCameraStorage($normalizedDirectory)) {
+            return $this->cameraDiskDirectoryExists($this->cameraDisk(), $this->cameraDiskRelativePath($normalizedDirectory));
+        }
+
         if ($this->isCameraRelativePath($normalizedDirectory)) {
-            return $this->usingNetworkStorage()
-                ? $this->cameraDiskDirectoryExists($this->cameraDisk(), $this->cameraDiskRelativePath($normalizedDirectory))
-                : is_dir($this->privateAbsolutePath($normalizedDirectory));
+            return is_dir($this->privateAbsolutePath($normalizedDirectory));
         }
 
         return is_dir($this->privateAbsolutePath($normalizedDirectory));
@@ -1162,8 +1181,8 @@ class CameraStorageService
 
     private function cameraDiskRelativePath(string $relativePath): string
     {
-        if (!$this->isCameraRelativePath($relativePath)) {
-            throw new RuntimeException('Only camera private storage paths can be mapped onto the camera disk.');
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
+            throw new RuntimeException('Only network-backed camera recording clip paths can be mapped onto the camera disk.');
         }
 
         return ltrim(substr($relativePath, strlen('cameras/')), '/');
@@ -1231,6 +1250,20 @@ class CameraStorageService
     private function isCameraRelativePath(string $relativePath): bool
     {
         return str_starts_with(ltrim($relativePath, '/'), 'cameras/');
+    }
+
+    private function usesNetworkCameraStorage(string $relativePath): bool
+    {
+        return $this->usingNetworkStorage()
+            && $this->isNetworkBackedCameraRelativePath($relativePath);
+    }
+
+    private function isNetworkBackedCameraRelativePath(string $relativePath): bool
+    {
+        return preg_match(
+            '#^cameras/[^/]+/recordings/\d{4}/\d{2}/\d{2}/[^/]+$#',
+            ltrim($relativePath, '/'),
+        ) === 1;
     }
 
     protected function cameraDisk(): \Illuminate\Contracts\Filesystem\Filesystem

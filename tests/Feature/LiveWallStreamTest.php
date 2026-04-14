@@ -156,6 +156,74 @@ class LiveWallStreamTest extends TestCase
             ->assertSee('No live RTSP stream is ready.', false);
     }
 
+    public function test_live_wall_does_not_render_saved_preview_images_when_live_stream_bootstrap_is_unavailable(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
+        $this->mockRelayProcess(running: true);
+
+        File::ensureDirectoryExists(storage_path('app/private/cameras/1/previews'));
+        File::put(
+            storage_path('app/private/cameras/1/previews/minorstream-2.jpg'),
+            base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEA8QDw8QDw8PDw8PDw8QFREWFhURExUYHSggGBolGxUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGhAQGi0fHyUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAADAQAAAAAAAAAAAAAAAAAAAQMC/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAXEAEBAQEAAAAAAAAAAAAAAAABEQAh/9oACAEBAAEFAk1//8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAwEBPwEf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAgEBPwEf/8QAFxABAQEBAAAAAAAAAAAAAAAAAREAITFh/9oACAEBAAY/AkqP/8QAGhABAQEAAwEAAAAAAAAAAAAAAREAITFBUf/aAAgBAQABPyG1GEl4soR2f//aAAwDAQACAAMAAAAQ/wD/xAAVEQEBAAAAAAAAAAAAAAAAAAABEP/aAAgBAwEBPxBf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAgEBPxAf/8QAGhABAQADAQEAAAAAAAAAAAAAAREAITFBYf/aAAgBAQABPxBMa9Y2U0R0uL0T6n//2Q==', true)
+        );
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Lot',
+            'local_ip' => '192.168.1.75',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.75:554/stream1',
+                        'path' => '/stream1',
+                        'probe_status' => 'Healthy',
+                        'transport_persistable' => true,
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.75:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Failed',
+                        'transport_persistable' => false,
+                        'preview_path' => 'cameras/1/previews/minorstream-2.jpg',
+                    ],
+                ],
+            ],
+        ]);
+
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('live-wall.index'));
+
+        $response
+            ->assertOk()
+            ->assertSee('No live RTSP stream is ready.', false)
+            ->assertDontSee(route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 1]), false)
+            ->assertDontSee('Latest saved preview for Back Lot', false);
+    }
+
     public function test_live_wall_only_renders_cameras_assigned_to_the_selected_wall(): void
     {
         config()->set('mediamtx.auto_start', false);

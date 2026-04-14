@@ -33,8 +33,8 @@ class MediaMtxConfigDefaultsTest extends TestCase
             $this->assertSame($appUrl.'/__webrtc', $config['webrtc']['public_base_url']);
             $this->assertSame([$appUrl], $config['webrtc']['allow_origins']);
             $this->assertSame(['monitor.example.test'], $config['webrtc']['additional_hosts']);
-            $this->assertSame(':8190', $config['webrtc']['local_udp_address']);
-            $this->assertSame(':8190', $config['webrtc']['local_tcp_address']);
+            $this->assertSame(':8189', $config['webrtc']['local_udp_address']);
+            $this->assertSame(':8189', $config['webrtc']['local_tcp_address']);
             $this->assertSame($appUrl.'/relay/auth/mediamtx', $config['auth']['callback_url']);
             $this->assertNotSame('', $config['auth']['callback_secret']);
             $this->assertSame($appKey, $config['auth']['token_secret']);

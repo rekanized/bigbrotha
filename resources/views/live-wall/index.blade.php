@@ -62,9 +62,6 @@
                         $sessionBootstrap = $tile['sessionBootstrap'] ?? null;
                         $webrtcPath = $tile['webrtcPath'] ?? null;
                         $whepUrl = $tile['webrtcWhepUrl'] ?? null;
-                        $latestPreview = $camera->latestRtspPreview();
-                        $previewIndex = $latestPreview['index'] ?? null;
-                        $previewProfile = $latestPreview['profile'] ?? null;
                     @endphp
                     <article
                         class="wall-monitor-tile"
@@ -128,18 +125,10 @@
                                         </div>
                                     </div>
                                 </div>
-                            @elseif (is_array($previewProfile) && $previewIndex !== null)
-                                <a class="wall-monitor-tile__stream wall-tile__stream" href="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}" target="_blank" rel="noreferrer">
-                                    <img
-                                        class="wall-tile__stream-image"
-                                        src="{{ route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => $previewIndex]) }}"
-                                        alt="Latest saved preview for {{ $camera->name }}"
-                                    >
-                                </a>
                             @else
                                 <div class="wall-tile__empty wall-monitor-tile__stream">
                                     <strong>No live RTSP stream is ready.</strong>
-                                    <p>Refresh stream profiles or run a stream test from Camera Fleet to populate a stream and preview.</p>
+                                    <p>The wall only shows live relay sessions. Refresh stream profiles or repair the camera feed, then wait for the next reconnect attempt.</p>
                                 </div>
                             @endif
                             <div class="wall-monitor-tile__gridline" aria-hidden="true"></div>

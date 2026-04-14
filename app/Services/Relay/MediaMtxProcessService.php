@@ -2,13 +2,15 @@
 
 namespace App\Services\Relay;
 
+use App\Services\Relay\Concerns\InteractsWithMediaMtxApi;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class MediaMtxProcessService
 {
+    use InteractsWithMediaMtxApi;
+
     public function __construct(
         private readonly MediaMtxInstaller $installer,
         private readonly MediaMtxConfigService $configService,
@@ -218,13 +220,7 @@ class MediaMtxProcessService
             return false;
         }
 
-        try {
-            $response = Http::timeout(2)->get(rtrim((string) config('mediamtx.api.base_url'), '/').'/v3/paths/list');
-
-            return $response->successful();
-        } catch (\Throwable) {
-            return false;
-        }
+        return $this->mediaMtxApiRequestSuccessful('/v3/info');
     }
 
     private function managedExternally(): bool
