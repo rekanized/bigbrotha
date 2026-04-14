@@ -683,11 +683,21 @@
                         </label>
 
                         <label class="field-stack field-stack--wide">
-                            <span>RTSP path</span>
-                            <input class="form-input" type="text" placeholder="/stream1" wire:model="form.rtsp_path">
+                            <span>Live feed path</span>
+                            <input class="form-input" type="text" placeholder="/stream1" list="camera-live-path-options" wire:model="form.rtsp_path">
                             @error('form.rtsp_path')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
+                            <small class="probe-note">Choose the exact RTSP path operators should watch live.</small>
+                        </label>
+
+                        <label class="field-stack field-stack--wide">
+                            <span>Recording path</span>
+                            <input class="form-input" type="text" placeholder="/stream1" list="camera-recording-path-options" wire:model="form.recording_rtsp_path">
+                            @error('form.recording_rtsp_path')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                            <small class="probe-note">Use the exact RTSP path the recorder should capture. This can be the same as the live feed path.</small>
                         </label>
 
                         <label class="field-stack">
@@ -710,18 +720,43 @@
                             @enderror
                         </label>
 
-                        <label class="field-stack">
-                            <span>{{ $editingCameraId ? 'New password' : 'Password' }}</span>
-                            <input class="form-input" type="password" autocomplete="current-password" wire:model="form.password">
+                        <div class="field-stack field-stack--password">
+                            <label for="camera-password-field">
+                                <span>Password</span>
+                            </label>
+                            <div class="field-stack__control-row">
+                                <input id="camera-password-field" class="form-input" type="{{ $showCameraPassword ? 'text' : 'password' }}" autocomplete="current-password" wire:model="form.password">
+                                <button class="button button--soft field-stack__inline-action" type="button" wire:click="toggleCameraPasswordVisibility">
+                                    <span class="button__content">
+                                        <span>{{ $showCameraPassword ? 'Hide' : 'Show' }}</span>
+                                    </span>
+                                </button>
+                            </div>
                             @error('form.password')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
-                        </label>
+                        </div>
                     </div>
 
                     @if ($editingCameraId && $hasStoredPassword)
-                        <p class="probe-note">Leave the password blank to keep the saved credential unchanged.</p>
+                        <p class="probe-note">The saved password is loaded into this field. Use Show password to inspect it, edit it directly, or clear it before saving.</p>
                     @endif
+
+                    <datalist id="camera-live-path-options">
+                        @foreach ($rtspProfiles as $profile)
+                            @if (!empty($profile['path']))
+                                <option value="{{ $profile['path'] }}">{{ $profile['name'] ?? 'RTSP profile '.($loop->index + 1) }}</option>
+                            @endif
+                        @endforeach
+                    </datalist>
+
+                    <datalist id="camera-recording-path-options">
+                        @foreach ($rtspProfiles as $profile)
+                            @if (!empty($profile['path']))
+                                <option value="{{ $profile['path'] }}">{{ $profile['name'] ?? 'RTSP profile '.($loop->index + 1) }}</option>
+                            @endif
+                        @endforeach
+                    </datalist>
                 </section>
 
                 <section class="form-section">
@@ -741,19 +776,6 @@
                                 @endforeach
                             </select>
                             @error('form.recording_mode')
-                                <small class="field-error">{{ $message }}</small>
-                            @enderror
-                        </label>
-
-                        <label class="field-stack">
-                            <span>Recording source profile</span>
-                            <select class="form-select" wire:model="form.recording_profile_index" data-role="motion-profile-select">
-                                <option value="">Automatic primary profile</option>
-                                @foreach ($rtspProfiles as $profile)
-                                    <option value="{{ $loop->index }}">{{ $profile['name'] ?? 'Profile '.($loop->index + 1) }}</option>
-                                @endforeach
-                            </select>
-                            @error('form.recording_profile_index')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
                         </label>
@@ -829,7 +851,7 @@
                             @if ($editingCameraId === null)
                                 <div class="empty-state empty-state--compact">
                                     <strong>Save a camera before opening the live motion painter.</strong>
-                                    <p>The editor needs a saved camera so Laravel can request a secure relay session for the chosen recording profile.</p>
+                                    <p>The editor needs a saved camera so Laravel can request a secure relay session for the chosen recording path.</p>
                                 </div>
                             @elseif (!($form['supports_rtsp'] ?? false))
                                 <div class="empty-state empty-state--compact">
@@ -844,7 +866,7 @@
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
                                     data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
-                                    wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ $form['recording_profile_index'] ?? 'auto' }}"
+                                    wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($form['recording_rtsp_path'] ?? '')) }}"
                                     wire:ignore
                                 >
                                     <script type="application/json" data-role="motion-mask-json">@json($motionMask)</script>
@@ -852,7 +874,7 @@
                                     <div class="motion-editor__stage wall-tile__stream">
                                         <div class="webrtc-player webrtc-player--single motion-editor__player" data-role="motion-player" data-webrtc-player data-webrtc-player-skip-auto="true" data-player-label="{{ $selectedCamera?->name ?? 'camera' }}">
                                             <video class="webrtc-player__video motion-editor__video" data-role="video" autoplay muted playsinline></video>
-                                            <div class="webrtc-player__message motion-editor__message" data-role="message" aria-live="polite">Connecting to the selected recording stream...</div>
+                                            <div class="webrtc-player__message motion-editor__message" data-role="message" aria-live="polite">Connecting to the configured recording path...</div>
                                         </div>
 
                                         <canvas class="motion-editor__canvas motion-editor__canvas--mask" data-role="mask-canvas"></canvas>

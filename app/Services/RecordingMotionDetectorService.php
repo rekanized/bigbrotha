@@ -3,11 +3,14 @@
 namespace App\Services;
 
 use App\Models\Camera;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class RecordingMotionDetectorService
 {
+    use ResolvesConfiguredBinaries;
+
     public function __construct(
         private readonly RecordingMotionMaskService $maskService,
     ) {
@@ -186,17 +189,4 @@ class RecordingMotionDetectorService
         ];
     }
 
-    /**
-     * @param  array<int, string>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (is_string($candidate) && $candidate !== '' && is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
 }

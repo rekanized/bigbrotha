@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use Illuminate\Support\Facades\Process;
 use Throwable;
 
 class FfmpegBinaryVerifierService
 {
+    use ResolvesConfiguredBinaries;
+
     /**
     * @return array{ffmpeg: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}, ffprobe: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}}
      */
@@ -82,52 +85,4 @@ class FfmpegBinaryVerifierService
         return null;
     }
 
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (! is_string($candidate) || trim($candidate) === '') {
-                continue;
-            }
-
-            $candidate = trim($candidate);
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
 }

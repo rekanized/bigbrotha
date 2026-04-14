@@ -21,6 +21,11 @@ class MediaMtxProcessService
     public function ensureRunning(): array
     {
         $configChanged = $this->syncConfig();
+
+        if ($this->managedExternally()) {
+            return $this->status($configChanged);
+        }
+
         $installed = $this->installer->isInstalled();
         $running = $this->isRunning();
         $apiReachable = $running && $this->apiReachable();
@@ -67,9 +72,11 @@ class MediaMtxProcessService
             $this->syncConfig();
         }
 
-        if (!$this->installer->isInstalled()) {
-            throw new RuntimeException('MediaMTX is not installed yet. Run composer relay:install first.');
+        if ($this->managedExternally()) {
+            return $this->status(false);
         }
+
+        $this->installer->ensureInstalled();
 
         if ($this->isRunning()) {
             return $this->status(false);
@@ -112,6 +119,10 @@ class MediaMtxProcessService
 
     public function stop(): void
     {
+        if ($this->managedExternally()) {
+            return;
+        }
+
         $pid = $this->pid();
 
         if ($pid !== null) {
@@ -127,6 +138,21 @@ class MediaMtxProcessService
      */
     public function status(bool $configChanged = false): array
     {
+        if ($this->managedExternally()) {
+            $apiReachable = $this->apiReachable();
+
+            return [
+                'installed' => true,
+                'running' => $apiReachable,
+                'api_reachable' => $apiReachable,
+                'config_changed' => $configChanged,
+                'binary_path' => $this->installer->binaryPath(),
+                'config_path' => (string) config('mediamtx.config_path'),
+                'log_path' => (string) config('mediamtx.log_path'),
+                'pid' => null,
+            ];
+        }
+
         return [
             'installed' => $this->installer->isInstalled(),
             'running' => $this->isRunning(),
@@ -141,6 +167,10 @@ class MediaMtxProcessService
 
     public function isRunning(): bool
     {
+        if ($this->managedExternally()) {
+            return $this->apiReachable();
+        }
+
         return $this->pid() !== null;
     }
 
@@ -184,7 +214,7 @@ class MediaMtxProcessService
 
     private function apiReachable(): bool
     {
-        if (!$this->installer->isInstalled()) {
+        if (!$this->managedExternally() && !$this->installer->isInstalled()) {
             return false;
         }
 
@@ -195,6 +225,11 @@ class MediaMtxProcessService
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    private function managedExternally(): bool
+    {
+        return (bool) config('mediamtx.managed_externally', false);
     }
 
     private function storedPid(): ?int

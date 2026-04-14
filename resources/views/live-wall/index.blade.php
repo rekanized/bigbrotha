@@ -20,13 +20,13 @@
     <section class="live-wall-canvas" aria-label="Live wall camera monitor">
         @if (!($relayStatus['installed'] ?? false))
             <div class="empty-state live-wall-canvas__empty">
-                <strong>Media relay not installed yet.</strong>
-                <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared relay.</p>
+                <strong>Media relay binary is missing from the app container.</strong>
+                <p>Rebuild and restart the Docker app service so the bundled MediaMTX binary is available to the live wall.</p>
             </div>
         @elseif (!($relayStatus['running'] ?? false))
             <div class="empty-state live-wall-canvas__empty">
                 <strong>Media relay is configured but not running.</strong>
-                <p>The wall will populate as soon as MediaMTX is running. Start it with <code>php artisan relay:start</code> or reload after checking the relay log.</p>
+                <p>The wall will populate as soon as MediaMTX is running again. Reload after checking the app container log and relay status.</p>
             </div>
         @elseif ($availableWalls->isEmpty())
             <div class="empty-state live-wall-canvas__empty">

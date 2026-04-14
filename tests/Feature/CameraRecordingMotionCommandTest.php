@@ -205,6 +205,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'local_ip' => '192.168.1.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
+            'recording_rtsp_path' => '/stream1',
             'rtsp_profiles' => [
                 [
                     'name' => 'mainStream',
@@ -215,7 +216,6 @@ class CameraRecordingMotionCommandTest extends TestCase
                     'uri' => 'rtsp://192.168.1.69:554/stream2',
                 ],
             ],
-            'recording_profile_index' => null,
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -269,6 +269,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'local_ip' => '192.168.1.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
+            'recording_rtsp_path' => '/stream1',
             'rtsp_profiles' => [
                 [
                     'name' => 'mainStream',
@@ -279,7 +280,6 @@ class CameraRecordingMotionCommandTest extends TestCase
                     'uri' => 'rtsp://192.168.1.69:554/stream2',
                 ],
             ],
-            'recording_profile_index' => null,
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -793,13 +793,14 @@ class CameraRecordingMotionCommandTest extends TestCase
         }
     }
 
-    public function test_it_prefers_the_saved_rtsp_path_profile_when_motion_recording_profile_selection_is_automatic(): void
+    public function test_it_uses_the_configured_recording_path_when_resolving_motion_recording_source(): void
     {
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
             'local_ip' => '192.168.1.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
+            'recording_rtsp_path' => '/stream2',
             'metadata' => [
                 'rtsp_profiles' => [
                     [
@@ -814,7 +815,6 @@ class CameraRecordingMotionCommandTest extends TestCase
                     ],
                 ],
             ],
-            'recording_profile_index' => null,
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -852,6 +852,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'local_ip' => '192.168.1.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
+            'recording_rtsp_path' => '/stream2',
             'metadata' => [
                 'rtsp_profiles' => [
                     [
@@ -866,7 +867,6 @@ class CameraRecordingMotionCommandTest extends TestCase
                     ],
                 ],
             ],
-            'recording_profile_index' => null,
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -934,6 +934,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'local_ip' => '192.168.1.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
+            'recording_rtsp_path' => '/stream2',
             'metadata' => [
                 'rtsp_profiles' => [
                     [
@@ -951,7 +952,6 @@ class CameraRecordingMotionCommandTest extends TestCase
                     ],
                 ],
             ],
-            'recording_profile_index' => null,
             'supports_onvif' => false,
             'supports_rtsp' => true,
             'is_enabled' => true,

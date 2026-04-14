@@ -63,6 +63,8 @@ class Manager extends Component
 
     public ?string $rtspErrorMessage = null;
 
+    public bool $showCameraPassword = false;
+
     public function mount(): void
     {
         $this->resetEditorState();
@@ -77,7 +79,13 @@ class Manager extends Component
     public function closeEditorModal(): void
     {
         $this->isEditorModalOpen = false;
+        $this->showCameraPassword = false;
         $this->resetErrorBag();
+    }
+
+    public function toggleCameraPasswordVisibility(): void
+    {
+        $this->showCameraPassword = !$this->showCameraPassword;
     }
 
     public function enableRtspOnlyMode(): void
@@ -166,6 +174,7 @@ class Manager extends Component
 
         $this->pendingDeleteCameraId = null;
         $this->editingCameraId = $camera->id;
+        $this->showCameraPassword = false;
         $this->form = [
             'name' => $camera->name,
             'local_ip' => $camera->local_ip,
@@ -179,14 +188,14 @@ class Manager extends Component
             'onvif_path' => $camera->onvif_path,
             'rtsp_port' => $camera->rtsp_port,
             'rtsp_path' => $camera->rtsp_path ?? '',
+            'recording_rtsp_path' => $camera->recording_rtsp_path ?? $camera->rtsp_path ?? '',
             'rtsp_transport' => $camera->rtsp_transport,
             'username' => $camera->username ?? '',
-            'password' => '',
+            'password' => $camera->password ?? '',
             'supports_onvif' => $camera->supports_onvif,
             'supports_rtsp' => $camera->supports_rtsp,
             'is_enabled' => $camera->is_enabled,
             'recording_mode' => $camera->recording_mode,
-            'recording_profile_index' => $camera->recording_profile_index,
             'recording_retention_days' => $camera->recording_retention_days,
             'motion_sensitivity' => $camera->motion_sensitivity,
             'recording_motion_pre_roll_seconds' => $camera->motionPreRollSeconds(),
@@ -233,7 +242,8 @@ class Manager extends Component
             'form.onvif_port' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'integer', 'between:1,65535'],
             'form.onvif_path' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_onvif'] ?? false)), 'nullable', 'string', 'max:255'],
             'form.rtsp_port' => ['required', 'integer', 'between:1,65535'],
-            'form.rtsp_path' => ['nullable', 'string', 'max:255'],
+            'form.rtsp_path' => [Rule::requiredIf(fn (): bool => (bool) ($this->form['supports_rtsp'] ?? false)), 'nullable', 'string', 'max:255'],
+            'form.recording_rtsp_path' => ['nullable', 'string', 'max:255'],
             'form.rtsp_transport' => ['required', 'in:tcp,udp'],
             'form.username' => ['nullable', 'string', 'max:255'],
             'form.password' => ['nullable', 'string', 'max:255'],
@@ -241,7 +251,6 @@ class Manager extends Component
             'form.supports_rtsp' => ['boolean'],
             'form.is_enabled' => ['boolean'],
             'form.recording_mode' => ['required', Rule::in(Camera::RECORDING_MODES)],
-            'form.recording_profile_index' => ['nullable', 'integer', 'min:0'],
             'form.recording_retention_days' => ['required', 'integer', 'between:1,365'],
             'form.motion_sensitivity' => ['required', 'integer', 'between:1,100'],
             'form.recording_motion_pre_roll_seconds' => ['required', 'integer', 'between:0,30'],
@@ -251,7 +260,6 @@ class Manager extends Component
 
         $validator->after(function ($validator): void {
             $recordingMode = $this->form['recording_mode'] ?? Camera::RECORDING_MODE_OFF;
-            $profileIndex = $this->nullableInteger($this->form['recording_profile_index'] ?? null);
             $motionMask = app(RecordingMotionMaskService::class)->normalize(
                 $this->form['recording_motion_mask'] ?? null,
                 $this->recordingMotionAreaPayload($this->form),
@@ -259,10 +267,6 @@ class Manager extends Component
 
             if ($recordingMode !== Camera::RECORDING_MODE_OFF && !(bool) ($this->form['supports_rtsp'] ?? false)) {
                 $validator->errors()->add('form.recording_mode', 'Recording requires RTSP support to be enabled for this camera.');
-            }
-
-            if ($profileIndex !== null && !array_key_exists($profileIndex, $this->rtspProfiles)) {
-                $validator->errors()->add('form.recording_profile_index', 'Choose a saved RTSP profile or leave the recording source on automatic selection.');
             }
 
             if ($recordingMode === Camera::RECORDING_MODE_MOTION && ($motionMask['selected_pixels'] ?? 0) < 1) {
@@ -290,6 +294,9 @@ class Manager extends Component
         $onvifPort = $validated['onvif_port'] ?? $camera->onvif_port ?? 80;
         $onvifPath = $validated['onvif_path'] ?? $camera->onvif_path ?? '/onvif/device_service';
 
+        $liveRtspPath = $this->normalizeRtspPath($validated['rtsp_path']);
+        $recordingRtspPath = $this->normalizeRtspPath($validated['recording_rtsp_path']) ?? $liveRtspPath;
+
         $camera->fill([
             'name' => trim($validated['name']),
             'local_ip' => trim($validated['local_ip']),
@@ -302,14 +309,14 @@ class Manager extends Component
             'onvif_port' => (int) $onvifPort,
             'onvif_path' => Str::start(trim((string) $onvifPath), '/'),
             'rtsp_port' => (int) $validated['rtsp_port'],
-            'rtsp_path' => $this->normalizeRtspPath($validated['rtsp_path']),
+            'rtsp_path' => $liveRtspPath,
+            'recording_rtsp_path' => $recordingRtspPath,
             'rtsp_transport' => $validated['rtsp_transport'],
             'username' => $this->nullableString($validated['username']),
             'supports_onvif' => (bool) $validated['supports_onvif'],
             'supports_rtsp' => (bool) $validated['supports_rtsp'],
             'is_enabled' => (bool) $validated['is_enabled'],
             'recording_mode' => $validated['recording_mode'],
-            'recording_profile_index' => $this->nullableInteger($validated['recording_profile_index']),
             'recording_retention_days' => (int) $validated['recording_retention_days'],
             'motion_sensitivity' => (int) $validated['motion_sensitivity'],
             'recording_motion_pre_roll_seconds' => (int) $validated['recording_motion_pre_roll_seconds'],
@@ -332,13 +339,7 @@ class Manager extends Component
             $camera->metadata = $metadata;
         }
 
-        if ($camera->exists) {
-            if ($password !== '') {
-                $camera->password = $password;
-            }
-        } else {
-            $camera->password = $password !== '' ? $password : null;
-        }
+        $camera->password = $password !== '' ? $password : null;
 
         $camera->save();
         app(CameraStorageService::class)->ensureCameraDirectories($camera);
@@ -463,10 +464,19 @@ class Manager extends Component
                     $parts = parse_url($primaryUri);
 
                     if (is_array($parts)) {
-                        $camera->rtsp_port = (int) ($parts['port'] ?? $camera->rtsp_port ?: 554);
-                        $camera->rtsp_path = (($parts['path'] ?? '') !== '' || isset($parts['query']))
+                        $primaryPath = (($parts['path'] ?? '') !== '' || isset($parts['query']))
                             ? ($parts['path'] ?? '').(isset($parts['query']) ? '?'.$parts['query'] : '')
-                            : $camera->rtsp_path;
+                            : null;
+
+                        $camera->rtsp_port = (int) ($parts['port'] ?? $camera->rtsp_port ?: 554);
+
+                        if ($this->nullableString($camera->rtsp_path) === null && is_string($primaryPath) && $primaryPath !== '') {
+                            $camera->rtsp_path = $primaryPath;
+                        }
+
+                        if ($this->nullableString($camera->recording_rtsp_path) === null && is_string($primaryPath) && $primaryPath !== '') {
+                            $camera->recording_rtsp_path = $primaryPath;
+                        }
                     }
                 }
             }
@@ -572,6 +582,7 @@ class Manager extends Component
     {
         $this->editingCameraId = null;
         $this->pendingDeleteCameraId = null;
+        $this->showCameraPassword = false;
         $this->form = $this->defaultForm();
         $this->rtspProfiles = [];
         $this->probeEndpointUrl = '';
@@ -606,6 +617,7 @@ class Manager extends Component
             'onvif_path' => '/onvif/device_service',
             'rtsp_port' => 554,
             'rtsp_path' => '',
+            'recording_rtsp_path' => '',
             'rtsp_transport' => 'tcp',
             'username' => '',
             'password' => '',
@@ -613,7 +625,6 @@ class Manager extends Component
             'supports_rtsp' => false,
             'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_OFF,
-            'recording_profile_index' => null,
             'recording_retention_days' => 1,
             'motion_sensitivity' => 35,
             'recording_motion_pre_roll_seconds' => max(0, min(30, (int) config('recording.motion.pre_roll_seconds', 8))),

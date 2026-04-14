@@ -41,22 +41,24 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
-    Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)->name('camera-fleet.motion-editor-session');
+    Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)
+        ->middleware('google-media')
+        ->name('camera-fleet.motion-editor-session');
     Route::get('/recordings', [RecordingController::class, 'index'])->name('recordings.index');
     Route::get('/recordings/timeline', [RecordingController::class, 'timeline'])->name('recordings.timeline');
     Route::get('/recordings/timeline/cameras/{camera}/segments', [RecordingController::class, 'timelineRailData'])->name('recordings.timeline.rail-data');
     Route::get('/recordings/timeline/cameras/{camera}/stage', [RecordingController::class, 'timelineStageData'])->name('recordings.timeline.stage-data');
     Route::get('/recordings/{recording}', [RecordingController::class, 'show'])->name('recordings.show');
-    Route::get('/recordings/{recording}/preview-stream', [RecordingController::class, 'previewStream'])->name('recordings.preview-stream');
+    Route::get('/recordings/{recording}/preview-stream', [RecordingController::class, 'previewStream'])->middleware('google-media')->name('recordings.preview-stream');
     Route::get('/recordings/{recording}/preview-thumbnail', [RecordingController::class, 'previewThumbnail'])->name('recordings.preview-thumbnail');
     Route::get('/recordings/{recording}/preview-sprite', [RecordingController::class, 'previewSprite'])->name('recordings.preview-sprite');
-    Route::get('/recordings/{recording}/review-stream', [RecordingController::class, 'reviewStream'])->name('recordings.review-stream');
-    Route::get('/recordings/{recording}/stream', [RecordingController::class, 'stream'])->name('recordings.stream');
+    Route::get('/recordings/{recording}/review-stream', [RecordingController::class, 'reviewStream'])->middleware('google-media')->name('recordings.review-stream');
+    Route::get('/recordings/{recording}/stream', [RecordingController::class, 'stream'])->middleware('google-media')->name('recordings.stream');
     Route::get('/recordings/{recording}/download', [RecordingController::class, 'download'])->name('recordings.download');
-    Route::get('/live-wall', LiveWallController::class)->name('live-wall.index');
+    Route::get('/live-wall', LiveWallController::class)->middleware('google-media')->name('live-wall.index');
     Route::get('/wall-tiles', WallTilesController::class)->name('wall-tiles.index');
-    Route::get('/live-wall/{camera}/player', LiveWallPlayerController::class)->name('live-wall.player');
-    Route::get('/live-wall/{camera}/session', LiveWallSessionController::class)->name('live-wall.session');
-    Route::get('/live-wall/{camera}/stream', [LiveWallStreamController::class, 'mjpeg'])->name('live-wall.stream');
-    Route::get('/live-wall/{camera}/relay', [LiveWallStreamController::class, 'relay'])->name('live-wall.relay');
+    Route::get('/live-wall/{camera}/player', LiveWallPlayerController::class)->middleware('google-media')->name('live-wall.player');
+    Route::get('/live-wall/{camera}/session', LiveWallSessionController::class)->middleware('google-media')->name('live-wall.session');
+    Route::get('/live-wall/{camera}/stream', [LiveWallStreamController::class, 'mjpeg'])->middleware('google-media')->name('live-wall.stream');
+    Route::get('/live-wall/{camera}/relay', [LiveWallStreamController::class, 'relay'])->middleware('google-media')->name('live-wall.relay');
 });

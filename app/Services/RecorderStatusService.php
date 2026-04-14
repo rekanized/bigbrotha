@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use Illuminate\Support\Facades\File;
 
 class RecorderStatusService
 {
+    use ResolvesConfiguredBinaries;
+
     /**
      * @return array<string, bool|string|null>
      */
@@ -30,50 +33,4 @@ class RecorderStatusService
         ];
     }
 
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
 }

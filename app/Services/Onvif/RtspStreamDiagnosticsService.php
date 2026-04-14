@@ -4,6 +4,7 @@ namespace App\Services\Onvif;
 
 use App\Models\Camera;
 use App\Services\CameraStorageService;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxConfigService;
 use App\Services\Relay\MediaMtxPathStatusService;
 use Illuminate\Support\Facades\File;
@@ -14,6 +15,8 @@ use Symfony\Component\Process\Process;
 
 class RtspStreamDiagnosticsService
 {
+    use ResolvesConfiguredBinaries;
+
     /**
      * @param  array<string, mixed>  $profile
      * @return array<string, mixed>
@@ -47,6 +50,7 @@ class RtspStreamDiagnosticsService
         $absolutePreviewPath = $storage->writableAbsolutePath($previewPath);
         $directSources = $this->directSources($transport, $authenticatedUri);
         $directFailures = [];
+        $fallbackFailures = [];
         $successfulSource = null;
         $streamInfo = [
             'codec_name' => $this->stringOrNull($profile['video_codec'] ?? null),
@@ -155,7 +159,7 @@ class RtspStreamDiagnosticsService
                 );
             }
 
-            $directFailures[] = [
+            $fallbackFailures[] = [
                 'label' => $relaySource['label'],
                 'message' => $relayProbe['message'],
             ];
@@ -193,7 +197,7 @@ class RtspStreamDiagnosticsService
                 );
             }
 
-            $directFailures[] = [
+            $fallbackFailures[] = [
                 'label' => $bufferedSource['label'],
                 'message' => $bufferedProbe['message'],
             ];
@@ -202,7 +206,7 @@ class RtspStreamDiagnosticsService
         return array_merge($profile, [
             'probe_status' => 'Failed',
             'probe_checked_at' => $probeCheckedAt,
-            'probe_message' => $this->summarizeFailures($directFailures),
+            'probe_message' => $this->summarizeFailures($directFailures, $fallbackFailures),
         ]);
     }
 
@@ -222,53 +226,6 @@ class RtspStreamDiagnosticsService
             'codec_name' => $this->stringOrNull($stream['codec_name'] ?? null),
             'resolution' => $width !== null && $height !== null ? $width.'x'.$height : null,
         ];
-    }
-
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -633,13 +590,35 @@ class RtspStreamDiagnosticsService
     /**
      * @param  array<int, array{label: string, message: string}>  $failures
      */
-    private function summarizeFailures(array $failures): string
+    private function summarizeFailures(array $directFailures, array $fallbackFailures = []): string
     {
-        if ($failures === []) {
+        if ($directFailures !== []) {
+            $message = $this->summarizeFailureList($directFailures);
+
+            if ($fallbackFailures !== []) {
+                $message .= ' No alternate internal fallback path was available either.';
+            }
+
+            return $this->appendFailureHint($message);
+        }
+
+        if ($fallbackFailures !== []) {
+            return $this->appendFailureHint($this->summarizeFailureList($fallbackFailures));
+        }
+
+        if ($directFailures === []) {
             return 'Unable to inspect the RTSP stream.';
         }
 
-        $message = collect($failures)
+        return $this->appendFailureHint($this->summarizeFailureList($directFailures));
+    }
+
+    /**
+     * @param  array<int, array{label: string, message: string}>  $failures
+     */
+    private function summarizeFailureList(array $failures): string
+    {
+        return collect($failures)
             ->map(function (array $failure): string {
                 $label = trim((string) ($failure['label'] ?? ''));
                 $summary = trim((string) ($failure['message'] ?? 'Unable to inspect the RTSP stream.'));
@@ -647,8 +626,6 @@ class RtspStreamDiagnosticsService
                 return $label !== '' ? $label.' transport failed: '.$summary : $summary;
             })
             ->implode(' ');
-
-        return $this->appendFailureHint($message);
     }
 
     private function appendFailureHint(string $message): string
@@ -656,19 +633,27 @@ class RtspStreamDiagnosticsService
         $normalized = Str::lower($message);
 
         if (str_contains($normalized, '406')) {
-            return Str::limit($message.' The camera rejected DESCRIBE for this profile. Check the selected stream path, camera compatibility, and any profile-specific RTSP restrictions.', 220);
+            return Str::limit($message.' The camera rejected DESCRIBE for this profile. Check the stream path and profile compatibility.', 260);
         }
 
         if (str_contains($normalized, 'operation not permitted')) {
-            return Str::limit($message.' The camera accepted the RTSP connection but refused playback after setup. Check camera-side live view or RTSP permissions, active session limits, and firmware behavior for this device.', 220);
+            return Str::limit($message.' The camera refused playback after RTSP setup. Check stream permissions and active session limits.', 260);
         }
 
-        return Str::limit($message, 220);
+        return Str::limit($message, 260);
     }
 
     private function summarizeThrowableFailure(Throwable $exception, string $fallback = 'Unable to inspect the RTSP stream.'): string
     {
-        $message = trim($exception->getMessage());
+        $message = $this->sanitizeDiagnosticMessage(trim($exception->getMessage()));
+
+        if ($message !== '') {
+            $normalized = Str::lower($message);
+
+            if (str_contains($normalized, 'signal "11"') || str_contains($normalized, 'signal 11')) {
+                return 'The stream probe process crashed while inspecting this source.';
+            }
+        }
 
         return $message !== '' ? Str::limit($message, 220) : $fallback;
     }
@@ -719,11 +704,29 @@ class RtspStreamDiagnosticsService
     {
         $message = trim($process->getErrorOutput() ?: $process->getOutput());
 
+        if ($message === '' && $process->hasBeenSignaled()) {
+            $signal = $process->getTermSignal();
+            $message = $signal !== null
+                ? 'The stream probe process exited unexpectedly with signal '.$signal.'.'
+                : 'The stream probe process exited unexpectedly.';
+        }
+
         if ($message === '') {
             return $fallback;
         }
 
-        return Str::limit(preg_replace('/\s+/', ' ', $message) ?? $message, 220);
+        $normalized = preg_replace('/\s+/', ' ', $message) ?? $message;
+
+        return Str::limit($this->sanitizeDiagnosticMessage($normalized), 220);
+    }
+
+    private function sanitizeDiagnosticMessage(string $message): string
+    {
+        return preg_replace(
+            '#\b([a-z][a-z0-9+\-.]*://)(?:[^/\s:@]+(?::[^/\s@]*)?@)#i',
+            '$1',
+            $message,
+        ) ?? $message;
     }
 
     private function stringOrNull(mixed $value): ?string

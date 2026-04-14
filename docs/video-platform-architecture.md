@@ -13,7 +13,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Google OAuth via Laravel Socialite for operator sign-in.
 - ffmpeg and ffprobe configured through `config/ffmpeg.php` and service bindings in `app/Providers/AppServiceProvider.php`.
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
-- MediaMTX as the shared WebRTC relay managed from Laravel and either installed through Composer-driven host commands or baked directly into the Docker image through `MEDIAMTX_INSTALL_MODE=bundled`.
+- MediaMTX as the shared WebRTC relay managed from Laravel and bundled directly into the Docker app image.
 
 ## Route Map
 
@@ -74,7 +74,7 @@ Important model helpers:
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras and lets the motion-mask editor reuse an already-active live relay when it matches the selected recording profile, avoiding extra RTSP sessions on single-session cameras.
 - `App\Services\Relay\MediaMtxConfigService` now emits a three-stage topology per profile when needed: a canonical `camera-{id}-source[-profile-{n}]` ingest path that is the only path allowed to touch the hardware camera, plus derived `camera-{id}-live` or `camera-{id}-live-profile-{n}` playback paths that read from that internal source path for WebRTC delivery.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
-- `App\Services\Relay\MediaMtxInstaller` downloads the pinned MediaMTX release into private storage.
+- `App\Services\Relay\MediaMtxInstaller` verifies that the bundled MediaMTX binary is present inside the Docker image.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay process, and checks relay health.
 
 ## Operator Authentication
@@ -155,7 +155,7 @@ The current secure playback sequence is:
 7. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
 8. ffmpeg pulls the selected camera RTSP URI, copies H.264 video when the source is already browser-safe or otherwise transcodes to browser-safe H.264, normalizes audio timestamps while transcoding audio to Opus, and republishes locally to the same MediaMTX path over RTSP.
 9. MediaMTX calls the same auth controller with `action=publish` and `protocol=rtsp` for that internal republish.
-10. The auth controller accepts that local publish only when the configured publisher credentials match and the request IP is loopback.
+10. The auth controller accepts that internal publish only when the configured publisher credentials match and the request IP comes from the Docker network.
 11. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.
 
 ## MediaMTX Authentication Model
@@ -168,25 +168,25 @@ MediaMTX currently uses one HTTP auth callback for two different trust models:
 - internal relay processes:
 	- authenticated by dedicated internal relay credentials defined in `config/mediamtx.php` and derived from `APP_KEY` by default.
 	- expected action/protocol pair is `publish` and `rtsp` for the local run-on-demand publisher.
-	- expected action/protocol pair is `read` and `rtsp` for loopback-only diagnostics or recording reads against `camera-*-live` and `camera-*-recording*` paths.
-	- expected source IP is loopback only.
+	- expected action/protocol pair is `read` and `rtsp` for internal diagnostics or recording reads against `camera-*-live` and `camera-*-recording*` paths.
+	- expected source IP is the internal Docker network or loopback.
 
 This split keeps relay auth enabled for public-facing WebRTC while still allowing local relay publishers and readers to function.
 
 Current relay management behavior:
 
-- `config/mediamtx.php` pins the MediaMTX version and relay ports.
-- `App\Services\Relay\MediaMtxInstaller` downloads the relay into `storage/app/private/mediamtx/releases/{version}`.
+- `config/mediamtx.php` pins the relay ports, runtime paths, and Docker-internal service URLs.
+- `App\Services\Relay\MediaMtxInstaller` validates the bundled relay binary path before startup.
 - `App\Services\Relay\MediaMtxConfigService` renders `storage/app/private/mediamtx/mediamtx.yml` from enabled cameras.
 - generated relay config now separates source-ingest paths from playback paths, so operator playback and recorder workers consume internal `camera-*-source*` paths instead of embedding camera RTSP URLs into every downstream path definition.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay, reconciles stale pid files, and checks the Control API.
 - relay liveness checks match the expected MediaMTX binary and config path from process arguments instead of relying only on `kill -0`, since the web worker may run as `www-data` while the relay process is owned by another user.
-- `routes/console.php` exposes `relay:install`, `relay:sync`, `relay:start`, `relay:stop`, and `relay:status`.
+- `routes/console.php` exposes `relay:sync`, `relay:start`, `relay:stop`, and `relay:status`.
 
 Current recording management behavior:
 
 - `routes/console.php` exposes `camera-recordings:tick`, `camera-recordings:prune`, and `camera-recordings:prune-audit`.
-- `routes/console.php` also exposes `camera-recordings:install-worker-service` for provisioning the user systemd unit, `camera-recordings:ensure-worker` for keeping the bounded recording worker online, and `camera-recordings:reconcile-review-asset-queue` for deduplicating and rehoming queued review-asset jobs when legacy backlog needs repair.
+- `routes/console.php` also exposes `camera-recordings:reconcile-review-asset-queue` for deduplicating and rehoming queued review-asset jobs when legacy backlog needs repair.
 - the scheduler still evaluates recording work every minute, but continuous mode now uses that tick as a bootstrap, recovery, and segment-import safety net instead of the primary clip boundary.
 - recording rows now move through explicit `queued`, `processing`, `recorded`, `skipped`, and `failed` states so the operator-facing browser can distinguish waiting work from active capture.
 - motion recording jobs run through the Laravel queue, acquire a per-camera lock, and call ffmpeg directly so PHP never buffers camera payloads in memory.

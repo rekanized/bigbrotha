@@ -73,23 +73,20 @@ $optionalEnvBool = static function (string $key, bool $default): bool {
 };
 
 $defaultInstallRoot = storage_path('app/private/mediamtx');
-$defaultVersion = '1.17.1';
-$defaultInstallDirectory = $defaultInstallRoot.'/releases/'.$defaultVersion;
-$defaultBinaryPath = $defaultInstallDirectory.'/mediamtx';
-$installMode = $optionalEnvString('MEDIAMTX_INSTALL_MODE') ?? 'download';
-$defaultAppUrl = trim((string) env('APP_URL', 'http://localhost'));
-$defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://localhost';
+$defaultBinaryPath = '/usr/local/bin/mediamtx';
+$defaultAppUrl = trim((string) env('APP_URL', 'http://web'));
+$defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://web';
 $defaultWebRtcPublicUrl = rtrim($defaultAppUrl, '/').'/__webrtc';
 $configuredWebRtcPublicUrl = $optionalEnvString('MEDIAMTX_WEBRTC_PUBLIC_URL') ?? $defaultWebRtcPublicUrl;
 $defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl, $defaultAppUrl): string {
     $sourceUrl = $configuredWebRtcPublicUrl !== '' ? $configuredWebRtcPublicUrl : $defaultAppUrl;
     $scheme = parse_url($sourceUrl, PHP_URL_SCHEME) ?? 'http';
-    $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'localhost';
+    $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'web';
     $port = parse_url($sourceUrl, PHP_URL_PORT);
 
     return $scheme.'://'.$host.($port !== null ? ':'.$port : '');
 })();
-$defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'localhost';
+$defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'web';
 $configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
 $defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
 $appKey = $resolvedAppKey;
@@ -97,17 +94,9 @@ $defaultTokenSecret = $appKey !== '' ? $appKey : hash('sha256', $defaultAppUrl.'
 $configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $defaultTokenSecret;
 
 return [
-    'version' => $defaultVersion,
-
-    'install_mode' => $installMode,
-
     'auto_start' => $optionalEnvBool('MEDIAMTX_AUTO_START', true),
 
-    'download_base_url' => $optionalEnvString('MEDIAMTX_DOWNLOAD_BASE_URL') ?? 'https://github.com/bluenviron/mediamtx/releases/download',
-
-    'install_root' => $optionalEnvString('MEDIAMTX_INSTALL_ROOT') ?? $defaultInstallRoot,
-
-    'install_directory' => $optionalEnvString('MEDIAMTX_INSTALL_DIRECTORY') ?? $defaultInstallDirectory,
+    'managed_externally' => $optionalEnvBool('MEDIAMTX_MANAGED_EXTERNALLY', false),
 
     'binary_path' => $optionalEnvString('MEDIAMTX_BINARY_PATH') ?? $defaultBinaryPath,
 
@@ -117,28 +106,26 @@ return [
 
     'log_path' => $optionalEnvString('MEDIAMTX_LOG_PATH') ?? storage_path('logs/mediamtx.log'),
 
-    'download_timeout' => (int) env('MEDIAMTX_DOWNLOAD_TIMEOUT', 180),
-
     'rtsp' => [
         'listen_address' => $optionalEnvString('MEDIAMTX_RTSP_LISTEN_ADDRESS') ?? ':8554',
-        'internal_base_url' => $optionalEnvString('MEDIAMTX_RTSP_INTERNAL_BASE_URL') ?? 'rtsp://127.0.0.1:8554',
-        'publish_base_url' => $optionalEnvString('MEDIAMTX_RTSP_PUBLISH_BASE_URL') ?? 'rtsp://127.0.0.1:8554',
+        'internal_base_url' => $optionalEnvString('MEDIAMTX_RTSP_INTERNAL_BASE_URL') ?? 'rtsp://relay:8554',
+        'publish_base_url' => $optionalEnvString('MEDIAMTX_RTSP_PUBLISH_BASE_URL') ?? 'rtsp://relay:8554',
         'local_internal_base_url' => $optionalEnvString('MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL')
             ?? $optionalEnvString('MEDIAMTX_RTSP_PUBLISH_BASE_URL')
-            ?? 'rtsp://127.0.0.1:8554',
+            ?? 'rtsp://relay:8554',
         'transports' => ['tcp'],
     ],
 
     'api' => [
         'enabled' => $optionalEnvBool('MEDIAMTX_API_ENABLED', true),
         'address' => $optionalEnvString('MEDIAMTX_API_ADDRESS') ?? ':9997',
-        'base_url' => $optionalEnvString('MEDIAMTX_API_BASE_URL') ?? 'http://127.0.0.1:9997',
+        'base_url' => $optionalEnvString('MEDIAMTX_API_BASE_URL') ?? 'http://relay:9997',
     ],
 
     'webrtc' => [
         'enabled' => $optionalEnvBool('MEDIAMTX_WEBRTC_ENABLED', true),
         'address' => $optionalEnvString('MEDIAMTX_WEBRTC_ADDRESS') ?? ':8889',
-        'internal_base_url' => $optionalEnvString('MEDIAMTX_WEBRTC_INTERNAL_BASE_URL') ?? 'http://127.0.0.1:8889',
+        'internal_base_url' => $optionalEnvString('MEDIAMTX_WEBRTC_INTERNAL_BASE_URL') ?? 'http://relay:8889',
         'public_base_url' => $configuredWebRtcPublicUrl,
         'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
         'allow_origins' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ALLOW_ORIGINS') ?? [$defaultCallbackOrigin],
@@ -161,8 +148,8 @@ return [
         'callback_secret' => $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_SECRET') ?? hash('sha256', ($appKey !== '' ? $appKey : $defaultAuthCallbackUrl).'|mediamtx-auth-callback'),
         'token_secret' => $configuredTokenSecret,
         'token_ttl' => 180,
-        'reader_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_READER_ALLOWED_IPS') ?? ['127.0.0.1', '::1'],
-        'publisher_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_PUBLISHER_ALLOWED_IPS') ?? ['127.0.0.1', '::1'],
+        'reader_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_READER_ALLOWED_IPS') ?? ['127.0.0.1', '::1', '172.16.0.0/12'],
+        'publisher_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_PUBLISHER_ALLOWED_IPS') ?? ['127.0.0.1', '::1', '172.16.0.0/12'],
         'reader_user' => 'internal-reader',
         'reader_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-reader'), 0, 32),
         'publisher_user' => 'publisher',

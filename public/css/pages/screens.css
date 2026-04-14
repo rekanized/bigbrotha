@@ -3312,6 +3312,19 @@ body.live-wall-focus-mode {
     text-transform: uppercase;
 }
 
+.field-stack__control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.field-stack__inline-action {
+    min-width: 112px;
+    min-height: 48px;
+    white-space: nowrap;
+}
+
 .form-input,
 .form-select {
     min-height: 48px;
@@ -3724,6 +3737,14 @@ body.live-wall-focus-mode {
 
     .camera-list {
         grid-template-columns: 1fr;
+    }
+
+    .field-stack__control-row {
+        grid-template-columns: 1fr;
+    }
+
+    .field-stack__inline-action {
+        width: 100%;
     }
 }
 

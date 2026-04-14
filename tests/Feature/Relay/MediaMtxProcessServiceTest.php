@@ -10,6 +10,28 @@ use Tests\TestCase;
 
 class MediaMtxProcessServiceTest extends TestCase
 {
+    public function test_status_uses_the_api_when_mediamtx_is_managed_externally(): void
+    {
+        Http::fake([
+            'http://relay:9997/*' => Http::response(['items' => []], 200),
+        ]);
+
+        config()->set('mediamtx.managed_externally', true);
+        config()->set('mediamtx.api.base_url', 'http://relay:9997');
+
+        $configService = $this->createMock(MediaMtxConfigService::class);
+        $configService->expects($this->never())->method($this->anything());
+
+        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+
+        $status = $service->status();
+
+        $this->assertTrue($status['installed']);
+        $this->assertTrue($status['running']);
+        $this->assertTrue($status['api_reachable']);
+        $this->assertNull($status['pid']);
+    }
+
     public function test_status_cleans_up_a_stale_pid_file_when_no_matching_process_exists(): void
     {
         Http::fake([
@@ -28,6 +50,8 @@ class MediaMtxProcessServiceTest extends TestCase
         config()->set('mediamtx.pid_path', $pidPath);
         config()->set('mediamtx.binary_path', $binaryPath);
         config()->set('mediamtx.config_path', $configPath);
+        config()->set('mediamtx.api.base_url', 'http://127.0.0.1:9997');
+        config()->set('mediamtx.managed_externally', false);
 
         $installer = new class($binaryPath) extends MediaMtxInstaller
         {

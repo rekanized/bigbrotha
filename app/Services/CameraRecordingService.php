@@ -7,6 +7,7 @@ use App\Jobs\ProcessCameraRecordingJob;
 use App\Models\Camera;
 use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxPathNamer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,8 @@ use Throwable;
 
 class CameraRecordingService
 {
+    use ResolvesConfiguredBinaries;
+
     private const MISSING_STORAGE_RECONCILE_MESSAGE = 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.';
 
     public function __construct(
@@ -296,7 +299,7 @@ class CameraRecordingService
     public function resolveRecordingSource(Camera $camera, ?int $profileIndex = null): ?array
     {
         $profiles = $camera->rtspProfiles();
-        $selectedIndex = $profileIndex ?? $camera->recording_profile_index;
+        $selectedIndex = $profileIndex;
 
         if (is_int($selectedIndex) && isset($profiles[$selectedIndex]) && is_array($profiles[$selectedIndex])) {
             $uri = $this->stringOrNull($profiles[$selectedIndex]['uri'] ?? null);
@@ -311,9 +314,11 @@ class CameraRecordingService
             }
         }
 
-        if ($selectedIndex === null) {
+        $configuredPath = $camera->recordingRtspPath();
+
+        if ($configuredPath !== null) {
             foreach ($profiles as $index => $profile) {
-                if (!is_array($profile) || !$this->profileMatchesConfiguredRtspPath($camera, $profile)) {
+                if (!is_array($profile) || !$this->profileMatchesConfiguredRtspPath($configuredPath, $camera->rtspEndpoint($configuredPath), $profile)) {
                     continue;
                 }
 
@@ -330,43 +335,41 @@ class CameraRecordingService
                     'transport' => $this->transport($camera),
                 ];
             }
-        }
 
-        foreach ($profiles as $index => $profile) {
-            if (!is_array($profile)) {
-                continue;
+            $endpoint = $camera->recordingRtspEndpoint();
+
+            if ($endpoint !== null) {
+                return [
+                    'index' => null,
+                    'profile' => [
+                        'name' => 'Configured recording path',
+                        'uri' => $endpoint,
+                        'path' => $configuredPath,
+                    ],
+                    'authenticated_uri' => $this->injectCredentials($endpoint, $camera->username, $camera->password),
+                    'transport' => $this->transport($camera),
+                ];
             }
+        }
 
-            $uri = $this->stringOrNull($profile['uri'] ?? null);
+        $legacySelectedIndex = is_numeric($camera->recording_profile_index)
+            ? (int) $camera->recording_profile_index
+            : null;
 
-            if ($uri === null) {
-                continue;
+        if ($legacySelectedIndex !== null && isset($profiles[$legacySelectedIndex]) && is_array($profiles[$legacySelectedIndex])) {
+            $uri = $this->stringOrNull($profiles[$legacySelectedIndex]['uri'] ?? null);
+
+            if ($uri !== null) {
+                return [
+                    'index' => $legacySelectedIndex,
+                    'profile' => $profiles[$legacySelectedIndex],
+                    'authenticated_uri' => $this->injectCredentials($uri, $camera->username, $camera->password),
+                    'transport' => $this->transport($camera),
+                ];
             }
-
-            return [
-                'index' => $index,
-                'profile' => $profile,
-                'authenticated_uri' => $this->injectCredentials($uri, $camera->username, $camera->password),
-                'transport' => $this->transport($camera),
-            ];
         }
 
-        $endpoint = $camera->rtspEndpoint();
-
-        if ($endpoint === null) {
-            return null;
-        }
-
-        return [
-            'index' => null,
-            'profile' => [
-                'name' => 'Saved endpoint',
-                'uri' => $endpoint,
-                'path' => $camera->rtsp_path,
-            ],
-            'authenticated_uri' => $this->injectCredentials($endpoint, $camera->username, $camera->password),
-            'transport' => $this->transport($camera),
-        ];
+        return null;
     }
 
     /**
@@ -401,16 +404,14 @@ class CameraRecordingService
     /**
      * @param  array<string, string|null>  $profile
      */
-    private function profileMatchesConfiguredRtspPath(Camera $camera, array $profile): bool
+    private function profileMatchesConfiguredRtspPath(?string $configuredPath, ?string $configuredEndpoint, array $profile): bool
     {
-        $configuredPath = $this->stringOrNull($camera->rtsp_path);
         $profilePath = $this->profileRtspPath($profile);
 
         if ($configuredPath !== null && $profilePath !== null && $configuredPath === $profilePath) {
             return true;
         }
 
-        $configuredEndpoint = $this->stringOrNull($camera->rtspEndpoint());
         $profileUri = $this->stringOrNull($profile['uri'] ?? null);
 
         return $configuredEndpoint !== null && $profileUri !== null && $configuredEndpoint === $profileUri;
@@ -968,7 +969,7 @@ class CameraRecordingService
 
         $bufferedPath = $this->bufferedPlaybackAbsolutePath($recording);
         $command = $this->buildBufferedPlaybackCommand($absolutePath, $bufferedPath);
-        $process = new Process($command, base_path());
+        $process = new Process($command);
         $process->setTimeout($this->playbackTimeoutSeconds($recording));
 
         try {
@@ -1661,7 +1662,8 @@ class CameraRecordingService
      */
     private function preferredMotionCaptureSource(Camera $camera, array $source): array
     {
-        if (!(bool) config('recording.motion.use_relay_source', false)) {
+        if (!(bool) config('recording.motion.use_relay_source', false)
+            && !$this->motionCaptureMatchesLiveProfile($camera, $source)) {
             return $source;
         }
 
@@ -1849,7 +1851,6 @@ class CameraRecordingService
     {
         try {
             File::ensureDirectoryExists($directory);
-            @chmod($directory, 02775);
         } catch (Throwable) {
             return false;
         }
@@ -1857,6 +1858,26 @@ class CameraRecordingService
         clearstatcache(true, $directory);
 
         return is_dir($directory) && is_writable($directory);
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     */
+    private function motionCaptureMatchesLiveProfile(Camera $camera, array $source): bool
+    {
+        $liveSelection = $this->liveStreams->selectedWebRtcSource($camera);
+
+        if ($liveSelection === null) {
+            return false;
+        }
+
+        $liveIndex = is_numeric($liveSelection['index'] ?? null) ? (int) $liveSelection['index'] : null;
+        $sourceIndex = is_numeric($source['index'] ?? null) ? (int) $source['index'] : null;
+
+        return $liveIndex !== null
+            && $sourceIndex !== null
+            && $liveIndex === $sourceIndex
+            && $sourceIndex > 0;
     }
 
     private function temporaryPlaybackFile(string $directory, string $prefix): ?string
@@ -2106,53 +2127,6 @@ class CameraRecordingService
     }
 
     /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * @param  array<int, string>  $command
      */
     private function streamPlaybackOutput(array $command, CameraRecording $recording): void
@@ -2166,7 +2140,7 @@ class CameraRecordingService
             2 => ['pipe', 'w'],
         ];
 
-        $process = @proc_open($command, $descriptorSpec, $pipes, base_path());
+        $process = @proc_open($command, $descriptorSpec, $pipes, null);
 
         if (!is_resource($process)) {
             throw new RuntimeException('Unable to start ffmpeg for recorded playback.');
@@ -2319,7 +2293,7 @@ class CameraRecordingService
             return $fallback;
         }
 
-        return Str::limit(preg_replace('/\s+/', ' ', $message) ?? $message, 240);
+        return Str::limit(preg_replace('/\s+/', ' ', $message) ?? $message, 500);
     }
 
     private function summarizeThrowable(Throwable $exception, string $fallback): string
@@ -2356,11 +2330,6 @@ class CameraRecordingService
         } catch (Throwable) {
             // Reporting cannot be allowed to break the recording pipeline.
         }
-    }
-
-    private function formatDecimal(float $value): string
-    {
-        return rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');
     }
 
     private function stringOrNull(mixed $value): ?string

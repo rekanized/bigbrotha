@@ -4,10 +4,6 @@ set -eu
 APP_ROOT="${APP_ROOT:-/app}"
 APP_BOOTSTRAP_MARKER="${APP_BOOTSTRAP_MARKER:-$APP_ROOT/storage/app/private/bootstrap/app.ready}"
 
-if [ "${APP_CONTAINER_ROLE:-app}" != "app" ]; then
-    exit 0
-fi
-
 [ -f "$APP_BOOTSTRAP_MARKER" ]
 
 cd "$APP_ROOT"
@@ -24,7 +20,3 @@ php -r '
 
     fclose($connection);
 '
-
-if [ "${APP_AUTO_START_RELAY:-false}" = "true" ]; then
-    curl -fsS http://127.0.0.1:9997/v3/paths/list >/dev/null
-fi

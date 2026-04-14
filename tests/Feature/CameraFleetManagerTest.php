@@ -39,6 +39,7 @@ class CameraFleetManagerTest extends TestCase
             ->assertSet('form.model', 'Tapo C200')
             ->assertSet('form.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertSet('form.rtsp_path', '/stream1')
+            ->assertSet('form.recording_rtsp_path', '/stream1')
             ->call('saveCamera');
 
         $camera = Camera::query()->firstOrFail();
@@ -49,6 +50,8 @@ class CameraFleetManagerTest extends TestCase
         $this->assertSame('operator', $camera->username);
         $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->mac_address);
         $this->assertTrue($camera->supports_rtsp);
+        $this->assertSame('/stream1', $camera->rtsp_path);
+        $this->assertSame('/stream1', $camera->recording_rtsp_path);
         $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
         $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->metadata['onvif']['mac_address']);
         $this->assertCount(1, $camera->rtspProfiles());
@@ -58,8 +61,8 @@ class CameraFleetManagerTest extends TestCase
         $component
             ->call('editCamera', $camera->id)
             ->assertSet('isEditorModalOpen', true)
+            ->assertSet('form.password', 'secret')
             ->set('form.name', 'Front Gate')
-            ->set('form.password', '')
             ->call('saveCamera')
             ->call('toggleEnabled', $camera->id);
 
@@ -68,6 +71,16 @@ class CameraFleetManagerTest extends TestCase
         $this->assertSame('Front Gate', $camera->name);
         $this->assertFalse($camera->is_enabled);
         $this->assertSame('secret', $camera->password);
+
+        $component
+            ->call('editCamera', $camera->id)
+            ->assertSet('form.password', 'secret')
+            ->set('form.password', 'updated-secret')
+            ->call('saveCamera');
+
+        $camera->refresh();
+
+        $this->assertSame('updated-secret', $camera->password);
 
         $component
             ->call('requestDeleteCamera', $camera->id)
@@ -183,6 +196,7 @@ XML, 200),
 
         $this->assertTrue($camera->supports_rtsp);
         $this->assertSame('/stream1', $camera->rtsp_path);
+        $this->assertSame('/stream1', $camera->recording_rtsp_path);
         $this->assertCount(1, $camera->rtspProfiles());
         $this->assertSame('rtsp://192.168.1.67:554/stream1', $camera->rtspProfiles()[0]['uri']);
         $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
@@ -318,6 +332,7 @@ BASH);
             'onvif_path' => '/onvif/device_service',
             'username' => 'operator',
             'password' => 'secret',
+            'rtsp_path' => '/stream2',
             'rtsp_transport' => 'udp',
             'supports_onvif' => true,
             'supports_rtsp' => true,
@@ -397,6 +412,86 @@ BASH);
         $this->assertSame('TCP', $camera->rtspProfiles()[0]['transport']);
     }
 
+    public function test_it_surfaces_a_sanitized_concise_stream_test_failure_when_all_fallbacks_fail(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Patio',
+            'local_ip' => '192.168.1.69',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'rekanized',
+            'password' => 'master17',
+            'rtsp_path' => '/stream2',
+            'rtsp_transport' => 'tcp',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MinorStream',
+                        'token' => 'profile_minor',
+                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'path' => '/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        File::ensureDirectoryExists($binaryDirectory);
+
+        $ffprobeBinary = $binaryDirectory.'/ffprobe-manager-failed-fallback-summary.sh';
+        File::put($ffprobeBinary, <<<'BASH'
+#!/usr/bin/env bash
+joined="$*"
+
+if [[ "$joined" == *"camera-1-live"* ]] || [[ "$joined" == *"camera-1-source-profile-0"* ]]; then
+    echo 'The process has been signaled with signal "11".' >&2
+    exit 1
+fi
+
+echo 'rtsp://rekanized:master17@192.168.1.69:554/stream2: Operation not permitted' >&2
+exit 1
+BASH);
+        chmod($ffprobeBinary, 0755);
+
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-manager-failed-fallback-summary.sh';
+        File::put($ffmpegBinary, <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->call('testRtspProfile', 0)
+            ->assertSet('rtspErrorMessage', null);
+
+        $camera->refresh();
+
+        $this->assertSame('Failed', $camera->rtspProfiles()[0]['probe_status']);
+        $this->assertSame(
+            'TCP transport failed: rtsp://192.168.1.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
+            $camera->rtspProfiles()[0]['probe_message'],
+        );
+        $this->assertStringNotContainsString('master17', $camera->rtspProfiles()[0]['probe_message']);
+        $this->assertStringNotContainsString('signal "11"', $camera->rtspProfiles()[0]['probe_message']);
+    }
+
     public function test_it_can_create_a_rtsp_only_camera_without_probing_onvif(): void
     {
         Livewire::test(Manager::class)
@@ -419,6 +514,7 @@ BASH);
         $this->assertFalse($camera->supports_onvif);
         $this->assertTrue($camera->supports_rtsp);
         $this->assertSame('rtsp://192.168.1.88:554/manual-stream', $camera->rtspEndpoint());
+        $this->assertSame('/manual-stream', $camera->recording_rtsp_path);
         $this->assertSame('operator', $camera->username);
     }
 
@@ -780,10 +876,10 @@ XML, 200),
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
-            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
             ->assertJsonPath('profile_index', 1)
-            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+            ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
+            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
     }
 
     public function test_motion_editor_session_reuses_an_active_live_relay_when_it_matches_the_selected_recording_profile(): void
@@ -964,7 +1060,7 @@ XML, 200),
             'username' => 'operator',
             'password' => 'secret',
             'rtsp_path' => '/stream2',
-            'recording_profile_index' => null,
+            'recording_rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,

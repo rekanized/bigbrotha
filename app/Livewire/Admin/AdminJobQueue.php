@@ -398,10 +398,6 @@ class AdminJobQueue extends Component
         $runningWorkers = (int) ($workerSnapshot['running_workers'] ?? 0);
         $desiredWorkers = (int) ($workerSnapshot['desired_workers'] ?? 1);
 
-        if (!(bool) ($workerSnapshot['ensure_running'] ?? false)) {
-            return 'warn';
-        }
-
         if ($runningWorkers === 0) {
             return 'alert';
         }
@@ -421,16 +417,12 @@ class AdminJobQueue extends Component
         $runningWorkers = (int) ($workerSnapshot['running_workers'] ?? 0);
         $desiredWorkers = (int) ($workerSnapshot['desired_workers'] ?? 1);
 
-        if (!(bool) ($workerSnapshot['ensure_running'] ?? false)) {
-            return 'Supervision off';
-        }
-
         if ($runningWorkers === 0) {
             return 'Workers down';
         }
 
         if ($runningWorkers < $desiredWorkers) {
-            return 'Scaling';
+            return 'Degraded';
         }
 
         return 'Healthy';
@@ -442,28 +434,29 @@ class AdminJobQueue extends Component
      */
     private function workerPressureState(array $workerSnapshot): array
     {
-        $desiredWorkers = (int) ($workerSnapshot['desired_workers'] ?? 1);
-        $maximumWorkers = max(1, (int) ($workerSnapshot['maximum_workers'] ?? 1));
-
         if (!(bool) ($workerSnapshot['dynamic_enabled'] ?? false)) {
-            return ['warning', 'Dynamic worker scaling is disabled. The worker pool will stay fixed until you change the configured process count.'];
+            return ['neutral', null];
         }
+
+        $desiredWorkers = max(1, (int) ($workerSnapshot['desired_workers'] ?? 1));
+        $minimumWorkers = max(1, (int) ($workerSnapshot['minimum_workers'] ?? $desiredWorkers));
+        $maximumWorkers = max($minimumWorkers, (int) ($workerSnapshot['maximum_workers'] ?? $desiredWorkers));
 
         if ($desiredWorkers >= $maximumWorkers) {
             return [
                 'warning',
-                'Worker demand has reached the configured ceiling of '.$maximumWorkers.' processes. If backlog keeps growing, raise CAMERA_RECORDING_WORKER_MAX_PROCESSES or reduce per-job load.',
+                'Worker demand has reached the configured ceiling of '.$maximumWorkers.' process'.($maximumWorkers === 1 ? '' : 'es').'.',
             ];
         }
 
-        if ($maximumWorkers > 1 && $desiredWorkers >= max(1, (int) ceil($maximumWorkers * 0.75))) {
+        if ($desiredWorkers > $minimumWorkers) {
             return [
                 'warning',
-                'Worker demand is nearing the configured ceiling: '.$desiredWorkers.' of '.$maximumWorkers.' available worker slots are now targeted.',
+                'Worker demand currently requires '.$desiredWorkers.' process'.($desiredWorkers === 1 ? '' : 'es').' against the base capacity of '.$minimumWorkers.'.',
             ];
         }
 
-        return ['warning', null];
+        return ['neutral', null];
     }
 
     private function formatUnixTimestamp(int $timestamp): string

@@ -8,274 +8,96 @@ If the host has Docker with Compose support, the repository now includes a deplo
 
 Container services in [docker-compose.yml](../docker-compose.yml):
 
-- `app` runs Laravel under `php-fpm` and starts MediaMTX locally on demand through the baked image binary.
-- `web` runs Nginx and proxies `/__webrtc/` to the `app` container.
-- `worker` runs `php artisan queue:work` for `recordings,default,review-assets`.
-- `scheduler` runs `php artisan schedule:run` in a loop instead of relying on host cron.
-- `database` runs `postgres:18-alpine` for the default compose setup.
+# Startup From Scratch
 
-### Docker Prerequisites
+Use this when you are bringing up a new BigBrotha deployment from nothing.
 
-- Docker with Compose support.
-- Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries committed in `bin/`.
-- Review the installation defaults in `docker-compose.yml`, especially `APP_URL`, database values, and Google auth values.
+## Supported Runtime
 
-### Docker Startup
+BigBrotha now targets a single supported runtime: Docker Compose.
 
-```bash
-docker compose pull
-docker compose up -d
-```
+The stack in [docker-compose.yml](../docker-compose.yml) runs these services:
 
-### Docker Camera Network Reachability
-
-The `app` container must be able to reach camera HTTP, ONVIF, and RTSP endpoints on the camera LAN or routed camera subnet.
-
-```bash
-docker compose up -d
-```
-
-Before starting the stack, confirm the Docker host and bridge network have a usable route and firewall allowance to the camera network. The current onboarding flow uses a direct ONVIF probe from Camera Fleet instead of multicast discovery.
-
-### Docker Hub Startup
-
-```bash
-export BIGBROTHA_APP_IMAGE=yourdockerhubuser/bigbrotha-app:latest
-export BIGBROTHA_WEB_IMAGE=yourdockerhubuser/bigbrotha-web:latest
-docker compose pull
-docker compose up -d --no-build
-```
-
-Recommended Docker env values:
-
-- `APP_URL=http://localhost:8080` for a local compose stack unless you publish a different host or port.
-- `DB_CONNECTION=pgsql` when using the bundled compose database.
-- `DB_PASSWORD=...` with a real production password instead of the compose fallback.
-- `DB_HOST_PORT=55432` or another host-side port if you want to reach the bundled PostgreSQL service from the Docker host.
-
-Docker runtime notes:
-
-- the Docker images use `/app` as the internal application root. That path is inside the image and is not tied to any host checkout path such as `/var/www/...`.
-- the compose file can either build local images or pull published images. The published install defaults are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest`, and you can override them with shell exports or an optional local `.env` file.
-- `app`, `worker`, and `scheduler` all use `BIGBROTHA_APP_IMAGE`, while `web` uses `BIGBROTHA_WEB_IMAGE`, so queue and scheduler containers do not drift onto a different image tag than the app.
-- the compose file injects production-safe defaults for `APP_ENV`, `APP_DEBUG`, `TRUSTED_PROXIES`, `SESSION_DRIVER`, `QUEUE_CONNECTION`, `CACHE_STORE`, and logging to `stderr` so the stack does not inherit local development behavior from `.env.example`.
-- the app image bakes in MediaMTX and uses `MEDIAMTX_INSTALL_MODE=bundled` with `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`.
-- the compose stack also sets `MEDIAMTX_LOG_PATH=/app/storage/logs/mediamtx.log`, so the detached MediaMTX process has a stable log target under shared storage.
-- the `app` container bootstraps itself automatically: after the database is reachable it runs `php artisan migrate --force` when the `users` table is missing or has zero rows, and then starts MediaMTX automatically.
-- after that first successful bootstrap, the app stores a database initialization marker in shared app storage. If a later startup finds an empty database while that marker already exists, startup refuses to auto-migrate and exits with an error so a lost or swapped PostgreSQL volume is not masked by a fresh bootstrap.
-- the app image has a Docker `HEALTHCHECK` that waits for bootstrap completion, verifies `php-fpm` on port `9000`, and checks the local MediaMTX API when relay auto-start is enabled.
-- the `worker` container now has its own Docker healthcheck that fails when the queue worker process disappears, the worker heartbeat stops advancing, or recordings jobs sit in the database queue too long.
-- the `scheduler` container now has its own Docker healthcheck that fails when the schedule loop heartbeat stops advancing.
-- the scheduler startup path now also runs one immediate `camera-recordings:tick` before the recurring `schedule:run` loop, so recorder processes are restored as soon as the container starts instead of waiting for the next minute boundary.
-- Compose also injects `MEDIAMTX_AUTH_CALLBACK_URL=http://web/relay/auth/mediamtx` because the public `APP_URL` is not reachable as `localhost` from inside the `app` container.
-- Compose also injects `MEDIAMTX_AUTH_READER_ALLOWED_IPS` with Docker bridge CIDRs so relay-backed recorder and diagnostics reads from the `scheduler` or `worker` containers are accepted by the MediaMTX auth callback.
-- Compose also injects `MEDIAMTX_RTSP_INTERNAL_BASE_URL=rtsp://app:8554` so any Laravel container that uses the relay source talks to the `app` service on the Docker network instead of to its own loopback device.
-- Compose also injects `MEDIAMTX_RTSP_PUBLISH_BASE_URL=rtsp://127.0.0.1:8554` so the relay's own `runOnDemand` publisher connects back to MediaMTX over loopback instead of through Docker DNS.
-- The relay's own nested source-path reads now prefer `MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL`, then `MEDIAMTX_RTSP_PUBLISH_BASE_URL`, so Docker deployments can keep worker-facing relay reads on `rtsp://app:8554` without forcing MediaMTX to hairpin through Docker DNS for its own local live-path bootstrap.
-- Compose also sets `MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false` so MediaMTX relies on the configured public host instead of advertising Docker interface addresses that browsers cannot use.
-- Direct camera onboarding now uses unicast ONVIF requests from Camera Fleet, so the Docker requirement is routed reachability from the `app` container to the camera network instead of a dedicated WS-Discovery-specific interface.
-- if `APP_KEY` is missing, the entrypoint generates it once and persists it under shared Docker storage.
-- Laravel reads that generated key file directly, so later `docker compose exec app php artisan ...` commands see the same key without needing a mounted host `.env` file.
-- the app image includes `smbclient`, so SMB-backed camera storage does not require a host binary outside Docker.
-- Compose publishes the HTTP UI on `APP_HTTP_PORT` and the WebRTC ICE ports on `MEDIAMTX_WEBRTC_TCP_PORT` and `MEDIAMTX_WEBRTC_UDP_PORT`.
-- App containers talk to the bundled PostgreSQL service on `database:5432`. Leave `DB_PORT=5432` for the bundled database path.
-- The bundled PostgreSQL service is also published to the Docker host on `${DB_HOST_BIND:-127.0.0.1}:${DB_HOST_PORT:-55432}` by default, so change `DB_HOST_PORT` if you need a different host-side port.
-- the `web` service also has a lightweight healthcheck through Nginx, and `worker` plus `scheduler` now wait for the `app` service to become healthy before they start.
-- `worker` and `scheduler` wait for the app bootstrap marker before they start processing jobs or scheduler ticks, so first-run migrations do not race those services.
-
-Recommended Docker verification:
-
-```bash
-docker compose ps
-docker compose exec app php artisan relay:status
-docker compose logs --tail=100 app web worker scheduler
-```
-
-`php artisan relay:status` is optional verification. Normal startup should not require it.
-
-## Bare Metal Or VM Host Path
+- `app` for Laravel under `php-fpm` plus the bundled MediaMTX relay.
+- `web` for Nginx and `/__webrtc/` proxying.
+- `worker` for `php artisan queue:work` on `recordings,default,review-assets`.
+- `scheduler` for the recurring `php artisan schedule:run` loop.
+- `database` for the bundled PostgreSQL service.
 
 ## Prerequisites
 
-- PHP 8.3 CLI and the PHP extensions required by Laravel.
-- Composer.
-- Linux-compatible statically compiled `ffmpeg` and `ffprobe` binaries committed in `bin/`, or alternate absolute binary paths ready for `.env`.
-- A writable database supported by Laravel.
-- Cron running on the host.
-- User systemd, system systemd, Supervisor, or another real process manager.
-- A web server or reverse proxy in front of Laravel for non-local deployments.
+- Docker with Compose support.
+- The repository `bin/ffmpeg` and `bin/ffprobe` binaries present in the checkout.
+- Routed reachability from the Docker host to the camera network.
 
-This repository is Composer-only. Do not add Node, Vite, Tailwind, or any frontend build pipeline.
+## 1. Review Deployment Values
 
-## 1. Fetch The App
+Before startup, review these values in [docker-compose.yml](../docker-compose.yml):
 
-```bash
-git clone <your-repo-url> /var/www/bigbrotha
-cd /var/www/bigbrotha
-composer install --no-dev --optimize-autoloader
-```
-
-For a local development install, dropping `--no-dev` is fine.
-
-## 2. Create The Environment File
-
-```bash
-cp .env.example .env
-php artisan key:generate
-```
-
-Then update `.env` with the values that match the host.
-
-Minimum values to review:
-
+- copy `.env.docker.example` to `.env.docker`
 - `APP_URL`
-- `DB_CONNECTION` and matching database credentials
-- `QUEUE_CONNECTION=database`
+- `WEB_PORT`
+- `MEDIAMTX_ICE_PORT`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
-- `CAMERA_RECORDING_ENSURE_WORKER=true`
+- `DB_*` values if you are not using the bundled PostgreSQL defaults
+- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of `worker` replicas
 
-If the correct CLI binary is not just `php`, also set:
+For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and Google OAuth use.
 
-- `CAMERA_RECORDING_WORKER_PHP_BINARY=/usr/bin/php8.3`
+If you want file-backed secrets instead of environment values, the app containers also accept `DB_PASSWORD_FILE`, `GOOGLE_CLIENT_ID_FILE`, and `GOOGLE_CLIENT_SECRET_FILE`.
 
-That ensures the generated recordings worker service uses the right interpreter.
-
-The default FFmpeg runtime values now live in `config/ffmpeg.php`. Without any FFmpeg-related `.env` entries, Laravel resolves the bundled binaries from `base_path('bin')` and the temp workspace from `storage_path(...)`. Only add `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` when a host needs to override those defaults.
-
-The default MediaMTX runtime values now live in `config/mediamtx.php`. Without any MediaMTX-specific `.env` entries, Laravel derives the public WebRTC base URL from `APP_URL` as `APP_URL + /__webrtc`, derives the auth callback URL from the app origin, and derives relay secrets plus internal publisher credentials from `APP_KEY`. Only add MediaMTX env values when a host needs a different public relay URL, additional ICE hosts, or explicit secret overrides. If a deployment needs different relay ports, paths, install locations, or transcode settings, edit `config/mediamtx.php` directly.
-
-For Docker deployments, set `MEDIAMTX_INSTALL_MODE=bundled` and `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx` so Laravel uses the image-baked binary instead of trying to download one at runtime.
-
-If the host uses SMB or NAS-backed camera storage through the admin settings page, point that setting at the dedicated camera-storage directory itself, not its parent. For example, prefer `//fileserver/share/cameras` or `//fileserver/share/Applications/bigbrotha/cameras` over a parent path like `//fileserver/share/Applications/bigbrotha`.
-
-## 3. Prepare The Database
+## 2. Start The Stack
 
 ```bash
-php artisan migrate --force
+./docker/compose-up.sh
 ```
 
-If you are using the default sqlite example, make sure the database file exists and is writable before running migrations.
+The `app` container will:
 
-## 4. Install And Sync MediaMTX
+- wait for PostgreSQL on `database:5432`
+- ensure `APP_KEY` and persist it under `./.docker-state/app.key` on the Docker host
+- apply pending Laravel migrations automatically and bootstrap an empty database when needed
+- start the bundled MediaMTX relay
+- write the bootstrap marker that unblocks `worker` and `scheduler`
+
+## 3. Confirm Camera Reachability
+
+The `app` container must be able to reach camera HTTP, ONVIF, and RTSP endpoints directly.
+
+The current onboarding flow uses direct ONVIF probes from Camera Fleet, so this is a routed reachability requirement rather than a multicast discovery requirement.
+
+## 4. Verify Startup
 
 ```bash
-composer relay:install
-php artisan relay:sync
+docker compose ps
+docker compose logs --tail=100 app web worker scheduler
+docker compose exec app php artisan relay:status
 ```
 
-This project manages MediaMTX from Laravel rather than expecting a separate hand-installed binary.
+What you should see:
 
-For WebRTC stability on hosts that also have Docker bridges, VPN adapters, or Tailscale interfaces, prefer explicit browser-reachable hosts instead of interface auto-discovery:
+- `database`, `app`, `web`, `worker`, and `scheduler` running
+- `app`, `web`, `worker`, and `scheduler` healthy once startup settles
+- MediaMTX installed, running, and API reachable from the `app` container
 
-```dotenv
-MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES=false
-MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS=monitor.example.com,192.168.1.222
-```
-
-If browsers can complete WHEP but the video stays black and the peer reconnects every few seconds, the camera feed is often fine and the problem is ICE connectivity. In that case you can force TCP media transport with:
-
-```dotenv
-MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS=
-MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS=:8189
-```
-
-Then run `php artisan optimize:clear` and restart the app plus MediaMTX so the generated relay config is rebuilt.
-
-## 5. Install The Recordings Worker Service
+## 5. Useful Runtime Commands
 
 ```bash
-composer recordings:worker:install
-```
-
-That command:
-
-1. writes the user systemd unit for the recordings worker
-2. runs `systemctl --user daemon-reload`
-3. enables the service
-4. starts it immediately
-
-If you are provisioning a host where user systemd may not be available yet and you want a non-failing attempt, use:
-
-```bash
-php artisan camera-recordings:install-worker-service --graceful
-```
-
-## 6. Add The Scheduler Cron
-
-Add this cron entry for the deploy user:
-
-```cron
-* * * * * cd /var/www/bigbrotha && php artisan schedule:run >> /dev/null 2>&1
-```
-
-The scheduler drives:
-
-- preview refreshes
-- recording tick creation
-- stale recording recovery
-- recordings worker safety-net checks
-- recording retention pruning
-
-## 7. Start The App Services
-
-```bash
-php artisan optimize:clear
-php artisan relay:start
-php artisan camera-recordings:ensure-worker
-```
-
-`camera-recordings:ensure-worker` is the safety-net check. The real persistence still comes from the installed process manager.
-
-## 8. Verify The Host
-
-Run these checks after startup:
-
-```bash
-php artisan relay:status
-php artisan camera-recordings:ensure-worker
-systemctl --user --no-pager --full status bigbrotha-recordings-queue.service
-php artisan schedule:run
-php artisan test tests/Feature/RecordingWorkerCommandTest.php tests/Feature/CameraRecordingCommandTest.php tests/Feature/CameraRecordingMotionCommandTest.php tests/Feature/CameraRecordingMaintenanceCommandTest.php
-```
-
-What you want to see:
-
-- MediaMTX installed, running, and API reachable.
-- The recordings worker already running.
-- The systemd user unit enabled and active.
-- The scheduler completing without errors.
-
-## 9. Local Development Shortcut
-
-For a quick non-production startup:
-
-```bash
-composer install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate
-composer relay:install
-php artisan relay:sync
-php artisan serve
-```
-
-In another shell, run:
-
-```bash
-php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256
-```
-
-And either run cron externally or trigger the scheduler manually while testing:
-
-```bash
-php artisan schedule:run
+docker compose exec app php artisan relay:sync
+docker compose exec app php artisan relay:start
+docker compose exec app php artisan relay:status
+docker compose exec app php artisan camera-recordings:tick
+docker compose exec app php artisan camera-recordings:prune
+docker compose exec app php artisan camera-recordings:build-review-assets --missing
+docker compose exec app php artisan test
 ```
 
 ## Notes
 
-- Pure PHP request handling is not a substitute for a real queue worker.
-- The scheduler can detect a missing worker and start the configured systemd unit, but it is not itself the worker.
-- If you need full reboot and logout persistence, use a root-managed service or enable linger for the deploy user.
-- Docker deployments replace the host cron and systemd requirements with the dedicated `scheduler` and `worker` compose services.
+- The worker pool is Docker-managed. Do not install host cron jobs or systemd units for queue work.
+- `./docker/compose-up.sh` scales the `worker` service to the same value as `CAMERA_RECORDING_WORKER_PROCESSES`.
+- Keep `./.docker-state/app.key` with the deployment. If that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
+- The bundled PostgreSQL service stays internal to the Compose network by default.
+- The relay, database, and Laravel services communicate through Docker DNS names such as `app`, `web`, and `database`.

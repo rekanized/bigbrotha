@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Models\Camera;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -10,6 +11,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CameraLiveStreamService
 {
+    use ResolvesConfiguredBinaries;
+
     private const MJPEG_BOUNDARY = 'bigbrotha-live';
 
     /**
@@ -21,61 +24,7 @@ class CameraLiveStreamService
             return $this->selectExplicitProfile($camera, $profileIndex);
         }
 
-        $candidates = [];
-
-        foreach ($camera->rtspProfiles() as $index => $profile) {
-            if (!is_array($profile) || $this->stringOrNull($profile['uri'] ?? null) === null) {
-                continue;
-            }
-
-            $candidates[] = [
-                'index' => $index,
-                'profile' => $profile,
-                'is_efficient' => $this->isEfficientWallProfile($profile),
-                'is_healthy' => strcasecmp((string) ($profile['probe_status'] ?? ''), 'Healthy') === 0,
-                'pixel_count' => $this->profilePixelCount($profile),
-            ];
-        }
-
-        if ($candidates !== []) {
-            usort($candidates, function (array $left, array $right): int {
-                return [
-                    $right['is_efficient'] ? 1 : 0,
-                    $right['is_healthy'] ? 1 : 0,
-                    $left['pixel_count'] ?? PHP_INT_MAX,
-                    $left['index'],
-                ] <=> [
-                    $left['is_efficient'] ? 1 : 0,
-                    $left['is_healthy'] ? 1 : 0,
-                    $right['pixel_count'] ?? PHP_INT_MAX,
-                    $right['index'],
-                ];
-            });
-
-            return [
-                'index' => $candidates[0]['index'],
-                'profile' => $candidates[0]['profile'],
-            ];
-        }
-
-        $endpoint = $camera->rtspEndpoint();
-
-        if ($endpoint === null) {
-            return null;
-        }
-
-        return [
-            'index' => null,
-            'profile' => [
-                'name' => 'Saved endpoint',
-                'uri' => $endpoint,
-                'encoding' => null,
-                'resolution' => null,
-                'video_codec' => null,
-                'video_resolution' => null,
-                'probe_status' => null,
-            ],
-        ];
+        return $this->selectConfiguredPath($camera, $this->stringOrNull($camera->rtsp_path), 'Configured live feed');
     }
 
     public function mjpegResponse(Camera $camera, ?int $profileIndex = null): StreamedResponse
@@ -280,7 +229,7 @@ class CameraLiveStreamService
             2 => ['pipe', 'w'],
         ];
 
-        $process = @proc_open($command, $descriptorSpec, $pipes, base_path());
+        $process = @proc_open($command, $descriptorSpec, $pipes, null);
 
         if (!is_resource($process)) {
             throw new RuntimeException('Unable to start ffmpeg for the live stream.');
@@ -460,28 +409,77 @@ class CameraLiveStreamService
         ];
     }
 
-    /**
-     * @param  array<string, string|null>  $profile
-     */
-    private function isEfficientWallProfile(array $profile): bool
+    private function selectConfiguredPath(Camera $camera, ?string $configuredPath, string $manualName): ?array
     {
-        $haystack = strtolower(trim((string) ($profile['name'] ?? '').' '.(string) ($profile['token'] ?? '').' '.(string) ($profile['resolution'] ?? '').' '.(string) ($profile['video_resolution'] ?? '')));
+        if ($configuredPath === null) {
+            return null;
+        }
 
-        return preg_match('/(sub|minor|secondary|low|mobile|extra)/', $haystack) === 1;
+        $configuredEndpoint = $camera->rtspEndpoint($configuredPath);
+
+        foreach ($camera->rtspProfiles() as $index => $profile) {
+            if (!is_array($profile)) {
+                continue;
+            }
+
+            $profileUri = $this->stringOrNull($profile['uri'] ?? null);
+            $profilePath = $this->profileRtspPath($profile);
+
+            if (($profilePath !== null && $profilePath === $configuredPath)
+                || ($configuredEndpoint !== null && $profileUri !== null && $profileUri === $configuredEndpoint)) {
+                return [
+                    'index' => $index,
+                    'profile' => $profile,
+                ];
+            }
+        }
+
+        if ($configuredEndpoint === null) {
+            return null;
+        }
+
+        return [
+            'index' => null,
+            'profile' => [
+                'name' => $manualName,
+                'uri' => $configuredEndpoint,
+                'path' => $configuredPath,
+                'encoding' => null,
+                'resolution' => null,
+                'video_codec' => null,
+                'video_resolution' => null,
+                'probe_status' => null,
+            ],
+        ];
     }
 
     /**
      * @param  array<string, string|null>  $profile
      */
-    private function profilePixelCount(array $profile): ?int
+    private function profileRtspPath(array $profile): ?string
     {
-        $resolution = $this->stringOrNull($profile['video_resolution'] ?? $profile['resolution'] ?? null);
+        $savedPath = $this->stringOrNull($profile['path'] ?? null);
 
-        if ($resolution === null || !preg_match('/^(\d+)x(\d+)$/i', $resolution, $matches)) {
+        if ($savedPath !== null) {
+            return $savedPath;
+        }
+
+        $uri = $this->stringOrNull($profile['uri'] ?? null);
+
+        if ($uri === null) {
             return null;
         }
 
-        return ((int) $matches[1]) * ((int) $matches[2]);
+        $parts = parse_url($uri);
+
+        if (!is_array($parts)) {
+            return null;
+        }
+
+        $path = (string) ($parts['path'] ?? '');
+        $query = isset($parts['query']) ? '?'.$parts['query'] : '';
+
+        return $path !== '' || $query !== '' ? $path.$query : null;
     }
 
     /**
@@ -513,53 +511,6 @@ class CameraLiveStreamService
     private function transport(Camera $camera): string
     {
         return in_array($camera->rtsp_transport, ['tcp', 'udp'], true) ? $camera->rtsp_transport : 'tcp';
-    }
-
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
     }
 
     private function summarizeErrorOutput(string $stderr): string

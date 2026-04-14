@@ -147,6 +147,7 @@ BASH);
 
         chmod($psBinary, 0755);
 
+        config()->set('recording.worker.container_mode', false);
         config()->set('recording.worker.ps_binary', $psBinary);
     }
 }

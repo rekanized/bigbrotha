@@ -101,9 +101,15 @@ If the file is missing, corrupt, or contains invalid bytes, the route returns a 
 
 The default application expectation is that `config/ffmpeg.php` resolves the bundled binaries from `base_path('bin/ffmpeg')` and `base_path('bin/ffprobe')`.
 
-Docker deployments now also support a bundled MediaMTX binary by setting `MEDIAMTX_INSTALL_MODE=bundled` and `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
+Docker deployments use the bundled MediaMTX binary at `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
 
 If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
+
+## Application Key Durability
+
+- Docker startup persists the Laravel application key at `./.docker-state/app.key` on the host.
+- Every Laravel container reads that same mounted file through `APP_KEY_FILE`, so container recreation does not rotate the encryption key.
+- Do not delete `./.docker-state/app.key` during rebuilds, cleanups, or host migrations if the database still contains encrypted values.
 
 ## Recording Worker Requirements
 
@@ -114,11 +120,9 @@ Current expectations:
 - `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
 - a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
-- the repository Docker stack satisfies those two requirements with dedicated `worker` and `scheduler` containers, so container deployments should leave `CAMERA_RECORDING_ENSURE_WORKER=false` and should not rely on host systemd.
-- hosts that need overlapping continuous and motion capture should run more than one recordings worker; set `CAMERA_RECORDING_WORKER_PROCESSES` above `1` before running `php artisan camera-recordings:install-worker-service` and Laravel will generate numbered user units for the requested pool size.
-- `camera-recordings:ensure-worker` can run from the same minute scheduler as a safety net, but it should only be enabled when the host config explicitly allows Laravel to manage the worker process.
-- `camera-recordings:install-worker-service` can generate and enable the user systemd unit from Laravel so deployments do not have to hand-write the unit file.
-- the preferred safety-net path is to check an installed user or system systemd unit first; the direct detached fallback start is intentionally opt-in.
+- the repository Docker stack satisfies those requirements with dedicated `worker` and `scheduler` containers.
+- if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and start the stack through `./docker/compose-up.sh` so Compose scales the `worker` service to the same replica count.
+- the scheduler remains a scheduling loop only; it is not a fallback worker supervisor.
 - recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
 - continuous recording no longer trusts the minute scheduler as the clip boundary. Once the scheduler boots a camera's segmenter, ffmpeg keeps rotating segment-muxer files on its own so scheduler jitter does not create minute-aligned gaps.
 - continuous recording timestamps are now anchored to the imported segment filename timestamp and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
@@ -197,7 +201,7 @@ Current behavior:
 - if preview generation has not completed yet, the thumbnail route still returns a placeholder image, but the stage player continues to use the buffered review-stream route instead of swapping to another stage source.
 - use `php artisan camera-recordings:queue-review-assets --camera_id=...` or a `--date_from` / `--date_to` display-date range to selectively queue missing scrub-sprite backfills when you want to drive the async queue directly; the command still refuses an unfiltered whole-library queue sweep.
 - the minute scheduler now also runs a bounded synchronous safety-net backfill through `camera-recordings:build-review-assets --missing --limit=...`, ordered newest-first, so recent clips still pick up preview MP4 and scrub-sprite assets even when the async review queue is delayed; tune it with `CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED` and `CAMERA_REVIEW_ASSET_SCHEDULER_LIMIT`.
-- recordings worker capacity is no longer a hard fixed count: `CAMERA_RECORDING_WORKER_PROCESSES` is the floor, and the worker supervisor can scale up to `CAMERA_RECORDING_WORKER_MAX_PROCESSES` from enabled recording-camera count and pending `recordings,default` queue depth; if you do not override the env value, the default ceiling is now 8 workers. Tune the slope with `CAMERA_RECORDING_WORKER_CAMERAS_PER_PROCESS` and `CAMERA_RECORDING_WORKER_JOBS_PER_PROCESS`.
+- recordings worker capacity is fixed to the Docker replica count. Set `CAMERA_RECORDING_WORKER_PROCESSES` to the exact number of worker replicas you want and start the stack through `./docker/compose-up.sh` so the running container pool matches the expected worker count.
 - the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
 - timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 

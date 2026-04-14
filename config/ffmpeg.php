@@ -1,7 +1,41 @@
 <?php
 
-$defaultFfmpegBinary = base_path('bin/ffmpeg');
-$defaultFfprobeBinary = base_path('bin/ffprobe');
+$defaultFfmpegBinaryCandidates = array_values(array_filter([
+    is_file('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : null,
+    base_path('bin/ffmpeg'),
+]));
+$defaultFfprobeBinaryCandidates = array_values(array_filter([
+    is_file('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : null,
+    base_path('bin/ffprobe'),
+]));
+$configuredFfmpegBinaryCandidates = (static function () use ($defaultFfmpegBinaryCandidates): array {
+    $configured = env('FFMPEG_BINARIES');
+
+    if (!is_string($configured) || trim($configured) === '') {
+        return $defaultFfmpegBinaryCandidates;
+    }
+
+    $candidates = array_values(array_filter(array_map(
+        static fn (string $candidate): string => trim($candidate),
+        explode(',', $configured),
+    )));
+
+    return $candidates !== [] ? $candidates : $defaultFfmpegBinaryCandidates;
+})();
+$configuredFfprobeBinaryCandidates = (static function () use ($defaultFfprobeBinaryCandidates): array {
+    $configured = env('FFPROBE_BINARIES');
+
+    if (!is_string($configured) || trim($configured) === '') {
+        return $defaultFfprobeBinaryCandidates;
+    }
+
+    $candidates = array_values(array_filter(array_map(
+        static fn (string $candidate): string => trim($candidate),
+        explode(',', $configured),
+    )));
+
+    return $candidates !== [] ? $candidates : $defaultFfprobeBinaryCandidates;
+})();
 $defaultTemporaryDirectory = storage_path('app/private/ffmpeg-temp');
 
 return [
@@ -10,18 +44,12 @@ return [
     'temporary_directory' => env('FFMPEG_TEMPORARY_DIRECTORY', $defaultTemporaryDirectory),
 
     'ffmpeg' => [
-        'binaries' => array_values(array_filter([
-            env('FFMPEG_BINARIES', $defaultFfmpegBinary),
-            'ffmpeg',
-        ])),
+        'binaries' => $configuredFfmpegBinaryCandidates,
         'threads' => max(1, (int) env('FFMPEG_THREADS', 2)),
     ],
 
     'ffprobe' => [
-        'binaries' => array_values(array_filter([
-            env('FFPROBE_BINARIES', $defaultFfprobeBinary),
-            'ffprobe',
-        ])),
+        'binaries' => $configuredFfprobeBinaryCandidates,
     ],
 
     'streaming' => [

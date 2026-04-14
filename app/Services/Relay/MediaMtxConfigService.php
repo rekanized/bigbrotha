@@ -401,7 +401,7 @@ class MediaMtxConfigService
         }
 
         $scheme = $request?->getScheme() ?? parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'http';
-        $host = $request?->getHost() ?? parse_url((string) config('app.url'), PHP_URL_HOST) ?? '127.0.0.1';
+        $host = $request?->getHost() ?? parse_url((string) config('app.url'), PHP_URL_HOST) ?? 'web';
         $port = (int) config('mediamtx.webrtc.port', 8889);
 
         return $scheme.'://'.$host.($port > 0 ? ':'.$port : '');
@@ -416,8 +416,8 @@ class MediaMtxConfigService
             : $this->buildLiveRunOnDemandCommand(
                 $ffmpegBinary,
                 $definition['profile'],
-                $this->internalReaderUrl($definition['source_path']),
-                'tcp',
+                $definition['authenticated_uri'],
+                $definition['transport'],
             );
     }
 
@@ -597,19 +597,6 @@ class MediaMtxConfigService
         );
 
         return implode(' ', $command);
-    }
-
-    private function internalReaderUrl(string $path): string
-    {
-        $baseUrl = rtrim((string) config('mediamtx.rtsp.local_internal_base_url', config('mediamtx.rtsp.publish_base_url', config('mediamtx.rtsp.internal_base_url', ''))), '/');
-        $readerUser = rawurlencode((string) config('mediamtx.auth.reader_user', ''));
-        $readerPass = rawurlencode((string) config('mediamtx.auth.reader_pass', ''));
-
-        if ($readerUser === '' || $readerPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
-            return $baseUrl.'/'.$path;
-        }
-
-        return 'rtsp://'.$readerUser.':'.$readerPass.'@'.substr($baseUrl, strlen('rtsp://')).'/'.$path;
     }
 
     /**

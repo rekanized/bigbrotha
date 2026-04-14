@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -16,6 +17,8 @@ use Throwable;
 
 class ContinuousRecordingSegmenterService
 {
+    use ResolvesConfiguredBinaries;
+
     public function __construct(
         private readonly CameraStorageService $storage,
         private readonly RecordingReviewAssetService $reviewAssets,
@@ -321,7 +324,7 @@ class ContinuousRecordingSegmenterService
             escapeshellarg($this->logPath($camera)),
         );
 
-        $process = new Process(['sh', '-lc', $shellCommand], base_path());
+        $process = new Process(['sh', '-lc', $shellCommand]);
         $process->setTimeout(15);
         $process->run();
 
@@ -618,40 +621,6 @@ class ContinuousRecordingSegmenterService
     private function ffprobeBinary(): ?string
     {
         return $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
-    }
-
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $process = new Process(['sh', '-lc', 'command -v '.escapeshellarg($candidate)]);
-            $process->setTimeout(2);
-            $process->run();
-
-            if ($process->isSuccessful()) {
-                $resolved = trim($process->getOutput());
-
-                if ($resolved !== '') {
-                    return $resolved;
-                }
-            }
-        }
-
-        return null;
     }
 
     private function importSegments(Camera $camera, ?int $sourceProfileIndex, bool $recorderRunning): int

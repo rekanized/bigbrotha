@@ -7,13 +7,11 @@ use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
-use App\Services\RecordingWorkerService;
 use App\Services\RecordingContainerHealthService;
 use App\Services\RuntimeHeartbeatService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
 use App\Services\MotionRecordingSegmenterService;
-use App\Services\Relay\MediaMtxInstaller;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -151,14 +149,6 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
 
     return 0;
 })->purpose('Import SQLite rows into the active pgsql database connection');
-
-Artisan::command('relay:install {--force}', function (): int {
-    $binaryPath = app(MediaMtxInstaller::class)->install((bool) $this->option('force'));
-
-    $this->components->info('MediaMTX installed at '.$binaryPath);
-
-    return 0;
-})->purpose('Download and install the MediaMTX WebRTC relay');
 
 Artisan::command('relay:sync', function (): int {
     $changed = app(MediaMtxProcessService::class)->syncConfig();
@@ -339,20 +329,6 @@ Artisan::command('camera-recordings:tick', function (): int {
     return 0;
 })->purpose('Queue recording work for cameras with active recording policies');
 
-Artisan::command('camera-recordings:ensure-worker', function (): int {
-    $result = app(RecordingWorkerService::class)->ensureRunning();
-
-    if ($result['ok']) {
-        $this->components->info($result['message']);
-
-        return 0;
-    }
-
-    $this->components->error($result['message']);
-
-    return 1;
-})->purpose('Ensure the bounded recordings queue worker is running');
-
 Artisan::command('camera-recordings:healthcheck {role}', function (RecordingContainerHealthService $health): int {
     try {
         $result = $health->check((string) $this->argument('role'));
@@ -378,26 +354,6 @@ Artisan::command('camera-recordings:healthcheck {role}', function (RecordingCont
 
     return 1;
 })->purpose('Validate app, worker, or scheduler container health for recording operations');
-
-Artisan::command('camera-recordings:install-worker-service {--no-start} {--graceful}', function (): int {
-    $result = app(RecordingWorkerService::class)->installSystemdUserService(!$this->option('no-start'));
-
-    if ($result['ok']) {
-        $this->components->info($result['message'].' Path: '.$result['path']);
-
-        return 0;
-    }
-
-    if ($this->option('graceful')) {
-        $this->components->warn($result['message'].' Path: '.$result['path']);
-
-        return 0;
-    }
-
-    $this->components->error($result['message'].' Path: '.$result['path']);
-
-    return 1;
-})->purpose('Install and optionally start the recordings worker user systemd unit');
 
 Artisan::command('camera-recordings:prune {--camera_id=}', function (): int {
     $lock = Cache::lock('camera-recordings:prune-command', max(900, (int) config('recording.prune_lock_seconds', 3600)));
@@ -748,10 +704,6 @@ Artisan::command('camera-recordings:reconcile-review-asset-queue {--dry-run}', f
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
     ->withoutOverlapping(45);
-
-Schedule::command('camera-recordings:ensure-worker')
-    ->everyMinute()
-    ->withoutOverlapping(5);
 
 if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
     Schedule::command('camera-recordings:build-review-assets --missing --limit='.(string) config('recording.review_assets.scheduler_limit', 4))

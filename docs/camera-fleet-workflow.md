@@ -63,6 +63,7 @@ It supports:
 
 - probing a new ONVIF endpoint before first save.
 - editing network and endpoint fields.
+- setting an explicit live-feed RTSP path and an explicit recording RTSP path.
 - editing credentials.
 - toggling ONVIF and RTSP support.
 - selecting a recording mode per camera.
@@ -85,7 +86,7 @@ When RTSP profiles are refreshed:
 2. It loads media profiles with `GetProfiles`.
 3. It resolves RTSP URIs with `GetStreamUri`.
 4. It saves results under `metadata['rtsp_profiles']`.
-5. It updates the primary RTSP path and port on the camera when possible.
+5. It uses the first discovered stream to prefill the live-feed path and recording path for new drafts.
 6. If ONVIF is unavailable but a direct RTSP path is saved, Camera Fleet stores that saved endpoint as a manual RTSP profile instead of blocking the workflow.
 7. When a refreshed ONVIF profile matches an existing saved profile, the workflow now preserves preview and probe metadata instead of discarding the last captured thumbnail.
 
@@ -134,7 +135,7 @@ Current behavior:
 2. movement recording now uses a painted motion mask stored as a low-resolution grid instead of a single rectangle.
 3. operators paint or erase that mask over a live stream preview, and the initial state starts with the full viewport selected.
 4. the movement threshold is the percentage of selected mask pixels that must change before a clip is recorded.
-5. the selected recording source can stay on automatic primary-profile selection or target a saved RTSP profile explicitly.
+5. each camera now stores an explicit live-feed RTSP path and an explicit recording RTSP path, and those two values may be identical.
 6. retention is currently enforced per camera in whole days, with the default workflow set to one day.
 
 The first implementation prioritizes reliability and resource control: the recorder writes short direct-to-disk segments with ffmpeg stream copy instead of buffering or re-encoding in PHP.

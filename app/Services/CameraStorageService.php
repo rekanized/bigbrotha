@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use FilesystemIterator;
 use Illuminate\Contracts\Filesystem\Filesystem as FilesystemContract;
 use Illuminate\Support\Facades\File;
@@ -16,6 +17,8 @@ use Throwable;
 
 class CameraStorageService
 {
+    use ResolvesConfiguredBinaries;
+
     public const RECORDING_AVAILABILITY_PRESENT = 'present';
 
     public const RECORDING_AVAILABILITY_MISSING = 'missing';
@@ -641,7 +644,7 @@ class CameraStorageService
         ];
     }
 
-    public function detectPreviewMimeType(?string $previewPath): ?string
+    private function detectPreviewMimeType(?string $previewPath): ?string
     {
         $relativePath = $this->privateStorageRelativePath($previewPath);
 
@@ -1582,17 +1585,7 @@ class CameraStorageService
 
     private function smbClientBinary(): ?string
     {
-        foreach (['/usr/bin/smbclient', 'smbclient'] as $candidate) {
-            if ($candidate === 'smbclient') {
-                return $candidate;
-            }
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
+        return $this->resolveBinary(['smbclient']);
     }
 
     private function pruneEmptyDirectoryTree(string $directory, string $stopAt): void

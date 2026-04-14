@@ -21,8 +21,8 @@
             <div class="player-panel">
                 @if (!($relayStatus['installed'] ?? false))
                     <div class="empty-state">
-                        <strong>Media relay not installed yet.</strong>
-                        <p>Run <code>composer relay:install</code> and then <code>php artisan relay:start</code> on the host to install the shared relay.</p>
+                        <strong>Media relay binary is missing from the app container.</strong>
+                        <p>Rebuild and restart the Docker app service so the bundled MediaMTX binary is present before opening the player again.</p>
                     </div>
                 @elseif (!($relayStatus['running'] ?? false))
                     <div class="empty-state">

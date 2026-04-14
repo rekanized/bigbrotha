@@ -200,6 +200,7 @@ BASH);
             'onvif_path' => '/onvif/device_service',
             'username' => 'operator',
             'password' => 'secret',
+            'rtsp_path' => '/stream2',
             'rtsp_transport' => 'tcp',
             'supports_onvif' => true,
             'supports_rtsp' => true,
@@ -210,6 +211,7 @@ BASH);
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
                         'uri' => 'rtsp://192.168.1.71:554/stream2',
+                        'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
                     ],
@@ -299,7 +301,8 @@ BASH);
             'username' => 'operator',
             'password' => 'secret',
             'rtsp_transport' => 'tcp',
-            'recording_profile_index' => 1,
+            'rtsp_path' => '/stream1',
+            'recording_rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -309,6 +312,7 @@ BASH);
                         'name' => 'MainStream',
                         'token' => 'profile_main',
                         'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'path' => '/stream1',
                         'resolution' => '1920x1080',
                         'encoding' => 'H264',
                     ],
@@ -316,6 +320,7 @@ BASH);
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
                         'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
                     ],
@@ -505,6 +510,7 @@ BASH);
             'onvif_path' => '/onvif/device_service',
             'username' => 'operator',
             'password' => 'secret',
+            'rtsp_path' => '/stream2',
             'rtsp_transport' => 'tcp',
             'supports_onvif' => true,
             'supports_rtsp' => true,
@@ -515,6 +521,7 @@ BASH);
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
                         'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
                     ],
@@ -571,5 +578,89 @@ BASH);
         $this->assertSame('Direct RTSP playback was blocked by the camera, so stream verification used the active shared relay instead.', $profile['probe_message']);
         $this->assertSame('Preview captured successfully through the active shared relay because the camera rejected an additional direct session.', $profile['preview_message']);
         $this->assertNotNull($profile['preview_path']);
+    }
+
+    public function test_it_reports_a_concise_direct_failure_when_internal_fallbacks_also_fail(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Patio',
+            'local_ip' => '192.168.1.69',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'username' => 'rekanized',
+            'password' => 'master17',
+            'rtsp_path' => '/stream2',
+            'rtsp_transport' => 'tcp',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MinorStream',
+                        'token' => 'profile_minor',
+                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'path' => '/stream2',
+                        'resolution' => '1280x720',
+                        'encoding' => 'H264',
+                    ],
+                ],
+            ],
+        ]);
+
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        File::ensureDirectoryExists($binaryDirectory);
+
+        $ffprobeBinary = $binaryDirectory.'/ffprobe-failed-fallback-summary.sh';
+        File::put($ffprobeBinary, <<<'BASH'
+#!/usr/bin/env bash
+joined="$*"
+
+if [[ "$joined" == *"camera-1-live"* ]] || [[ "$joined" == *"camera-1-source-profile-0"* ]]; then
+    echo 'The process has been signaled with signal "11".' >&2
+    exit 1
+fi
+
+echo 'rtsp://rekanized:master17@192.168.1.69:554/stream2: Operation not permitted' >&2
+exit 1
+BASH);
+        chmod($ffprobeBinary, 0755);
+
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-failed-fallback-summary.sh';
+        File::put($ffmpegBinary, <<<'BASH'
+#!/usr/bin/env bash
+exit 0
+BASH);
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffprobe.binaries', [$ffprobeBinary]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.api.base_url', 'http://relay-api.example');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        Http::fake([
+            'http://relay-api.example/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
+
+        $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
+            'name' => 'MinorStream',
+            'token' => 'profile_minor',
+            'uri' => 'rtsp://192.168.1.69:554/stream2',
+            'path' => '/stream2',
+            'resolution' => '1280x720',
+            'encoding' => 'H264',
+        ], 0);
+
+        $this->assertSame('Failed', $profile['probe_status']);
+        $this->assertSame(
+            'TCP transport failed: rtsp://192.168.1.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
+            $profile['probe_message'],
+        );
+        $this->assertStringNotContainsString('master17', $profile['probe_message']);
+        $this->assertStringNotContainsString('signal "11"', $profile['probe_message']);
     }
 }

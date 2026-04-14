@@ -609,10 +609,9 @@ class RecordingBrowserTest extends TestCase
 
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
 
-        $readOnlyDirectory = storage_path('app/private/test-read-only-playback');
-        File::ensureDirectoryExists($readOnlyDirectory);
-        chmod($readOnlyDirectory, 0500);
-        config()->set('ffmpeg.temporary_directory', $readOnlyDirectory);
+        $unwritablePath = storage_path('app/private/test-read-only-playback');
+        File::put($unwritablePath, 'not-a-directory');
+        config()->set('ffmpeg.temporary_directory', $unwritablePath);
 
         try {
             $reviewStreamResponse = $this->actingAs($operator)
@@ -628,10 +627,9 @@ class RecordingBrowserTest extends TestCase
             $outputPath = str_replace('\\', '/', $reviewStreamResponse->baseResponse->getFile()->getPathname());
 
             $this->assertSame('playback-stream', file_get_contents($outputPath));
-            $this->assertFalse(str_starts_with($outputPath, str_replace('\\', '/', $readOnlyDirectory).'/'));
+            $this->assertFalse(str_starts_with($outputPath, str_replace('\\', '/', $unwritablePath).'/'));
         } finally {
-            @chmod($readOnlyDirectory, 0755);
-            File::deleteDirectory($readOnlyDirectory);
+            File::delete($unwritablePath);
         }
     }
 

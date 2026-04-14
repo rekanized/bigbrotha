@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\CameraRecording;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,8 @@ use Throwable;
 
 class RecordingReviewAssetService
 {
+    use ResolvesConfiguredBinaries;
+
     private const ASSET_PIPELINE_VERSION = 3;
 
     public const STATUS_READY = 'ready';
@@ -1078,48 +1081,15 @@ class RecordingReviewAssetService
 
     private function ffmpegBinary(): string
     {
-        $candidates = config('ffmpeg.ffmpeg.binaries', []);
+        $resolved = $this->resolveBinary(is_array(config('ffmpeg.ffmpeg.binaries', []))
+            ? config('ffmpeg.ffmpeg.binaries', [])
+            : []);
 
-        foreach (is_array($candidates) ? $candidates : [] as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $resolved = $this->resolveFromPath($candidate);
-
-            if ($resolved !== null) {
-                return $resolved;
-            }
+        if ($resolved !== null) {
+            return $resolved;
         }
 
         throw new RuntimeException('ffmpeg is not available on this host. Check the recorder stack configuration first.');
-    }
-
-    private function resolveFromPath(string $binary): ?string
-    {
-        $path = getenv('PATH') ?: '';
-
-        foreach (explode(PATH_SEPARATOR, $path) as $directory) {
-            if ($directory === '') {
-                continue;
-            }
-
-            $candidate = rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$binary;
-
-            if (is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
     }
 
     private function summarizeProcessFailure(Process $process, string $fallbackMessage): string

@@ -2,7 +2,7 @@
     <div class="panel-heading">
         <div>
             <h2 class="panel-title">Job queue monitor</h2>
-            <p class="panel-copy">Watch live queue backlog, worker capacity, and recent failures from the admin dashboard. This panel reads the Laravel database queue tables and refreshes automatically every 5 seconds.</p>
+            <p class="panel-copy">Watch live queue backlog, Docker-managed worker capacity, and recent failures from the admin dashboard. This panel reads the Laravel database queue tables and refreshes automatically every 5 seconds.</p>
         </div>
 
         <span class="status-pill status-pill--{{ $worker['status_tone'] ?? 'neutral' }}">{{ $worker['status_label'] ?? 'Unavailable' }}</span>
@@ -34,7 +34,7 @@
         <article class="detail-card">
             <span class="detail-card__label">Worker capacity</span>
             <strong>{{ $worker['running_workers'] ?? 0 }} / {{ $worker['desired_workers'] ?? 0 }} running</strong>
-            <span class="queue-monitor__detail-copy">Dynamic scaling {{ ($worker['dynamic_enabled'] ?? false) ? 'enabled' : 'disabled' }}. Minimum {{ $worker['minimum_workers'] ?? 1 }}, maximum {{ $worker['maximum_workers'] ?? 1 }}. Default ceiling is now 8 workers unless CAMERA_RECORDING_WORKER_MAX_PROCESSES overrides it.</span>
+            <span class="queue-monitor__detail-copy">Docker targets {{ $worker['minimum_workers'] ?? 1 }} worker container{{ ($worker['minimum_workers'] ?? 1) === 1 ? '' : 's' }} for this stack. Increase CAMERA_RECORDING_WORKER_PROCESSES only when you also add matching worker service replicas.</span>
         </article>
 
         <article class="detail-card">

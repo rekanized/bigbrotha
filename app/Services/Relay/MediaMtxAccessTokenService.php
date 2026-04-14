@@ -3,14 +3,22 @@
 namespace App\Services\Relay;
 
 use App\Models\User;
+use InvalidArgumentException;
 
 class MediaMtxAccessTokenService
 {
     public function issueReadToken(User $user, string $path): string
     {
+        $googleId = trim((string) $user->google_id);
+
+        if ($googleId === '') {
+            throw new InvalidArgumentException('Media access tokens require a Google-authenticated operator account.');
+        }
+
         $payload = [
             'sub' => $user->getKey(),
             'email' => $user->email,
+            'google_id' => $googleId,
             'path' => $path,
             'action' => 'read',
             'protocol' => 'webrtc',
@@ -52,7 +60,12 @@ class MediaMtxAccessTokenService
             return null;
         }
 
-        if (($payload['path'] ?? null) !== $path || ($payload['action'] ?? null) !== $action || ($payload['protocol'] ?? null) !== $protocol) {
+        $expectedAction = $this->normalizeAction($action);
+        $expectedProtocol = $this->normalizeProtocol($protocol, $expectedAction);
+        $payloadAction = $this->normalizeAction((string) ($payload['action'] ?? ''));
+        $payloadProtocol = $this->normalizeProtocol((string) ($payload['protocol'] ?? ''), $payloadAction);
+
+        if (($payload['path'] ?? null) !== $path || $payloadAction !== $expectedAction || $payloadProtocol !== $expectedProtocol) {
             return null;
         }
 
@@ -64,7 +77,10 @@ class MediaMtxAccessTokenService
 
         $user = User::query()->find($userId);
 
-        if ($user === null || $user->email !== ($payload['email'] ?? null)) {
+        if ($user === null
+            || trim((string) $user->google_id) === ''
+            || $user->email !== ($payload['email'] ?? null)
+            || $user->google_id !== ($payload['google_id'] ?? null)) {
             return null;
         }
 
@@ -79,6 +95,22 @@ class MediaMtxAccessTokenService
     private function secret(): string
     {
         return (string) config('mediamtx.auth.token_secret', config('app.key'));
+    }
+
+    private function normalizeAction(string $action): string
+    {
+        return strtolower(trim($action));
+    }
+
+    private function normalizeProtocol(string $protocol, string $action): string
+    {
+        $normalized = strtolower(trim($protocol));
+
+        if ($this->normalizeAction($action) === 'read' && in_array($normalized, ['webrtc', 'whep', 'http', 'https'], true)) {
+            return 'webrtc';
+        }
+
+        return $normalized;
     }
 
     private function base64UrlEncode(string $value): string

@@ -96,6 +96,7 @@ class OnvifCameraDraftService
                 'onvif_path' => $onvifPath,
                 'rtsp_port' => $this->parseRtspPort($primaryStreamUri),
                 'rtsp_path' => $this->parseRtspPath($primaryStreamUri) ?? '',
+                'recording_rtsp_path' => $this->parseRtspPath($primaryStreamUri) ?? '',
                 'rtsp_transport' => 'tcp',
                 'username' => $username ?? '',
                 'password' => $password ?? '',

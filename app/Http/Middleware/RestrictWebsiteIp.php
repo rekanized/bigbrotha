@@ -11,6 +11,10 @@ class RestrictWebsiteIp
 {
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->is('relay/auth/mediamtx')) {
+            return $next($request);
+        }
+
         $allowedIps = config('network.website_allowed_ips', []);
 
         if ($allowedIps !== [] && !$this->ipIsAllowed((string) $request->ip(), $allowedIps)) {

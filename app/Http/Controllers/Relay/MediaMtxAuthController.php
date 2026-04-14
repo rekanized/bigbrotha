@@ -17,7 +17,7 @@ class MediaMtxAuthController extends Controller
         $path = trim((string) $request->input('path', ''));
         $action = trim((string) $request->input('action', ''));
         $protocol = trim((string) $request->input('protocol', ''));
-        $token = trim((string) $request->input('token', ''));
+        $token = $this->resolveExternalToken($request);
 
         if ($this->isInternalPublisher($request, $path, $action, $protocol)) {
             return response()->noContent();
@@ -115,5 +115,28 @@ class MediaMtxAuthController extends Controller
         )));
 
         return $configured !== [] ? $configured : ['127.0.0.1', '::1'];
+    }
+
+    private function resolveExternalToken(Request $request): string
+    {
+        $directToken = trim((string) $request->input('token', ''));
+
+        if ($directToken !== '') {
+            return $directToken;
+        }
+
+        $queryString = trim((string) $request->input('query', ''));
+
+        if ($queryString !== '') {
+            parse_str($queryString, $queryParameters);
+
+            $queryToken = trim((string) ($queryParameters['token'] ?? ''));
+
+            if ($queryToken !== '') {
+                return $queryToken;
+            }
+        }
+
+        return trim((string) $request->query('token', ''));
     }
 }

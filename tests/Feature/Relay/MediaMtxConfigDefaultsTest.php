@@ -14,6 +14,7 @@ class MediaMtxConfigDefaultsTest extends TestCase
         $this->withEnvironmentOverrides([
             'APP_URL' => $appUrl,
             'APP_KEY' => $appKey,
+            'MEDIAMTX_MANAGED_EXTERNALLY' => '',
             'MEDIAMTX_WEBRTC_PUBLIC_URL' => '',
             'MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS' => '',
             'MEDIAMTX_WEBRTC_ALLOW_ORIGINS' => '',
@@ -23,20 +24,23 @@ class MediaMtxConfigDefaultsTest extends TestCase
         ], function () use ($appKey, $appUrl): void {
             $config = require base_path('config/mediamtx.php');
 
-            $this->assertSame('1.17.1', $config['version']);
             $this->assertTrue($config['auto_start']);
-            $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['local_internal_base_url']);
+            $this->assertFalse($config['managed_externally']);
+            $this->assertSame('rtsp://relay:8554', $config['rtsp']['internal_base_url']);
+            $this->assertSame('rtsp://relay:8554', $config['rtsp']['local_internal_base_url']);
+            $this->assertSame('http://relay:9997', $config['api']['base_url']);
+            $this->assertSame('http://relay:8889', $config['webrtc']['internal_base_url']);
             $this->assertSame($appUrl.'/__webrtc', $config['webrtc']['public_base_url']);
             $this->assertSame([$appUrl], $config['webrtc']['allow_origins']);
             $this->assertSame(['monitor.example.test'], $config['webrtc']['additional_hosts']);
-            $this->assertSame(':8189', $config['webrtc']['local_udp_address']);
-            $this->assertSame(':8189', $config['webrtc']['local_tcp_address']);
+            $this->assertSame(':8190', $config['webrtc']['local_udp_address']);
+            $this->assertSame(':8190', $config['webrtc']['local_tcp_address']);
             $this->assertSame($appUrl.'/relay/auth/mediamtx', $config['auth']['callback_url']);
             $this->assertNotSame('', $config['auth']['callback_secret']);
             $this->assertSame($appKey, $config['auth']['token_secret']);
             $this->assertSame(180, $config['auth']['token_ttl']);
-            $this->assertSame(['127.0.0.1', '::1'], $config['auth']['reader_allowed_ips']);
-            $this->assertSame(['127.0.0.1', '::1'], $config['auth']['publisher_allowed_ips']);
+            $this->assertSame(['127.0.0.1', '::1', '172.16.0.0/12'], $config['auth']['reader_allowed_ips']);
+            $this->assertSame(['127.0.0.1', '::1', '172.16.0.0/12'], $config['auth']['publisher_allowed_ips']);
             $this->assertSame('publisher', $config['auth']['publisher_user']);
             $this->assertNotSame('', $config['auth']['publisher_pass']);
             $this->assertSame('1200k', $config['transcode']['video_bitrate']);
@@ -47,13 +51,13 @@ class MediaMtxConfigDefaultsTest extends TestCase
     public function test_local_internal_rtsp_base_url_falls_back_to_publish_base_url_when_present(): void
     {
         $this->withEnvironmentOverrides([
-            'MEDIAMTX_RTSP_INTERNAL_BASE_URL' => 'rtsp://app:8554',
+            'MEDIAMTX_RTSP_INTERNAL_BASE_URL' => 'rtsp://relay:8554',
             'MEDIAMTX_RTSP_PUBLISH_BASE_URL' => 'rtsp://127.0.0.1:8554',
             'MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL' => '',
         ], function (): void {
             $config = require base_path('config/mediamtx.php');
 
-            $this->assertSame('rtsp://app:8554', $config['rtsp']['internal_base_url']);
+            $this->assertSame('rtsp://relay:8554', $config['rtsp']['internal_base_url']);
             $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['publish_base_url']);
             $this->assertSame('rtsp://127.0.0.1:8554', $config['rtsp']['local_internal_base_url']);
         });

@@ -17,7 +17,7 @@ class LiveWallStreamTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_live_wall_prefers_an_efficient_substream_for_wall_tiles(): void
+    public function test_live_wall_uses_the_configured_live_feed_path_for_wall_tiles(): void
     {
         config()->set('mediamtx.auto_start', false);
         config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
@@ -43,6 +43,7 @@ class LiveWallStreamTest extends TestCase
                         'uri' => 'rtsp://192.168.1.67:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Healthy',
+                        'transport_persistable' => true,
                     ],
                     [
                         'token' => 'profile_2',
@@ -71,7 +72,7 @@ class LiveWallStreamTest extends TestCase
         $response
             ->assertOk()
             ->assertSee(route('live-wall.session', ['camera' => $camera]), false)
-            ->assertSee('data-profile-index="1"', false)
+            ->assertSee('data-profile-index="0"', false)
             ->assertSee('data-camera-name="Tapo C200"', false)
             ->assertSee('data-reader-url="http://relay.example:8889/camera-'.$camera->id.'-live/reader.js"', false)
             ->assertSee('data-whep-url="http://relay.example:8889/camera-'.$camera->id.'-live/whep"', false)
@@ -94,6 +95,67 @@ class LiveWallStreamTest extends TestCase
         );
     }
 
+    public function test_live_wall_does_not_fall_back_when_the_configured_live_path_failed(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'http://relay.example:8889');
+        $this->mockRelayProcess(running: true);
+
+        $camera = Camera::query()->create([
+            'name' => 'Back Lot',
+            'local_ip' => '192.168.1.75',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_1',
+                        'name' => 'mainStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.75:554/stream1',
+                        'path' => '/stream1',
+                        'probe_status' => 'Healthy',
+                        'transport_persistable' => true,
+                    ],
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.75:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Failed',
+                        'transport_persistable' => false,
+                    ],
+                ],
+            ],
+        ]);
+
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('live-wall.index'));
+
+        $response
+            ->assertOk()
+            ->assertDontSee(route('live-wall.session', ['camera' => $camera]), false)
+            ->assertDontSee('data-profile-index="0"', false)
+            ->assertSee('No live RTSP stream is ready.', false);
+    }
+
     public function test_live_wall_only_renders_cameras_assigned_to_the_selected_wall(): void
     {
         config()->set('mediamtx.auto_start', false);
@@ -106,6 +168,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/front-door-sub',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -127,6 +190,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/warehouse-portrait',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -201,6 +265,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/loop-minor',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -267,6 +332,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -300,6 +366,45 @@ class LiveWallStreamTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
+    public function test_non_google_users_are_forbidden_from_media_routes(): void
+    {
+        $this->mockRelayProcess(running: true);
+
+        $camera = Camera::query()->create([
+            'name' => 'Restricted Camera',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MinorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                    ],
+                ],
+            ],
+        ]);
+
+        $user = User::factory()->create([
+            'google_id' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('live-wall.player', ['camera' => $camera]))
+            ->assertForbidden();
+
+        $this->actingAs($user)
+            ->getJson(route('live-wall.session', ['camera' => $camera]))
+            ->assertForbidden();
+    }
+
     public function test_authenticated_operator_can_request_a_short_lived_live_wall_session(): void
     {
         config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example/__webrtc');
@@ -312,6 +417,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -363,6 +469,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -433,6 +540,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -474,6 +582,7 @@ class LiveWallStreamTest extends TestCase
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,

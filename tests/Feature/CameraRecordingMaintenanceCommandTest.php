@@ -542,9 +542,6 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
     public function test_it_registers_the_recording_scheduler_commands(): void
     {
-        $ensureWorkerEvent = collect(app(Schedule::class)->events())
-            ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:ensure-worker'));
-
         $reviewBackfillEvent = collect(app(Schedule::class)->events())
             ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:build-review-assets'));
 
@@ -554,8 +551,6 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $pruneEvent = collect(app(Schedule::class)->events())
             ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:prune'));
 
-        $this->assertNotNull($ensureWorkerEvent);
-        $this->assertSame('* * * * *', $ensureWorkerEvent->expression);
         $this->assertNotNull($reviewBackfillEvent);
         $this->assertSame('* * * * *', $reviewBackfillEvent->expression);
         $this->assertStringContainsString('--missing', (string) $reviewBackfillEvent->command);

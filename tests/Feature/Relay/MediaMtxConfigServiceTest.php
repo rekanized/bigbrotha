@@ -30,6 +30,7 @@ class MediaMtxConfigServiceTest extends TestCase
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/minor',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -46,18 +47,19 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
-    $sourceBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0');
+        $sourceBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0');
         $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
         $this->assertStringContainsString('camera-'.$camera->id.'-live:', $config);
-    $this->assertStringContainsString('camera-'.$camera->id.'-source-profile-0:', $config);
+        $this->assertStringContainsString('camera-'.$camera->id.'-source-profile-0:', $config);
         $this->assertStringContainsString("webrtcLocalTCPAddress: ''", $config);
-    $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $sourceBlock);
-    $this->assertStringContainsString('-c copy', $sourceBlock);
+        $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $sourceBlock);
+        $this->assertStringContainsString('-c copy', $sourceBlock);
         $this->assertStringContainsString('-map 0:v:0', $liveBlock);
         $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
-    $this->assertStringContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
-    $this->assertStringContainsString('-c:v copy', $liveBlock);
+        $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $liveBlock);
+        $this->assertStringNotContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
+        $this->assertStringContainsString('-c:v copy', $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
         $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $liveBlock);
@@ -150,6 +152,7 @@ class MediaMtxConfigServiceTest extends TestCase
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/main',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -174,7 +177,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-b:v', $config);
     }
 
-    public function test_live_run_on_demand_prefers_local_loopback_reader_url_over_cross_container_internal_url(): void
+    public function test_live_run_on_demand_uses_the_camera_rtsp_uri_instead_of_a_relay_reader_url(): void
     {
         $binaryDirectory = storage_path('framework/testing');
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-local-reader-test';
@@ -186,6 +189,7 @@ class MediaMtxConfigServiceTest extends TestCase
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://app:8554');
         config()->set('mediamtx.rtsp.publish_base_url', 'rtsp://127.0.0.1:8554');
+        config()->set('mediamtx.rtsp.local_internal_base_url', 'rtsp://127.0.0.1:8554');
 
         $camera = Camera::query()->create([
             'name' => 'Docker Relay Camera',
@@ -193,6 +197,7 @@ class MediaMtxConfigServiceTest extends TestCase
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
+            'rtsp_path' => '/minor',
             'supports_onvif' => true,
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -211,9 +216,9 @@ class MediaMtxConfigServiceTest extends TestCase
         $config = app(MediaMtxConfigService::class)->buildConfig();
         $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
-        $this->assertStringContainsString("rtsp://internal-reader:", $liveBlock);
-        $this->assertStringContainsString("@127.0.0.1:8554/camera-{$camera->id}-source-profile-0", $liveBlock);
-        $this->assertStringNotContainsString("@app:8554/camera-{$camera->id}-source-profile-0", $liveBlock);
+        $this->assertStringContainsString("-i 'rtsp://192.168.1.94:554/minor'", $liveBlock);
+        $this->assertStringNotContainsString('rtsp://internal-reader:', $liveBlock);
+        $this->assertStringNotContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
     }
 
     private function pathBlock(string $config, string $path): string

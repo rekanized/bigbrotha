@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Camera;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -13,6 +14,8 @@ use Throwable;
 
 class MotionRecordingSegmenterService
 {
+    use ResolvesConfiguredBinaries;
+
     public function enabled(): bool
     {
         return (bool) config('recording.motion.segmenter_enabled', true);
@@ -336,7 +339,7 @@ class MotionRecordingSegmenterService
             escapeshellarg($this->logPath($camera)),
         );
 
-        $process = new Process(['sh', '-lc', $shellCommand], base_path());
+        $process = new Process(['sh', '-lc', $shellCommand]);
         $process->setTimeout(15);
         $process->run();
 
@@ -711,37 +714,4 @@ class MotionRecordingSegmenterService
         return $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
     }
 
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
-    private function resolveBinary(array $candidates): ?string
-    {
-        foreach ($candidates as $candidate) {
-            if (!is_string($candidate) || $candidate === '') {
-                continue;
-            }
-
-            if (str_contains($candidate, DIRECTORY_SEPARATOR)) {
-                if (is_file($candidate) && is_executable($candidate)) {
-                    return $candidate;
-                }
-
-                continue;
-            }
-
-            $process = new Process(['sh', '-lc', 'command -v '.escapeshellarg($candidate)]);
-            $process->setTimeout(2);
-            $process->run();
-
-            if ($process->isSuccessful()) {
-                $resolved = trim($process->getOutput());
-
-                if ($resolved !== '') {
-                    return $resolved;
-                }
-            }
-        }
-
-        return null;
-    }
 }

@@ -26,6 +26,7 @@ use Illuminate\Support\Str;
     'rtsp_port',
     'onvif_path',
     'rtsp_path',
+    'recording_rtsp_path',
     'rtsp_transport',
     'username',
     'password',
@@ -95,7 +96,7 @@ class Camera extends Model
         return sprintf('http://%s:%d%s', $host, $this->onvif_port, Str::start($this->onvif_path ?: '/onvif/device_service', '/'));
     }
 
-    public function rtspEndpoint(): ?string
+    public function rtspEndpoint(?string $path = null): ?string
     {
         if (!$this->supports_rtsp) {
             return null;
@@ -107,7 +108,25 @@ class Camera extends Model
             return null;
         }
 
-        return sprintf('rtsp://%s:%d%s', $host, $this->rtsp_port, Str::start($this->rtsp_path ?: '', '/'));
+        $resolvedPath = $this->normalizedRtspPath($path ?? $this->rtsp_path);
+
+        if ($resolvedPath === null) {
+            return null;
+        }
+
+        return sprintf('rtsp://%s:%d%s', $host, $this->rtsp_port, $resolvedPath);
+    }
+
+    public function recordingRtspPath(): ?string
+    {
+        return $this->normalizedRtspPath($this->recording_rtsp_path ?? $this->rtsp_path);
+    }
+
+    public function recordingRtspEndpoint(): ?string
+    {
+        $path = $this->recordingRtspPath();
+
+        return $path !== null ? $this->rtspEndpoint($path) : null;
     }
 
     /**
@@ -287,5 +306,24 @@ class Camera extends Model
             'metadata' => 'array',
             'password' => 'encrypted',
         ];
+    }
+
+    private function normalizedRtspPath(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (str_starts_with($trimmed, '?')) {
+            return $trimmed;
+        }
+
+        return Str::start($trimmed, '/');
     }
 }
