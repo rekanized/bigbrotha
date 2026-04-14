@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\AllowedLoginEmail;
 use App\Models\User;
+use App\Services\AuthenticationSettingsService;
+use App\Services\GoogleOAuthTestService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -13,8 +15,43 @@ use Throwable;
 
 class GoogleCallbackController extends Controller
 {
-    public function __invoke(Request $request): RedirectResponse
+    public function __invoke(
+        Request $request,
+        AuthenticationSettingsService $settings,
+        GoogleOAuthTestService $tester,
+    ): RedirectResponse
     {
+        $pendingTest = $tester->applyPendingConfiguration($request);
+
+        if ($pendingTest !== null) {
+            try {
+                $googleUser = Socialite::driver('google')->user();
+            } catch (Throwable) {
+                $tester->storeFailure(
+                    $request,
+                    $pendingTest['context'] ?? null,
+                    'Google did not complete the validation flow. Confirm the client ID, client secret, redirect URI, and authorized redirect settings, then try again.',
+                );
+
+                return redirect()->to($tester->returnUrl($pendingTest['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
+            }
+
+            $tester->storeSuccess(
+                $request,
+                $pendingTest,
+                Str::lower(trim((string) $googleUser->getEmail())),
+                trim((string) ($googleUser->getName() ?: $googleUser->getNickname() ?: $googleUser->getEmail())),
+            );
+
+            return redirect()->to($tester->returnUrl($pendingTest['context']));
+        }
+
+        if (!$settings->googleAuthEnabled()) {
+            return redirect()
+                ->route('login')
+                ->with('auth_error', 'Google sign-in is not enabled for this application.');
+        }
+
         try {
             $googleUser = Socialite::driver('google')->user();
         } catch (Throwable) {
@@ -24,7 +61,7 @@ class GoogleCallbackController extends Controller
         }
 
         $email = Str::lower(trim((string) $googleUser->getEmail()));
-        $isBootstrapSignIn = !User::query()->exists();
+        $isBootstrapSignIn = !User::query()->where('is_admin', true)->exists();
 
         if ($email === '') {
             return redirect()
@@ -49,10 +86,12 @@ class GoogleCallbackController extends Controller
             'email_verified_at' => now(),
             'google_id' => (string) $googleUser->getId(),
             'avatar_url' => $googleUser->getAvatar(),
+            'local_auth_enabled' => $user->exists ? $user->hasLocalAuth() : false,
         ];
 
         if (!$user->exists) {
             $attributes['password'] = Str::random(40);
+            $attributes['password_updated_at'] = null;
         }
 
         $user->forceFill($attributes)->save();

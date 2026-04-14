@@ -30,7 +30,9 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'google_id' => 'google-user-'.fake()->unique()->numerify('########'),
             'is_admin' => false,
+            'local_auth_enabled' => true,
             'password' => static::$password ??= Hash::make('password'),
+            'password_updated_at' => now(),
             'remember_token' => Str::random(10),
         ];
     }
@@ -49,6 +51,21 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'is_admin' => true,
+        ]);
+    }
+
+    public function googleOnly(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'local_auth_enabled' => false,
+        ]);
+    }
+
+    public function localOnly(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'google_id' => null,
+            'local_auth_enabled' => true,
         ]);
     }
 }

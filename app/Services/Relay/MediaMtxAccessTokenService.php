@@ -9,16 +9,13 @@ class MediaMtxAccessTokenService
 {
     public function issueReadToken(User $user, string $path): string
     {
-        $googleId = trim((string) $user->google_id);
-
-        if ($googleId === '') {
-            throw new InvalidArgumentException('Media access tokens require a Google-authenticated operator account.');
+        if (!$user->exists) {
+            throw new InvalidArgumentException('Media access tokens require a stored operator account.');
         }
 
         $payload = [
             'sub' => $user->getKey(),
             'email' => $user->email,
-            'google_id' => $googleId,
             'path' => $path,
             'action' => 'read',
             'protocol' => 'webrtc',
@@ -78,9 +75,7 @@ class MediaMtxAccessTokenService
         $user = User::query()->find($userId);
 
         if ($user === null
-            || trim((string) $user->google_id) === ''
-            || $user->email !== ($payload['email'] ?? null)
-            || $user->google_id !== ($payload['google_id'] ?? null)) {
+            || $user->email !== ($payload['email'] ?? null)) {
             return null;
         }
 

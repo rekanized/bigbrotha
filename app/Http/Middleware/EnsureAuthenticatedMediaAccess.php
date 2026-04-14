@@ -6,16 +6,14 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class EnsureGoogleOAuthMediaAccess
+class EnsureAuthenticatedMediaAccess
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
-
         abort_unless(
-            $user !== null && is_string($user->google_id ?? null) && trim((string) $user->google_id) !== '',
+            $request->user() !== null,
             Response::HTTP_FORBIDDEN,
-            'Google OAuth is required for media access.',
+            'An authenticated operator session is required for media access.',
         );
 
         return $next($request);

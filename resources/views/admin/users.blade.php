@@ -8,7 +8,7 @@
 
 @section('page_title', 'Operator access')
 
-@section('page_lead', 'Review approved Google sign-in emails, authenticated operators, and admin access from one admin screen.')
+@section('page_lead', 'Review local accounts, approved Google sign-in emails, authenticated operators, and admin access from one admin screen.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
@@ -34,12 +34,69 @@
             <div class="screen-summary-strip__body">
                 <div>
                     <span class="eyebrow">Admin</span>
-                    <p class="screen-summary-strip__copy">Use this screen to control which Google email addresses can sign in and which stored operators hold admin access.</p>
+                    <p class="screen-summary-strip__copy">Use this screen to control local operator passwords, Google sign-in allowlisting, and which stored operators hold admin access.</p>
                 </div>
 
-                <span class="status-pill status-pill--neutral">{{ $allowedLoginEmails->count() }} allowed · {{ $users->count() }} user{{ $users->count() === 1 ? '' : 's' }}</span>
+                <span class="status-pill status-pill--neutral">{{ $allowedLoginEmails->count() }} Google allowed · {{ $users->where('local_auth_enabled', true)->count() }} local · {{ $users->count() }} user{{ $users->count() === 1 ? '' : 's' }}</span>
             </div>
         </section>
+
+        @if ($authSettings->manualAuthEnabled())
+        <section class="screen-card screen-card--spacious">
+            <div class="panel-heading">
+                <div>
+                    <h2 class="panel-title">Create or update a local operator</h2>
+                    <p class="panel-copy">Use this form to create a manual local account or add a local password to an existing operator record with the same email address.</p>
+                </div>
+            </div>
+
+            <form class="operator-access__local-form" method="POST" action="{{ route('admin.users.local-accounts.store') }}">
+                @csrf
+
+                <div class="camera-form-grid operator-access__local-fields">
+                    <label class="field-stack field-stack--wide">
+                        <span>Operator name</span>
+                        <input class="form-input" type="text" name="name" value="{{ old('name') }}" autocomplete="name" required>
+                        @error('name', 'localUser')
+                            <span class="field-error">{{ $message }}</span>
+                        @enderror
+                    </label>
+
+                    <label class="field-stack field-stack--wide">
+                        <span>Operator email</span>
+                        <input class="form-input" type="email" name="email" value="{{ old('email') }}" autocomplete="email" required>
+                        @error('email', 'localUser')
+                            <span class="field-error">{{ $message }}</span>
+                        @enderror
+                    </label>
+
+                    <label class="field-stack field-stack--wide">
+                        <span>Password</span>
+                        <input class="form-input" type="password" name="password" autocomplete="new-password" required>
+                        @error('password', 'localUser')
+                            <span class="field-error">{{ $message }}</span>
+                        @enderror
+                    </label>
+
+                    <label class="field-stack field-stack--wide">
+                        <span>Confirm password</span>
+                        <input class="form-input" type="password" name="password_confirmation" autocomplete="new-password" required>
+                    </label>
+                </div>
+
+                <div class="inline-action-form-row operator-access__local-actions">
+                    <label class="auth-checkbox">
+                        <input type="checkbox" name="is_admin" value="1" @checked(old('is_admin'))>
+                        <span>Grant admin access to this operator</span>
+                    </label>
+
+                    <div class="probe-form-grid__actions">
+                        <button class="button button--primary" type="submit">Save local operator</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+        @endif
 
         <section class="screen-card screen-card--spacious">
             @php($usersByEmail = $users->keyBy(fn ($user) => \App\Models\AllowedLoginEmail::normalizeEmail($user->email)))
@@ -69,7 +126,7 @@
                             autocomplete="email"
                             required
                         >
-                        @error('email')
+                        @error('email', 'allowedEmail')
                             <small>{{ $message }}</small>
                         @enderror
                     </label>
@@ -136,14 +193,14 @@
             <div class="panel-heading">
                 <div>
                     <h2 class="panel-title">Saved operators</h2>
-                    <p class="panel-copy">Accounts are created or updated through Google sign-in. Manage admin privileges and ongoing sign-in access here for operators who have already authenticated at least once.</p>
+                    <p class="panel-copy">Accounts can be local-only, Google-only, or dual-auth. Manage admin privileges, Google allowlisting, and local-password resets here for operators who already exist in the system.</p>
                 </div>
             </div>
 
             @if ($users->isEmpty())
                 <div class="empty-state">
                     <strong>No users are stored yet.</strong>
-                    <p>Once an operator signs in with Google, their account will appear here.</p>
+                    <p>Create a local operator above or complete the first Google sign-in to populate the operator list.</p>
                 </div>
             @else
                 <div class="recording-browser__list">
@@ -160,7 +217,8 @@
 
                                 <div class="badge-row">
                                     <span class="status-pill status-pill--{{ $user->is_admin ? 'good' : 'neutral' }}">{{ $user->is_admin ? 'Admin' : 'Operator' }}</span>
-                                    <span class="status-pill">{{ $user->google_id ? 'Google linked' : 'Password only' }}</span>
+                                    <span class="status-pill status-pill--{{ $user->hasLocalAuth() ? 'good' : 'neutral' }}">{{ $user->hasLocalAuth() ? 'Local password enabled' : 'No local password' }}</span>
+                                    <span class="status-pill status-pill--{{ $user->google_id ? 'good' : 'neutral' }}">{{ $user->google_id ? 'Google linked' : 'No Google link' }}</span>
                                 </div>
                             </div>
 
@@ -176,8 +234,8 @@
                                 </div>
 
                                 <div class="camera-row__fact camera-row__fact--wide">
-                                    <span>Auth source</span>
-                                    <strong>{{ $user->google_id ? 'Google OAuth · '.$user->google_id : 'Local password credential' }}</strong>
+                                    <span>Authentication methods</span>
+                                    <strong>{{ $user->hasLocalAuth() ? 'Local password enabled' : 'Local password not set' }} · {{ $user->google_id ? 'Google OAuth linked' : 'Google OAuth not linked' }}</strong>
                                 </div>
 
                                 <div class="camera-row__fact">
@@ -187,6 +245,18 @@
                             </div>
 
                             <div class="probe-actions">
+                                <form method="POST" action="{{ route('admin.users.local-password', ['user' => $user]) }}" class="inline-auth-form">
+                                    @csrf
+                                    @method('PUT')
+                                    <input class="form-input" type="password" name="password" placeholder="New local password" autocomplete="new-password" required>
+                                    <input class="form-input" type="password" name="password_confirmation" placeholder="Confirm password" autocomplete="new-password" required>
+                                    <button class="button button--soft" type="submit">{{ $user->hasLocalAuth() ? 'Reset local password' : 'Enable local password' }}</button>
+                                </form>
+
+                                @if ($errors->localPassword->isNotEmpty())
+                                    <span class="field-error">{{ $errors->localPassword->first('password') }}</span>
+                                @endif
+
                                 @if ($allowedLoginEmail)
                                     <form method="POST" action="{{ route('admin.users.allowed-emails.destroy', ['allowedLoginEmail' => $allowedLoginEmail]) }}">
                                         @csrf

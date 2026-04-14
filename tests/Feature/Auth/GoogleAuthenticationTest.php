@@ -16,11 +16,16 @@ class GoogleAuthenticationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_google_redirect_starts_the_oauth_flow(): void
+    private function configureGoogle(): void
     {
         config()->set('services.google.client_id', 'client-id');
         config()->set('services.google.client_secret', 'client-secret');
         config()->set('services.google.redirect', 'https://monitor.schollinetz.com/auth/google/callback');
+    }
+
+    public function test_google_redirect_starts_the_oauth_flow(): void
+    {
+        $this->configureGoogle();
 
         $provider = Mockery::mock(Provider::class);
         $provider->shouldReceive('scopes')->once()->with(['openid', 'profile', 'email'])->andReturnSelf();
@@ -34,6 +39,8 @@ class GoogleAuthenticationTest extends TestCase
 
     public function test_google_callback_creates_or_updates_the_user_and_logs_them_in(): void
     {
+        $this->configureGoogle();
+
         $provider = Mockery::mock(Provider::class);
         $provider->shouldReceive('user')->once()->andReturn($this->fakeGoogleUser());
 
@@ -56,6 +63,8 @@ class GoogleAuthenticationTest extends TestCase
 
     public function test_google_callback_links_an_existing_email_address(): void
     {
+        $this->configureGoogle();
+
         $user = User::factory()->create([
             'email' => 'operator@example.com',
             'google_id' => null,
@@ -79,6 +88,8 @@ class GoogleAuthenticationTest extends TestCase
 
     public function test_google_callback_rejects_non_allowlisted_email_after_bootstrap(): void
     {
+        $this->configureGoogle();
+
         User::factory()->admin()->create([
             'email' => 'admin@example.com',
         ]);

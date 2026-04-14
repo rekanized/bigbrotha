@@ -48,17 +48,16 @@ Before startup, review these values in [docker-compose.yml](../docker-compose.ym
 - `WEB_PORT`
 - `MEDIAMTX_ICE_BIND_IP`
 - `MEDIAMTX_ICE_PORT`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 - `DB_*` values if you are not using the bundled PostgreSQL defaults
 - `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of `worker` replicas
 
-For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and Google OAuth use.
+For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and the later Google OAuth setup flow use.
 
 For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `APP_URL`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`. MediaMTX signaling and API traffic stay internal to the Compose network, so they do not need separate host ports per stack.
 
-If you want file-backed secrets instead of environment values, the app containers also accept `DB_PASSWORD_FILE`, `GOOGLE_CLIENT_ID_FILE`, and `GOOGLE_CLIENT_SECRET_FILE`.
+If you want file-backed secrets instead of environment values, the app containers also accept `DB_PASSWORD_FILE`.
+
+The Docker Compose stack now clears legacy `GOOGLE_*` container variables explicitly, so custom `.env.docker` files should remove any old Google client ID, client secret, or redirect URI entries and let the setup flow persist those values in the database instead.
 
 ## 2. Start The Stack
 
@@ -88,6 +87,12 @@ The `app` container will:
 - apply pending Laravel migrations automatically and bootstrap an empty database when needed
 - start the bundled MediaMTX relay
 - write the bootstrap marker that unblocks `worker` and `scheduler`
+
+After the containers are healthy on a brand-new deployment, open `/setup` on the published application URL and complete the onboarding wizard:
+
+- choose whether local sign-in, Google OAuth, or both should be enabled
+- create the initial local administrator when local sign-in is enabled
+- enter the Google client ID, client secret, and redirect URI there and run the built-in Google validation flow before enabling Google OAuth
 
 ## 3. Confirm Camera Reachability
 

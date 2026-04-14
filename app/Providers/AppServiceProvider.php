@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\ApplicationSettingsService;
+use App\Services\AuthenticationSettingsService;
 use App\Services\Relay\MediaMtxPathStatusService;
 use App\Services\RuntimeHeartbeatService;
 use FFMpeg\FFMpeg;
@@ -64,9 +65,12 @@ class AppServiceProvider extends ServiceProvider
         $this->registerWorkerHeartbeatHooks();
 
         $settings = $this->app->make(ApplicationSettingsService::class);
+        $authSettings = $this->app->make(AuthenticationSettingsService::class);
 
         $settings->apply();
+        $authSettings->apply();
         View::share('appSettings', $settings);
+        View::share('authSettings', $authSettings);
     }
 
     private function normalizeSharedRuntimePaths(): void

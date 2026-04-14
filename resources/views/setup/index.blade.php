@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#edf2f6">
 
-        <title>{{ config('app.name', 'Bigbrotha') }} | Sign in</title>
+        <title>{{ config('app.name', 'Bigbrotha') }} | Initial setup</title>
 
         @php
             $assetBase = rtrim(request()->getBaseUrl(), '/');
@@ -13,13 +13,12 @@
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
         <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
-
         <link rel="stylesheet" href="{{ $assetBase }}/css/app.css">
         @livewireStyles
     </head>
-    <body class="auth-page">
-        <main class="auth-shell">
-            <livewire:auth.unified-login-screen />
+    <body class="auth-page auth-page--setup">
+        <main class="auth-shell auth-shell--setup">
+            <livewire:setup.setup-wizard />
         </main>
 
         @livewireScripts

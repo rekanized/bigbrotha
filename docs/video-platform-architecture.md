@@ -10,7 +10,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - PHP 8.3.
 - Livewire 4 for server-driven UI behavior.
 - Blade templates and standard CSS.
-- Google OAuth via Laravel Socialite for operator sign-in.
+- Laravel session authentication backed by manual local accounts and optional Google OAuth via Laravel Socialite.
 - ffmpeg and ffprobe configured through `config/ffmpeg.php` and service bindings in `app/Providers/AppServiceProvider.php`.
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
 - MediaMTX as the shared WebRTC relay managed from Laravel and bundled directly into the Docker app image.
@@ -18,7 +18,8 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 
 ## Route Map
 
-- `/login` for Google sign-in.
+- `/setup` for first-launch authentication onboarding.
+- `/login` for the unified local and Google sign-in screen.
 - `/` as an authenticated redirect to `/camera-fleet`.
 - `/camera-fleet` via `App\Http\Controllers\CameraFleetController` and `App\Livewire\CameraFleet\Manager`.
 - `/recordings` plus `/recordings/{recording}` via `App\Http\Controllers\RecordingController`.
@@ -84,13 +85,17 @@ The operator UI now assumes Laravel session authentication.
 
 Current behavior:
 
-- guest users are redirected to `/login`.
-- `/auth/google/redirect` and `/auth/google/callback` complete Google OAuth through Laravel Socialite.
-- the first successful Google sign-in is allowed to bootstrap the system, is promoted to admin automatically, and is inserted into the operator allowlist.
+- brand-new deployments are redirected to `/setup` until onboarding is completed.
+- `/setup` lets the operator choose manual local auth, Google OAuth, or both, and can create the initial local administrator account.
+- `/login` renders a unified sign-in screen that shows whichever authentication methods are currently enabled.
+- `/auth/google/redirect` and `/auth/google/callback` complete Google OAuth through Laravel Socialite when Google auth is enabled.
+- if no admin exists yet, the first successful Google sign-in is still allowed to bootstrap the system, is promoted to admin automatically, and is inserted into the operator allowlist.
 - once bootstrap is complete, Google callback only admits email addresses stored in the admin-managed operator allowlist.
+- the admin settings page now includes an authentication module for toggling local and Google auth, editing Google credentials, and running the live Google validation flow.
+- the admin operator-access page can create local operator accounts and reset local passwords for existing operators.
 - `App\Http\Controllers\Auth\LogoutController` destroys the Laravel session.
 - the top bar renders the authenticated operator name and sign-out action.
-- MediaMTX reads are not treated as public access; the web session is used only to bootstrap short-lived relay tokens.
+- MediaMTX reads are not treated as public access; any authenticated Laravel operator session can bootstrap short-lived relay tokens.
 
 ## Camera Fleet UI
 
@@ -216,7 +221,7 @@ The WebRTC wall is intended for operator viewing with shared fan-out. The copy r
 ## Access Model
 
 - Operator pages are intended to be protected by Laravel session authentication.
-- Google OAuth is the primary sign-in path for the web application.
+- Manual local accounts and Google OAuth can be enabled together for the web application.
 - MediaMTX WebRTC access is not treated as public; Laravel authorizes each read through a short-lived token.
 - Direct ICE transport still requires network reachability on the configured WebRTC ports.
 

@@ -1,8 +1,8 @@
 # BigBrotha
 
-BigBrotha is a Laravel 13 operator-facing web application for ONVIF and RTSP camera operations. The current platform supports Google-authenticated operator access, camera discovery, direct ONVIF verification, camera fleet management, RTSP profile retrieval, backend stream diagnostics, preview capture, scheduler-driven per-camera recording, synchronized timeline review, admin audit logging, and shared WebRTC wall playback through MediaMTX.
+BigBrotha is a Laravel 13 operator-facing web application for ONVIF and RTSP camera operations. The current platform supports first-launch onboarding, concurrent manual local accounts and Google OAuth, camera discovery, direct ONVIF verification, camera fleet management, RTSP profile retrieval, backend stream diagnostics, preview capture, scheduler-driven per-camera recording, synchronized timeline review, admin audit logging, and shared WebRTC wall playback through MediaMTX.
 
-The Live Wall now uses a shared MediaMTX relay for WebRTC playback, while still exposing a no-transcode copy relay path that remuxes camera video with ffmpeg stream copy instead of re-encoding it. Operator access is expected to be authenticated through Google OAuth in Laravel, and Live Wall playback now uses Laravel-issued short-lived MediaMTX read tokens instead of the stock public iframe player.
+The Live Wall now uses a shared MediaMTX relay for WebRTC playback, while still exposing a no-transcode copy relay path that remuxes camera video with ffmpeg stream copy instead of re-encoding it. Operator access is authenticated through the application's enabled sign-in methods, and Live Wall playback uses Laravel-issued short-lived MediaMTX read tokens instead of the stock public iframe player.
 
 When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX must be given a public WebRTC URL plus reachable ICE addresses. See the proxy notes in the docs before publishing the wall through a reverse proxy.
 
@@ -10,7 +10,7 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 
 BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml). You do not need to build images locally for a normal deployment.
 
-1. Copy the Docker environment template and set the public URL, Google OAuth values, published ports, and worker count.
+1. Copy the Docker environment template and set the public URL, published ports, and worker count.
 
 ```bash
 cp .env.docker.example .env.docker
@@ -26,9 +26,6 @@ Minimum values to review in `.env.docker` before first startup:
 - `MEDIAMTX_ICE_PORT`
 - `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
 - `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 - `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`
 - `CAMERA_RECORDING_WORKER_PROCESSES`
 
@@ -62,13 +59,20 @@ Expected result:
 - `app`, `relay`, `web`, `worker`, and `scheduler` become healthy after startup settles.
 - `php artisan relay:status` reports MediaMTX installed, running, and API reachable.
 
+4. Open `/setup` on the published application URL if this is a brand-new deployment.
+
+- Choose whether local sign-in, Google OAuth, or both should be active.
+- Create the initial local administrator if local sign-in is enabled.
+- Enter the Google client ID, client secret, and redirect URI in the setup wizard and run the built-in validation flow before enabling Google sign-in.
+
 If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d`.
 
 ## Docker Configuration
 
 - Always use `./docker/compose.sh` or `docker compose --env-file .env.docker ...`.
 - Plain `docker compose up -d` without `--env-file .env.docker` falls back to the defaults baked into [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) for `COMPOSE_PROJECT_NAME`, host ports, and optional image overrides.
-- `APP_URL` and `GOOGLE_REDIRECT_URI` must match the public origin exactly.
+- `APP_URL` must match the public origin exactly.
+- If Google sign-in is enabled later in `/setup` or the admin settings page, use `${APP_URL}/auth/google/callback` as the normal callback target unless you intentionally publish a different callback URL.
 - `WEB_PORT` and `MEDIAMTX_ICE_PORT` must be free on the host.
 - For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`.
 - The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
@@ -97,11 +101,12 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 
 ## Route Highlights
 
+- `/setup` runs the first-launch onboarding wizard.
 - `/login`, `/auth/google/redirect`, `/auth/google/callback`, and `/logout` handle operator sign-in and logout.
 - `/` is an authenticated redirect to `/camera-fleet`.
 - `/camera-fleet` is the main camera inventory, provisioning, diagnostics, preview, and recording-policy surface.
 - `/camera-fleet/{camera}/profiles/{profileIndex}/preview` serves private preview images.
-- `/camera-fleet/{camera}/motion-editor-session` bootstraps the Google-media-protected motion-mask editor session.
+- `/camera-fleet/{camera}/motion-editor-session` bootstraps the authenticated motion-mask editor session.
 - `/recordings` is the saved-recording browser.
 - `/recordings/timeline` is the synchronized multi-camera review workflow.
 - `/recordings/timeline/cameras/{camera}/segments` and `/recordings/timeline/cameras/{camera}/stage` provide authenticated timeline rail and stage data.
@@ -116,7 +121,7 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 
 ## Live Wall Flow
 
-1. An operator signs in through Google OAuth and receives a normal Laravel session.
+1. An operator signs in through one of the enabled authentication methods and receives a normal Laravel session.
 2. `/wall-tiles` is used to create named walls, assign camera tiles, and choose tile orientation or span.
 3. `/live-wall` resolves the selected or default active wall and only renders cameras assigned to enabled tiles on that wall.
 4. `/live-wall/{camera}/player` still renders a Laravel-owned player shell instead of exposing the stock public MediaMTX iframe page.
@@ -128,14 +133,9 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 
 ## Relay Settings
 
-Production deployments should set these values explicitly:
+Production deployments should set `APP_URL` explicitly before running setup.
 
-- `APP_URL`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
-
-MediaMTX derives its public WebRTC URL from `APP_URL` as `APP_URL + /__webrtc`, derives relay secrets from `APP_KEY`, and uses Docker internal service names for app-to-app traffic. Most relay runtime knobs now live in `config/mediamtx.php`, not in `.env`.
+Google OAuth credentials are now entered through `/setup` or the admin authentication settings panel and saved in the database. MediaMTX derives its public WebRTC URL from `APP_URL` as `APP_URL + /__webrtc`, derives relay secrets from `APP_KEY`, and uses Docker internal service names for app-to-app traffic. Most relay runtime knobs now live in `config/mediamtx.php`, not in `.env`.
 
 After changing relay or auth-related environment values, run:
 
@@ -193,17 +193,18 @@ Copy `.env.docker.example` to `.env.docker` and review these values before first
 - `MEDIAMTX_ICE_PORT`
 - `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
 - `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 - `DB_*` if you are not using the bundled PostgreSQL defaults
 - `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of `worker` replicas
 - `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you want to pin a non-default image tag
 - `./.docker-state/app.key` preserved after the first successful boot
 
+Google OAuth no longer needs to be defined in `.env.docker`. Configure it from `/setup` on the first launch or later from the admin authentication settings panel, and the client ID, client secret, and redirect URI will be stored in the database.
+
+The Docker Compose stack now forces the legacy `GOOGLE_*` container variables to empty strings so old `.env.docker` entries do not override the database-backed authentication settings.
+
 Minimum usable deployment rules:
 
-- `APP_URL` and `GOOGLE_REDIRECT_URI` must match the public origin exactly.
+- `APP_URL` must match the public origin exactly.
 - `WEB_PORT` and `MEDIAMTX_ICE_PORT` must be free on the host.
 - For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`.
 - The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
@@ -222,7 +223,7 @@ Container notes:
 - the bundled PostgreSQL service stays internal to the Compose network by default.
 - MediaMTX signaling and API traffic stay internal to the Compose network; only the web port and WebRTC ICE port need to be unique on the host.
 - the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
-- app services can also load `DB_PASSWORD_FILE`, `GOOGLE_CLIENT_ID_FILE`, and `GOOGLE_CLIENT_SECRET_FILE` when you want to move those values out of `.env.docker`.
+- app services can also load `DB_PASSWORD_FILE` when you want to move the database password out of `.env.docker`.
 
 Verification:
 

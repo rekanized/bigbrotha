@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AllowedLoginEmail;
 use App\Models\User;
+use App\Services\LocalAuthenticationService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class AdminUsersController extends Controller
 
     public function storeAllowedEmail(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
+        $validated = $request->validateWithBag('allowedEmail', [
             'email' => ['required', 'email:rfc', 'max:255'],
         ]);
 
@@ -47,6 +48,47 @@ class AdminUsersController extends Controller
         return redirect()
             ->route('admin.users.index')
             ->with('status', 'Allowed Google sign-in for '.$email.'.');
+    }
+
+    public function storeLocalUser(Request $request, LocalAuthenticationService $localAuthentication): RedirectResponse
+    {
+        $validated = $request->validateWithBag('localUser', [
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email:rfc', 'max:255'],
+            'password' => ['required', 'string', 'min:10', 'confirmed'],
+            'is_admin' => ['nullable', 'boolean'],
+        ]);
+
+        $email = $localAuthentication->normalizeEmail($validated['email']);
+        $existingUser = User::query()->where('email', $email)->first();
+        $wasExisting = $existingUser instanceof User;
+
+        $user = $localAuthentication->createOrUpdateLocalUser(
+            $validated['name'],
+            $email,
+            $validated['password'],
+            (bool) ($validated['is_admin'] ?? false),
+            $existingUser,
+        );
+
+        return redirect()
+            ->route('admin.users.index')
+            ->with('status', $wasExisting
+                ? 'Enabled local password sign-in for '.$user->email.'.'
+                : 'Created a local operator account for '.$user->email.'.');
+    }
+
+    public function updateLocalPassword(Request $request, User $user, LocalAuthenticationService $localAuthentication): RedirectResponse
+    {
+        $validated = $request->validateWithBag('localPassword', [
+            'password' => ['required', 'string', 'min:10', 'confirmed'],
+        ]);
+
+        $localAuthentication->updateLocalPassword($user, $validated['password']);
+
+        return redirect()
+            ->route('admin.users.index')
+            ->with('status', 'Updated the local password for '.$user->email.'.');
     }
 
     public function updateAdminRole(Request $request, User $user): RedirectResponse

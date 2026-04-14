@@ -34,9 +34,11 @@ Operator pages are expected to sit behind Laravel session authentication.
 
 Current design assumptions:
 
-- Google OAuth is the primary sign-in mechanism.
-- The first authenticated operator is promoted to admin automatically if no admin account exists yet.
-- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete sign-in.
+- Brand-new deployments remain on `/setup` until onboarding chooses at least one active sign-in method.
+- Manual local accounts and Google OAuth can be enabled together.
+- The setup and admin auth flows require a successful Google round-trip before Google credentials are saved in an enabled state.
+- The first authenticated Google operator is promoted to admin automatically if no admin account exists yet.
+- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete Google sign-in.
 - MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.

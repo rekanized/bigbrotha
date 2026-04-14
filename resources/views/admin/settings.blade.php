@@ -30,6 +30,8 @@
             </section>
         @endif
 
+        <livewire:admin.auth-settings-panel />
+
         <section class="screen-card screen-card--spacious">
             <div class="panel-heading">
                 <div>

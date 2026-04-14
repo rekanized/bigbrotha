@@ -1,0 +1,143 @@
+.auth-page--setup {
+    align-items: start;
+    padding-top: 32px;
+    padding-bottom: 32px;
+}
+
+.auth-shell--setup {
+    width: min(1120px, 100%);
+}
+
+.auth-card--wide {
+    width: min(760px, 100%);
+}
+
+.auth-login-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.auth-login-grid--single {
+    justify-items: center;
+}
+
+.auth-login-grid--single .auth-card__section {
+    width: min(420px, 100%);
+}
+
+.auth-card__section {
+    display: grid;
+    gap: 16px;
+}
+
+.auth-divider {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+}
+
+.auth-method-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.auth-method-card {
+    align-items: start;
+}
+
+.auth-method-card .form-select {
+    width: 100%;
+}
+
+.auth-validation-note {
+    display: grid;
+    gap: 6px;
+    max-width: 44rem;
+    color: var(--text-soft);
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
+.auth-validation-note strong {
+    color: var(--text);
+}
+
+.auth-settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.auth-settings-panel__form,
+.operator-access__local-form {
+    display: grid;
+    gap: 20px;
+}
+
+.auth-settings-panel__fields,
+.operator-access__local-fields {
+    gap: 18px;
+}
+
+.auth-settings-panel__footer,
+.operator-access__local-actions {
+    gap: 18px;
+    padding-top: 4px;
+}
+
+.field-stack--full {
+    grid-column: 1 / -1;
+}
+
+.auth-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-soft);
+    font-size: 0.92rem;
+}
+
+.inline-auth-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+    gap: 14px;
+    align-items: center;
+}
+
+.notice--error {
+    border: 1px solid hsla(5 63% 52% / 0.22);
+    background: hsla(5 63% 52% / 0.08);
+    color: hsl(0 47% 36%);
+}
+
+@media (min-width: 860px) {
+    .auth-login-grid:not(.auth-login-grid--single) {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .auth-divider {
+        min-width: 54px;
+        align-self: center;
+    }
+}
+
+@media (max-width: 720px) {
+    .inline-auth-form {
+        grid-template-columns: 1fr;
+    }
+
+    .auth-settings-actions {
+        justify-content: stretch;
+    }
+
+    .auth-settings-actions .button {
+        width: 100%;
+    }
+}

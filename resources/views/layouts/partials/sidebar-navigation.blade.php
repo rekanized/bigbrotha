@@ -57,7 +57,7 @@
     $adminNavigation = $canAccessAdminNavigation ? [
         [
             'label' => 'Operator access',
-            'caption' => 'Approved sign-in emails, operators, and admin access',
+            'caption' => 'Local accounts, approved Google emails, operators, and admin access',
             'href' => route('admin.users.index'),
             'active' => request()->routeIs('admin.users.*'),
         ],

@@ -1,9 +1,10 @@
 <?php
 
-use App\Http\Middleware\TrustReverseProxyHeaders;
-use App\Http\Middleware\RestrictWebsiteIp;
+use App\Http\Middleware\EnsureAuthenticatedMediaAccess;
 use App\Http\Middleware\EnsureAdminUser;
-use App\Http\Middleware\EnsureGoogleOAuthMediaAccess;
+use App\Http\Middleware\EnsureSetupIsComplete;
+use App\Http\Middleware\RestrictWebsiteIp;
+use App\Http\Middleware\TrustReverseProxyHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,12 +18,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'admin' => EnsureAdminUser::class,
-            'google-media' => EnsureGoogleOAuthMediaAccess::class,
+            'media-access' => EnsureAuthenticatedMediaAccess::class,
         ]);
         $middleware->validateCsrfTokens(except: [
             'relay/auth/mediamtx',
         ]);
         $middleware->prepend(TrustReverseProxyHeaders::class);
+        $middleware->append(EnsureSetupIsComplete::class);
         $middleware->append(RestrictWebsiteIp::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

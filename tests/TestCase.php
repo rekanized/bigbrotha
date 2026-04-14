@@ -2,8 +2,11 @@
 
 namespace Tests;
 
+use App\Services\AuthenticationSettingsService;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 abstract class TestCase extends BaseTestCase
@@ -34,6 +37,8 @@ abstract class TestCase extends BaseTestCase
         config()->set('recording.health.scheduler_heartbeat_path', $this->testStoragePath.'/app/private/bootstrap/recordings-scheduler.heartbeat');
         config()->set('recording.health.scheduler_tick_heartbeat_path', $this->testStoragePath.'/app/private/bootstrap/recordings-tick.heartbeat');
         config()->set('ffmpeg.temporary_directory', $this->testStoragePath.'/app/private/ffmpeg-temp');
+
+        $this->primeDefaultAuthenticationSettings();
     }
 
     protected function tearDown(): void
@@ -43,5 +48,41 @@ abstract class TestCase extends BaseTestCase
         }
 
         parent::tearDown();
+    }
+
+    protected function primeDefaultAuthenticationSettings(): void
+    {
+        if (!Schema::hasTable('app_settings')) {
+            return;
+        }
+
+        DB::table('app_settings')->updateOrInsert(
+            ['key' => AuthenticationSettingsService::SETTING_SETUP_COMPLETE],
+            ['value' => '1', 'updated_at' => now(), 'created_at' => now()]
+        );
+
+        DB::table('app_settings')->updateOrInsert(
+            ['key' => AuthenticationSettingsService::SETTING_MANUAL_AUTH_ENABLED],
+            ['value' => '1', 'updated_at' => now(), 'created_at' => now()]
+        );
+    }
+
+    protected function clearAuthenticationSetupState(): void
+    {
+        if (!Schema::hasTable('app_settings')) {
+            return;
+        }
+
+        DB::table('app_settings')->whereIn('key', [
+            AuthenticationSettingsService::SETTING_SETUP_COMPLETE,
+            AuthenticationSettingsService::SETTING_MANUAL_AUTH_ENABLED,
+            AuthenticationSettingsService::SETTING_GOOGLE_AUTH_ENABLED,
+            AuthenticationSettingsService::SETTING_GOOGLE_CLIENT_ID,
+            AuthenticationSettingsService::SETTING_GOOGLE_CLIENT_SECRET,
+            AuthenticationSettingsService::SETTING_GOOGLE_REDIRECT_URI,
+            AuthenticationSettingsService::SETTING_GOOGLE_TESTED_FINGERPRINT,
+            AuthenticationSettingsService::SETTING_GOOGLE_TESTED_AT,
+            AuthenticationSettingsService::SETTING_GOOGLE_TESTED_EMAIL,
+        ])->delete();
     }
 }

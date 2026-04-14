@@ -49,8 +49,6 @@ load_file_env() {
 }
 
 load_file_env DB_PASSWORD
-load_file_env GOOGLE_CLIENT_ID
-load_file_env GOOGLE_CLIENT_SECRET
 
 ensure_app_key() {
     if [ -n "${APP_KEY:-}" ]; then
