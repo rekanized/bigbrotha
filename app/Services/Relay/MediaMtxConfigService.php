@@ -126,7 +126,8 @@ class MediaMtxConfigService
         $liveDefinition = $this->cameraLivePlaybackDefinition($camera);
 
         if ($liveDefinition !== null
-            && $this->definitionsMatchProfile($liveDefinition, $sourceDefinition)) {
+            && $this->definitionsMatchProfile($liveDefinition, $sourceDefinition)
+            && $this->definitionCanBeReusedForMotionEditor($liveDefinition)) {
             return $liveDefinition;
         }
 
@@ -369,6 +370,7 @@ class MediaMtxConfigService
     private function definitionSupportsColdStart(array $definition): bool
     {
         $probeStatus = $this->stringOrNull($definition['profile']['probe_status'] ?? null);
+        $probeSource = $this->stringOrNull($definition['profile']['probe_source'] ?? null);
 
         if ($probeStatus === null) {
             return true;
@@ -376,6 +378,30 @@ class MediaMtxConfigService
 
         if (strcasecmp($probeStatus, 'Healthy') !== 0) {
             return false;
+        }
+
+        if ($probeSource !== null && strcasecmp($probeSource, 'motion-buffer') === 0) {
+            return false;
+        }
+
+        if ($probeSource !== null && strcasecmp($probeSource, 'relay') === 0) {
+            return true;
+        }
+
+        return ($definition['profile']['transport_persistable'] ?? false) === true;
+    }
+
+    /**
+    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     */
+    private function definitionCanBeReusedForMotionEditor(array $definition): bool
+    {
+        if (isset($this->pathStatusService->activePaths()[$definition['path']])) {
+            return true;
+        }
+
+        if ($this->stringOrNull($definition['profile']['probe_status'] ?? null) === null) {
+            return true;
         }
 
         return ($definition['profile']['transport_persistable'] ?? false) === true;

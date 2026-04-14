@@ -638,6 +638,71 @@ class LiveWallStreamTest extends TestCase
             ->assertJsonPath('whep_url', 'https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep');
     }
 
+    public function test_live_wall_session_cold_starts_for_a_relay_verified_healthy_profile(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-stream-secret');
+        $this->mockRelayProcess(running: true);
+
+        Http::fake([
+            'http://relay:9997/v3/paths/list' => Http::response([
+                'items' => [],
+            ], 200),
+        ]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.66',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Healthy',
+                        'probe_source' => 'relay',
+                        'transport_persistable' => false,
+                    ],
+                ],
+            ],
+        ]);
+
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id,
+            'position' => 1,
+            'orientation' => 'landscape',
+            'column_span' => 1,
+            'row_span' => 1,
+            'is_enabled' => true,
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->getJson(route('live-wall.session', ['camera' => $camera]))
+            ->assertOk()
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('whep_url', 'https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep');
+
+        $response = $this->actingAs(User::factory()->create())
+            ->get(route('live-wall.index'));
+
+        $response
+            ->assertOk()
+            ->assertSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false)
+            ->assertSee('data-reader-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/reader.js"', false)
+            ->assertSee('data-whep-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep"', false);
+    }
+
     public function test_live_wall_session_returns_service_unavailable_when_the_relay_api_is_unhealthy(): void
     {
         config()->set('mediamtx.auto_start', false);

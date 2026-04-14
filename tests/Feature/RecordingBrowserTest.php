@@ -842,7 +842,7 @@ class RecordingBrowserTest extends TestCase
             ->assertSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
     }
 
-    public function test_timeline_preview_thumbnail_route_does_not_probe_network_backed_scrub_sprites_during_metadata_rendering(): void
+    public function test_timeline_preview_thumbnail_route_returns_the_placeholder_when_network_backed_scrub_sprites_are_unavailable_during_metadata_rendering(): void
     {
         $operator = User::factory()->create();
 
@@ -898,7 +898,7 @@ class RecordingBrowserTest extends TestCase
             ->once()
             ->with($manifestRelativePath)
             ->andReturn($manifestPath);
-        $networkStorage->shouldReceive('privateFileExists')->never();
+        $networkStorage->shouldReceive('privateFileExists')->zeroOrMoreTimes()->andReturn(false);
 
         app()->instance(CameraStorageService::class, $networkStorage);
 
@@ -907,8 +907,9 @@ class RecordingBrowserTest extends TestCase
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
-            ->assertSee('viewBox="0 0 128 72"', false)
-            ->assertSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
+            ->assertSee('viewBox="0 0 320 180"', false)
+            ->assertSee('Thumbnail not ready yet', false)
+            ->assertDontSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
     }
 
     public function test_timeline_preview_thumbnail_route_requeues_scrub_generation_when_the_preview_is_ready_but_the_sprite_failed(): void
@@ -1097,7 +1098,7 @@ class RecordingBrowserTest extends TestCase
             ->assertHeader('content-type', 'image/jpeg');
     }
 
-    public function test_timeline_preview_sprite_route_falls_back_to_a_placeholder_when_network_storage_is_unreachable(): void
+    public function test_timeline_preview_sprite_route_requeues_generation_when_network_storage_is_unreachable(): void
     {
         Queue::fake();
 
@@ -1165,7 +1166,7 @@ class RecordingBrowserTest extends TestCase
             ->once()
             ->with($manifestRelativePath)
             ->andReturn($manifestPath);
-        $networkStorage->shouldReceive('privateFileExists')->never();
+        $networkStorage->shouldReceive('privateFileExists')->zeroOrMoreTimes()->andReturn(false);
 
         app()->instance(CameraStorageService::class, $networkStorage);
 
@@ -1176,7 +1177,9 @@ class RecordingBrowserTest extends TestCase
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
             ->assertSee('Thumbnail not ready yet', false);
 
-        Queue::assertNothingPushed();
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($recording): bool {
+            return $job->recordingId === $recording->id;
+        });
     }
 
     public function test_timeline_initial_stage_uses_the_buffered_playback_stream_even_when_a_cached_preview_exists(): void
