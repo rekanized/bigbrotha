@@ -6,6 +6,75 @@ The Live Wall now uses a shared MediaMTX relay for WebRTC playback, while still 
 
 When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX must be given a public WebRTC URL plus reachable ICE addresses. See the proxy notes in the docs before publishing the wall through a reverse proxy.
 
+## Quick Start
+
+BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml). You do not need to build images locally for a normal deployment.
+
+1. Copy the Docker environment template and set the public URL, Google OAuth values, published ports, and worker count.
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Minimum values to review in `.env.docker` before first startup:
+
+- `COMPOSE_PROJECT_NAME`
+- `APP_URL`
+- `WEB_BIND_IP`
+- `WEB_PORT`
+- `MEDIAMTX_ICE_BIND_IP`
+- `MEDIAMTX_ICE_PORT`
+- `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
+- `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`
+- `CAMERA_RECORDING_WORKER_PROCESSES`
+
+2. Start from the published Docker Hub images.
+
+Preferred wrapper:
+
+```bash
+./docker/compose.sh pull
+./docker/compose.sh up -d
+```
+
+Raw Docker Compose equivalent:
+
+```bash
+docker compose --env-file .env.docker pull
+docker compose --env-file .env.docker up -d
+```
+
+3. Verify the stack and relay health.
+
+```bash
+./docker/compose.sh ps
+./docker/compose.sh logs --tail=100 app relay web worker scheduler
+./docker/compose.sh exec app php artisan relay:status
+```
+
+Expected result:
+
+- `database`, `app`, `relay`, `web`, `worker`, and `scheduler` are running.
+- `app`, `relay`, `web`, `worker`, and `scheduler` become healthy after startup settles.
+- `php artisan relay:status` reports MediaMTX installed, running, and API reachable.
+
+If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d`.
+
+## Docker Configuration
+
+- Always use `./docker/compose.sh` or `docker compose --env-file .env.docker ...`.
+- Plain `docker compose up -d` without `--env-file .env.docker` falls back to the defaults baked into [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) for `COMPOSE_PROJECT_NAME`, host ports, and optional image overrides.
+- `APP_URL` and `GOOGLE_REDIRECT_URI` must match the public origin exactly.
+- `WEB_PORT` and `MEDIAMTX_ICE_PORT` must be free on the host.
+- For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`.
+- The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
+- Keep `./.docker-state/app.key` with the deployment; if that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
+- The default published images are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest` unless overridden in `.env.docker`.
+
 ## Stack
 
 - Laravel 13 on PHP 8.3.
@@ -76,7 +145,7 @@ docker compose exec app php artisan view:clear
 docker compose exec app php artisan relay:sync
 ```
 
-## Docker Deployment
+## Docker Deployment Details
 
 BigBrotha now targets a single supported runtime: the Docker Compose stack in `docker-compose.yml`.
 
@@ -101,12 +170,6 @@ Equivalent wrapper commands:
 ```bash
 ./docker/compose.sh pull
 ./docker/compose.sh up -d
-```
-
-If this host requires Docker commands through sudo, run:
-
-```bash
-sudo ./docker/compose.sh up -d
 ```
 
 The default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) consumes published Docker Hub images:
