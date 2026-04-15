@@ -23,10 +23,8 @@ class MediaMtxInstaller
         $binaryPath = $this->binaryPath();
 
         if (!$this->isInstalled()) {
-            throw new RuntimeException('Bundled MediaMTX binary not found at '.$binaryPath.'. Rebuild the Docker image before starting the relay.');
+            throw new RuntimeException('Configured MediaMTX binary not found or not executable at '.$binaryPath.'. Rebuild or replace the app image before starting the relay.');
         }
-
-        @chmod($binaryPath, 0755);
 
         return $binaryPath;
     }

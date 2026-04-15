@@ -157,6 +157,10 @@ return [
     ],
 
     'transcode' => [
+        'video_codec' => $optionalEnvString('MEDIAMTX_TRANSCODE_VIDEO_CODEC') ?? 'libx264',
+        'force_video_transcode' => $optionalEnvBool('MEDIAMTX_TRANSCODE_FORCE_VIDEO', false),
+        'video_fps' => max(1, (int) env('MEDIAMTX_TRANSCODE_VIDEO_FPS', 15)),
+        'video_fps_mode' => trim((string) env('MEDIAMTX_TRANSCODE_VIDEO_FPS_MODE', 'cfr')),
         'preset' => 'ultrafast',
         'video_bitrate' => '1200k',
         'video_crf' => 23,
@@ -164,11 +168,19 @@ return [
         'video_bufsize' => '1800k',
         'audio_codec' => 'libopus',
         'audio_bitrate' => '96k',
-        'audio_channels' => 1,
+        'audio_channels' => max(1, (int) env('MEDIAMTX_TRANSCODE_AUDIO_CHANNELS', 2)),
         'audio_sample_rate' => 48000,
         'gop' => 30,
         'start_timeout' => '30s',
         'live_start_timeout' => '45s',
         'close_after' => '30s',
+        'hardware_acceleration' => [
+            'engine' => strtolower(trim((string) env('MEDIAMTX_TRANSCODE_HWACCEL', ''))),
+            'device' => $optionalEnvString('MEDIAMTX_TRANSCODE_HWACCEL_DEVICE'),
+            'decoder' => $optionalEnvString('MEDIAMTX_TRANSCODE_HWACCEL_DECODER'),
+            'encoder' => $optionalEnvString('MEDIAMTX_TRANSCODE_HWACCEL_ENCODER'),
+            'input_args' => $optionalEnvCsv('MEDIAMTX_TRANSCODE_HWACCEL_INPUT_ARGS') ?? [],
+            'output_args' => $optionalEnvCsv('MEDIAMTX_TRANSCODE_HWACCEL_OUTPUT_ARGS') ?? [],
+        ],
     ],
 ];

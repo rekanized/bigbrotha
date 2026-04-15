@@ -100,6 +100,7 @@ class LiveWallController extends Controller
             'selectedWall' => $selectedWall,
             'tiles' => $tiles,
             'relayStatus' => $relayStatus,
+            'streamFormat' => $relayConfig->browserCompatibleStreamFormat(),
         ]);
     }
 

@@ -394,7 +394,26 @@ class CameraStorageService
 
     public function recordingAvailability(?string $recordingPath): string
     {
-        return $this->privateFileAvailability($recordingPath);
+        $relativePath = $this->privateStorageRelativePath($recordingPath);
+
+        if ($relativePath === null) {
+            return self::RECORDING_AVAILABILITY_MISSING;
+        }
+
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
+            return $this->privateFileAvailability($relativePath);
+        }
+
+        $diskPath = $this->cameraDiskRelativePath($relativePath);
+        $availability = $this->networkCameraDiskAvailability($diskPath);
+
+        if ($availability === self::RECORDING_AVAILABILITY_PRESENT) {
+            return $availability;
+        }
+
+        return $this->recoverMissingNetworkBackedRecordingFromStaging($relativePath, $diskPath)
+            ? self::RECORDING_AVAILABILITY_PRESENT
+            : $availability;
     }
 
     public function recordingExists(?string $recordingPath): bool
@@ -737,6 +756,11 @@ class CameraStorageService
 
         $diskPath = $this->cameraDiskRelativePath($relativePath);
 
+        if ($this->networkCameraDiskAvailability($diskPath) !== self::RECORDING_AVAILABILITY_PRESENT
+            && !$this->recoverMissingNetworkBackedRecordingFromStaging($relativePath, $diskPath)) {
+            return null;
+        }
+
         if ($preferDirectRead) {
             $directReadPath = $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
 
@@ -745,11 +769,29 @@ class CameraStorageService
             }
         }
 
-        if ($this->networkCameraDiskAvailability($diskPath) !== self::RECORDING_AVAILABILITY_PRESENT) {
-            return null;
+        return $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
+    }
+
+    private function recoverMissingNetworkBackedRecordingFromStaging(string $relativePath, ?string $diskPath = null): bool
+    {
+        if (!$this->usesNetworkCameraStorage($relativePath)) {
+            return false;
         }
 
-        return $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
+        $stagedPath = $this->writeStagingAbsolutePath($relativePath);
+
+        if (!is_file($stagedPath)) {
+            return false;
+        }
+
+        try {
+            $this->finalizeStagedWrite($relativePath, $stagedPath);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $this->networkCameraDiskAvailability($diskPath ?? $this->cameraDiskRelativePath($relativePath))
+            === self::RECORDING_AVAILABILITY_PRESENT;
     }
 
     private function copyCameraDiskPathToReadCache(string $diskPath, string $relativePath, ?int $transferTimeoutSeconds = null): ?string
@@ -1261,7 +1303,7 @@ class CameraStorageService
     private function isNetworkBackedCameraRelativePath(string $relativePath): bool
     {
         return preg_match(
-            '#^cameras/[^/]+/recordings/\d{4}/\d{2}/\d{2}/[^/]+$#',
+            '#^cameras/[^/]+/recordings/(?:\d{4}/\d{2}/\d{2}/)?[^/]+$#',
             ltrim($relativePath, '/'),
         ) === 1;
     }

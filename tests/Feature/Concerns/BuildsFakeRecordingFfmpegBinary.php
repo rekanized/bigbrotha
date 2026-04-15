@@ -54,11 +54,19 @@ timestamp_with_offset() {
 }
 
 emit_motion_frame() {
-    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000'
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000\200\200\000\000\200\200\000\000\000\000\000\000\000\000\000\000'
+}
+
+emit_brief_motion_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
 emit_quiet_frame() {
-    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+}
+
+emit_refresh_glitch_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
 write_segments() {
@@ -82,10 +90,24 @@ write_segments() {
                     label="quiet"
                 fi
                 ;;
+            brief-motion)
+                case "$index" in
+                    4|5|6)
+                        label="brief-motion"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
             *)
                 case "$index" in
                     4|5|6)
-                        label="motion"
+                        if [[ "$profile_name" == "refresh-glitch" ]]; then
+                            label="refresh-glitch"
+                        else
+                            label="motion"
+                        fi
                         ;;
                     *)
                         label="quiet"
@@ -125,6 +147,10 @@ if arg_has 'rawvideo' "$@"; then
 
     if [[ "$contents" == motion* ]]; then
         emit_motion_frame
+    elif [[ "$contents" == brief-motion* ]]; then
+        emit_brief_motion_frame
+    elif [[ "$contents" == refresh-glitch* ]]; then
+        emit_refresh_glitch_frame
     else
         emit_quiet_frame
     fi
@@ -194,6 +220,47 @@ output="${!#}"
 mkdir -p "$(dirname "$output")"
 printf '%s' 'recorded-segment' > "$output"
 BASH,
+            'continuous-log-input' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+previous=""
+input_log="$(dirname "$0")/ffmpeg-last-input.log"
+
+for argument in "$@"; do
+    if [[ "$previous" == "-i" && "$argument" == rtsp://* ]]; then
+        mkdir -p "$(dirname "$input_log")"
+        printf '%s' "$argument" > "$input_log"
+        break
+    fi
+    previous="$argument"
+done
+
+arg_has() {
+    local needle="$1"
+    shift
+
+    for argument in "$@"; do
+        if [[ "$argument" == "$needle" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+if arg_has 'segment' "$@"; then
+    pattern="${!#}"
+    stamp="${FFMPEG_FAKE_NOW_UTC:-$(date -u +%Y%m%d_%H%M%S)}"
+    output="${pattern//%Y%m%d_%H%M%S/$stamp}"
+    mkdir -p "$(dirname "$output")"
+    printf '%s' 'recorded-segment' > "$output"
+    exit 0
+fi
+
+output="${!#}"
+mkdir -p "$(dirname "$output")"
+printf '%s' 'recorded-segment' > "$output"
+BASH,
             'continuous-log-args' => <<<'BASH'
 #!/usr/bin/env bash
 set -e
@@ -231,6 +298,8 @@ BASH,
             'motion-corner-log-input' => $rollingMotionScript('corner', true),
             'motion-late' => $rollingMotionScript('corner'),
             'motion-preroll-only' => $rollingMotionScript('preroll-only'),
+            'motion-brief-local' => $rollingMotionScript('brief-motion'),
+            'motion-refresh-glitch' => $rollingMotionScript('refresh-glitch'),
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash
 set -e

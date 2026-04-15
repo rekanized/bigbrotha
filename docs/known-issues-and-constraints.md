@@ -102,11 +102,11 @@ If the file is missing, corrupt, or contains invalid bytes, the route returns a 
 
 ## Media Binary Assumptions
 
-The default application expectation is that `config/ffmpeg.php` resolves the bundled binaries from `base_path('bin/ffmpeg')` and `base_path('bin/ffprobe')`.
+The default application expectation is that `config/ffmpeg.php` resolves `ffmpeg` and `ffprobe` from the runtime image, preferring `/usr/bin/*` or `/usr/local/bin/*` and then falling back to `PATH` lookups.
 
-Docker deployments use the bundled MediaMTX binary at `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
+Docker deployments use the image-installed MediaMTX binary at `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
 
-If RTSP diagnostics fail unexpectedly, verify the files exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
+If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
 
 ## Application Key Durability
 
@@ -174,16 +174,16 @@ Implications:
 
 ## Recording Playback Tradeoff
 
-Saved footage is currently written to MKV by default. The direct playback route can still stream a fragmented MP4 remux, while the Timeline Review fallback now builds a short-lived finalized MP4 before sending it to the browser.
+Saved footage is still captured in the recorder's copy-friendly container first, but playback no longer needs to do most of its compatibility work inside the browser request itself: the recorder's existing post-save review-assets job now rewrites the durable saved recording itself into a browser-playable MP4 with audio under the real recordings directory.
 
 Implications:
 
-- playback depends on ffmpeg being available on the host at review time, not only at record time.
+- playback still depends on ffmpeg being available on the worker host when the post-save normalization job runs, but most steady-state browser playback no longer depends on spawning ffmpeg in the request path.
 - Timeline Review now uses the same buffered review-stream route as the standalone Recordings page for the stage player. Preview assets are still used for thumbnails and scrub metadata, but the stage itself does not hop between preview, buffered review, and streamed remux routes.
-- opening many recorded tiles at once can start several short ffmpeg remux processes in parallel, so bounded review walls remain the intended operator shape.
-- the browser review flow avoids exposing private storage paths directly, but browser compatibility for the fallback route still depends on the original recorded video codec being browser-safe when copied into MP4.
+- opening many recorded tiles at once should usually reuse those already-normalized MP4 recording files instead of starting several remux jobs in parallel; the main remaining cost is background normalization when clips are first saved or when an old recording still has not been rewritten yet.
+- the browser review flow avoids exposing private storage paths directly, but the emergency fallback route still depends on request-time ffmpeg work if an older recording has not been normalized yet.
 - the original file remains downloadable even if the browser player cannot render the remuxed segment.
-- the review-stream route now remuxes to a short-lived local MP4 file instead of buffering ffmpeg stdout in PHP memory; the main scaling limit is concurrent remux processes plus temporary disk churn rather than PHP heap growth.
+- the review-stream route can still remux to a short-lived local MP4 file as an emergency fallback, but the preferred steady-state path is the normalized MP4 that replaced the original saved recording.
 
 ## Timeline Review Preview Assets
 
@@ -192,6 +192,7 @@ Timeline Review now generates private derived assets for saved recordings.
 Current behavior:
 
 - each recorded segment can produce a low-resolution preview MP4 for faster scrubbing.
+- each recorded segment can also be normalized into a full browser-playback MP4 with audio in the real recordings directory so the main Recordings player can serve the saved file without live transcoding in the request path.
 - each recorded segment can also produce a thumbnail image for the vertical review rail.
 - each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
 - preview MP4, manifest, and thumbnail-side review files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
@@ -221,6 +222,77 @@ Implications:
 - live-wall tiles must stay live-only. If a camera feed is unavailable, the tile should fail closed, show the stream error, and retry the live session instead of swapping to a saved preview image.
 
 If browsers still fail to connect over WebRTC, check `webrtcAdditionalHosts`, `webrtcLocalUDPAddress`, `webrtcLocalTCPAddress`, host firewall rules, and TURN requirements before changing the Laravel UI.
+
+## HEVC WebRTC Transcoding
+
+Browsers commonly render a grey or blank WebRTC tile when the relay publishes HEVC video, even if the WHEP session itself succeeds. For any camera feed that arrives as HEVC video plus AAC audio, the shared WebRTC path should publish H.264 video plus Opus audio instead.
+
+The software ffmpeg shape used by the relay is:
+
+```bash
+ffmpeg -nostdin -hide_banner -loglevel error \
+	-rtsp_transport tcp \
+	-thread_queue_size 1024 \
+	-timeout 10000000 \
+	-rtbufsize 64M \
+	-fflags +genpts+discardcorrupt \
+	-use_wallclock_as_timestamps 1 \
+	-analyzeduration 1000000 \
+	-probesize 131072 \
+	-i 'rtsp://operator:secret@camera.example/live' \
+	-map 0:v:0 -map 0:a:0? -sn -dn \
+	-fps_mode cfr \
+	-avoid_negative_ts make_zero \
+	-r 15 \
+	-c:v libx264 -pix_fmt yuv420p -profile:v baseline \
+	-preset ultrafast -tune zerolatency -bf 0 -refs 1 \
+	-g 30 -keyint_min 30 -sc_threshold 0 \
+	-crf 23 -b:v 1200k -maxrate 1800k -bufsize 1800k \
+	-af 'aresample=async=1:first_pts=0' \
+	-c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_muxing_queue_size 1024 \
+	-f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
+```
+
+The critical sync-repair flags are `-fflags +genpts`, `-use_wallclock_as_timestamps 1`, `-fps_mode cfr`, `-r 15`, `-af aresample=async=1:first_pts=0`, and `-avoid_negative_ts make_zero`. Together they prevent the common HEVC-video plus AAC-audio drift where MediaMTX reaches the browser but the tracks do not stay aligned or show up as a grey tile.
+
+When GPU offload is available, the relay can switch to hardware-assisted decode and H.264 encode through `MEDIAMTX_TRANSCODE_HWACCEL`:
+
+- `MEDIAMTX_TRANSCODE_HWACCEL=nvidia` inserts `-hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid` on input and uses `-c:v h264_nvenc -tune ll -rc cbr` on output.
+- `MEDIAMTX_TRANSCODE_HWACCEL=qsv` inserts `-hwaccel qsv -hwaccel_output_format qsv -c:v hevc_qsv` on input and uses `-c:v h264_qsv -look_ahead 0` on output.
+- `MEDIAMTX_TRANSCODE_HWACCEL_DEVICE`, `MEDIAMTX_TRANSCODE_HWACCEL_DECODER`, `MEDIAMTX_TRANSCODE_HWACCEL_ENCODER`, `MEDIAMTX_TRANSCODE_HWACCEL_INPUT_ARGS`, and `MEDIAMTX_TRANSCODE_HWACCEL_OUTPUT_ARGS` remain available for host-specific overrides.
+
+Representative accelerated command shapes are:
+
+```bash
+ffmpeg -nostdin -hide_banner -loglevel error \
+	-rtsp_transport tcp -thread_queue_size 1024 -timeout 10000000 -rtbufsize 64M \
+	-fflags +genpts+discardcorrupt -use_wallclock_as_timestamps 1 \
+	-analyzeduration 1000000 -probesize 131072 \
+	-hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid \
+	-i 'rtsp://operator:secret@camera.example/live' \
+	-map 0:v:0 -map 0:a:0? -sn -dn -fps_mode cfr -avoid_negative_ts make_zero -r 15 \
+	-c:v h264_nvenc -profile:v baseline -preset p4 -tune ll -bf 0 -g 30 -keyint_min 30 \
+	-rc cbr -b:v 1200k -maxrate 1800k -bufsize 1800k \
+	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
+```
+
+```bash
+ffmpeg -nostdin -hide_banner -loglevel error \
+	-rtsp_transport tcp -thread_queue_size 1024 -timeout 10000000 -rtbufsize 64M \
+	-fflags +genpts+discardcorrupt -use_wallclock_as_timestamps 1 \
+	-analyzeduration 1000000 -probesize 131072 \
+	-hwaccel qsv -hwaccel_output_format qsv -c:v hevc_qsv \
+	-i 'rtsp://operator:secret@camera.example/live' \
+	-map 0:v:0 -map 0:a:0? -sn -dn -fps_mode cfr -avoid_negative_ts make_zero -r 15 \
+	-c:v h264_qsv -profile:v baseline -preset veryfast -look_ahead 0 -bf 0 -g 30 -keyint_min 30 \
+	-b:v 1200k -maxrate 1800k -bufsize 1800k \
+	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
+```
+
+The browser-side receiver should still initialize the HTML media element in a muted state. The shared `public/js/live-wall-player.js` player now retries playback after the first user interaction if autoplay is blocked and the standalone player exposes an explicit audio-enable button so Opus audio is only unmuted on a deliberate gesture.
 
 ## Secure Live Wall Troubleshooting
 

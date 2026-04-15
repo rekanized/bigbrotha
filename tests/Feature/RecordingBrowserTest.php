@@ -549,7 +549,7 @@ class RecordingBrowserTest extends TestCase
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('recordings.show', ['recording' => $recording]))
             ->assertOk()
-            ->assertSee(route('recordings.review-stream', ['recording' => $recording]), false)
+            ->assertSee(route('recordings.stream', ['recording' => $recording]), false)
             ->assertSee('Recorded successfully.');
 
         $streamResponse = $this->actingAs($operator)
@@ -575,6 +575,197 @@ class RecordingBrowserTest extends TestCase
             'playback-stream',
             file_get_contents($reviewStreamResponse->baseResponse->getFile()->getPathname()),
         );
+    }
+
+    public function test_review_asset_generation_replaces_the_saved_recording_with_a_browser_playable_mp4(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Bay',
+            'local_ip' => '192.168.1.91',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+
+        $absolutePath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recorded-segment');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mkv',
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+            'message' => 'Recorded successfully.',
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+        config()->set('ffmpeg.ffmpeg.binaries', []);
+
+        $recording->refresh();
+
+        $this->assertStringEndsWith('.mp4', (string) $recording->relative_path);
+        $this->assertSame('cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mp4', $recording->relative_path);
+        $this->assertFileExists(storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mp4'));
+        $this->assertFileDoesNotExist(storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mkv'));
+
+        $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.show', ['recording' => $recording]))
+            ->assertOk()
+            ->assertSee(route('recordings.stream', ['recording' => $recording]), false)
+            ->assertDontSee('ffmpeg is not available for playback remuxing.');
+
+        $streamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.stream', ['recording' => $recording]));
+
+        $streamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertInstanceOf(BinaryFileResponse::class, $streamResponse->baseResponse);
+        $this->assertSame('playback-stream', file_get_contents($streamResponse->baseResponse->getFile()->getPathname()));
+
+        $reviewStreamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.review-stream', ['recording' => $recording]));
+
+        $reviewStreamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertInstanceOf(BinaryFileResponse::class, $reviewStreamResponse->baseResponse);
+        $this->assertSame('playback-stream', file_get_contents($reviewStreamResponse->baseResponse->getFile()->getPathname()));
+    }
+
+    public function test_review_asset_generation_reencodes_existing_mp4_recordings_with_the_current_browser_profile(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Warehouse Bay',
+            'local_ip' => '192.168.1.91',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+
+        $absolutePath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mp4');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'normalized-recording');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mp4',
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+            'message' => 'Recorded successfully.',
+        ]);
+
+        $argumentLog = storage_path('app/private/test-binaries/review-asset-playback-args.log');
+        File::delete($argumentLog);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary($argumentLog)]);
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264')]);
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        config()->set('ffmpeg.ffmpeg.binaries', []);
+        config()->set('ffmpeg.ffprobe.binaries', []);
+
+        $this->assertFileExists($argumentLog);
+
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('-vf', $arguments);
+        $this->assertStringContainsString('fps=20,setsar=1', $arguments);
+        $this->assertStringContainsString('-fps_mode', $arguments);
+        $this->assertStringContainsString('cfr', $arguments);
+        $this->assertStringContainsString('libx264', $arguments);
+        $this->assertStringContainsString('main', $arguments);
+        $this->assertStringContainsString('1500k', $arguments);
+        $this->assertStringContainsString('3000k', $arguments);
+        $this->assertStringContainsString('48000', $arguments);
+        $this->assertStringContainsString('aresample=async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB', $arguments);
+        $this->assertStringNotContainsString('-copyinkf', $arguments);
+    }
+
+    public function test_review_asset_generation_replaces_network_backed_recordings_with_playable_mp4_files(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
+
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/20260415_092801-continuous.mkv',
+            'file_size_bytes' => 16,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $sourceStagedPath = $storage->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($sourceStagedPath));
+        File::put($sourceStagedPath, 'download-segment');
+        $storage->finalizeStagedWrite($recording->relative_path, $sourceStagedPath);
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        $recording->refresh();
+
+        $this->assertSame('cameras/'.$camera->id.'/recordings/20260415_092801-continuous.mp4', $recording->relative_path);
+        $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/20260415_092801-continuous.mp4'));
+        $this->assertFileDoesNotExist(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/20260415_092801-continuous.mkv'));
     }
 
     public function test_review_stream_uses_a_writable_fallback_temp_directory_when_the_configured_directory_is_not_writable(): void
@@ -1684,6 +1875,225 @@ class RecordingBrowserTest extends TestCase
             ->assertDownload('back-lot-'.$recording->scheduled_for->format('Ymd_His').'.mkv');
     }
 
+    public function test_network_storage_review_stream_recovers_flat_continuous_segments_from_staging(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
+
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/20260415_092801-continuous.mkv',
+            'file_size_bytes' => 16,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $stagedPath = $storage->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($stagedPath));
+        File::put($stagedPath, 'download-segment');
+
+        $reviewStreamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.review-stream', ['recording' => $recording]));
+
+        $reviewStreamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertInstanceOf(BinaryFileResponse::class, $reviewStreamResponse->baseResponse);
+        $this->assertSame('playback-stream', file_get_contents($reviewStreamResponse->baseResponse->getFile()->getPathname()));
+        $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/20260415_092801-continuous.mkv'));
+        $this->assertFalse(is_file($stagedPath));
+    }
+
+    public function test_recorded_hevc_playback_transcodes_video_for_the_browser(): void
+    {
+        $operator = User::factory()->create();
+
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mkv',
+            'file_size_bytes' => 16,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $this->writeRecordedSegment($recording);
+
+        $argumentLog = storage_path('app/private/test-binaries/ffmpeg-playback-args.log');
+        File::delete($argumentLog);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary($argumentLog)]);
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('hevc')]);
+
+        $streamResponse = $this->actingAs($operator)
+            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->get(route('recordings.stream', ['recording' => $recording]));
+
+        $streamResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'video/mp4');
+
+        $this->assertSame('playback-stream', $streamResponse->streamedContent());
+        $this->assertFileExists($argumentLog);
+
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('-c:v', $arguments);
+        $this->assertStringContainsString('libx264', $arguments);
+        $this->assertStringNotContainsString('-copyinkf', $arguments);
+    }
+
+    public function test_review_asset_generation_copies_aac_audio_when_the_source_audio_is_already_browser_safe(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+
+        $absolutePath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recorded-segment');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mkv',
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $argumentLog = storage_path('app/private/test-binaries/ffmpeg-review-asset-audio-args.log');
+        File::delete($argumentLog);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary($argumentLog)]);
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('hevc', 'aac')]);
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        config()->set('ffmpeg.ffmpeg.binaries', []);
+        config()->set('ffmpeg.ffprobe.binaries', []);
+
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('libx264', $arguments);
+        $this->assertStringContainsString('-c:a', $arguments);
+        $this->assertStringContainsString('copy', $arguments);
+        $this->assertStringNotContainsString('aresample=async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB', $arguments);
+        $this->assertStringNotContainsString('48000', $arguments);
+    }
+
+    public function test_review_asset_generation_prefers_the_preserved_mkv_source_when_reprocessing_an_existing_mp4_recording(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+
+        $mp4Path = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mp4');
+        $mkvPath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mkv');
+        File::ensureDirectoryExists(dirname($mp4Path));
+        File::put($mp4Path, 'old-normalized-recording');
+        File::put($mkvPath, 'original-recording');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/15/ipc-c26e-hevc.mp4',
+            'file_size_bytes' => filesize($mp4Path) ?: null,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $argumentLog = storage_path('app/private/test-binaries/ffmpeg-review-asset-source-args.log');
+        File::delete($argumentLog);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary($argumentLog)]);
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('hevc', 'aac')]);
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        config()->set('ffmpeg.ffmpeg.binaries', []);
+        config()->set('ffmpeg.ffprobe.binaries', []);
+
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('ipc-c26e-hevc.mkv', $arguments);
+        $this->assertStringNotContainsString('old-normalized-recording', $arguments);
+    }
+
     private function assertTimelineSegmentPlacement(
         TestResponse $response,
         Carbon $reviewWindowStart,
@@ -1724,17 +2134,24 @@ class RecordingBrowserTest extends TestCase
             ->utc();
     }
 
-    private function fakePlaybackFfmpegBinary(): string
+    private function fakePlaybackFfmpegBinary(?string $argumentLogPath = null): string
     {
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
 
-        $binaryPath = $binaryDirectory.'/ffmpeg-recording-playback.sh';
+        $binaryPath = $binaryDirectory.'/ffmpeg-recording-playback-'.md5((string) $argumentLogPath).'.sh';
 
-        File::put($binaryPath, <<<'BASH'
+        File::put($binaryPath, str_replace('__ARGUMENT_LOG_PATH__', $argumentLogPath ?? '', <<<'BASH'
 #!/usr/bin/env bash
 set -e
-    output="${!#}"
+output="${!#}"
+log_path="__ARGUMENT_LOG_PATH__"
+
+if [[ "$log_path" != "" ]]; then
+    mkdir -p "$(dirname "$log_path")"
+    printf '%s\n' "$@" >> "$log_path"
+    printf '%s\n' '---' >> "$log_path"
+fi
 
     if [[ "$output" == "pipe:1" ]]; then
         printf '%s' 'playback-stream'
@@ -1742,7 +2159,47 @@ set -e
     fi
 
     printf '%s' 'playback-stream' > "$output"
-BASH);
+BASH));
+        chmod($binaryPath, 0755);
+
+        return $binaryPath;
+    }
+
+    private function fakePlaybackFfprobeBinary(string $videoCodecName, ?string $audioCodecName = null): string
+    {
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        File::ensureDirectoryExists($binaryDirectory);
+
+        $binaryPath = $binaryDirectory.'/ffprobe-recording-playback-'.md5($videoCodecName.'|'.($audioCodecName ?? '')).'.sh';
+
+        File::put($binaryPath, str_replace([
+            '__VIDEO_CODEC_NAME__',
+            '__AUDIO_CODEC_NAME__',
+        ], [
+            $videoCodecName,
+            $audioCodecName ?? $videoCodecName,
+        ], <<<'BASH'
+#!/usr/bin/env bash
+set -e
+selector=""
+previous=""
+
+for argument in "$@"; do
+    if [[ "$previous" == "-select_streams" ]]; then
+        selector="$argument"
+        break
+    fi
+
+    previous="$argument"
+done
+
+if [[ "$selector" == "a:0" ]]; then
+    printf '%s\n' '__AUDIO_CODEC_NAME__'
+    exit 0
+fi
+
+printf '%s\n' '__VIDEO_CODEC_NAME__'
+BASH));
         chmod($binaryPath, 0755);
 
         return $binaryPath;
@@ -1782,6 +2239,8 @@ BASH);
             'version' => $currentVersion,
             'generated_at' => now()->utc()->toIso8601String(),
             'duration_seconds' => 60,
+            'playback_relative_path' => null,
+            'playback_status' => RecordingReviewAssetService::STATUS_MISSING,
             'preview_relative_path' => $previewPath !== null ? $storage->recordingRelativePathFromAbsolute($previewPath) : null,
             'thumbnail_offset_seconds' => 30,
             'preview_width' => 640,

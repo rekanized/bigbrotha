@@ -18,6 +18,8 @@ class MediaMtxConfigDefaultsTest extends TestCase
             'MEDIAMTX_WEBRTC_PUBLIC_URL' => '',
             'MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS' => '',
             'MEDIAMTX_WEBRTC_ALLOW_ORIGINS' => '',
+            'MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS' => ':8189',
+            'MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS' => ':8189',
             'MEDIAMTX_AUTH_CALLBACK_URL' => '',
             'MEDIAMTX_AUTH_CALLBACK_SECRET' => '',
             'MEDIAMTX_AUTH_TOKEN_SECRET' => '',
@@ -43,6 +45,8 @@ class MediaMtxConfigDefaultsTest extends TestCase
             $this->assertSame(['127.0.0.1', '::1', '172.16.0.0/12'], $config['auth']['publisher_allowed_ips']);
             $this->assertSame('publisher', $config['auth']['publisher_user']);
             $this->assertNotSame('', $config['auth']['publisher_pass']);
+            $this->assertSame(15, $config['transcode']['video_fps']);
+            $this->assertSame('cfr', $config['transcode']['video_fps_mode']);
             $this->assertSame('1200k', $config['transcode']['video_bitrate']);
             $this->assertSame(30, $config['transcode']['gop']);
         });

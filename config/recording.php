@@ -85,6 +85,8 @@ return [
         'grid_width' => max(32, (int) env('CAMERA_MOTION_ANALYSIS_WIDTH', 160)),
         'grid_height' => max(18, (int) env('CAMERA_MOTION_ANALYSIS_HEIGHT', 90)),
         'pixel_delta_threshold' => max(1, (int) env('CAMERA_MOTION_PIXEL_DELTA_THRESHOLD', 18)),
+        'persistence_window_frames' => max(1, (int) env('CAMERA_MOTION_PERSISTENCE_WINDOW_FRAMES', 2)),
+        'refresh_spike_activity_ratio' => max(0.5, min(1.0, (float) env('CAMERA_MOTION_REFRESH_SPIKE_ACTIVITY_RATIO', 0.85))),
     ],
 
     'review_assets' => [
@@ -103,6 +105,12 @@ return [
         'scrub_columns' => max(2, (int) env('CAMERA_REVIEW_SCRUB_COLUMNS', 4)),
         'keyframe_interval_seconds' => max(1, (int) env('CAMERA_REVIEW_KEYFRAME_INTERVAL_SECONDS', 1)),
         'video_crf' => max(16, (int) env('CAMERA_REVIEW_VIDEO_CRF', 28)),
+        'playback_preset' => env('CAMERA_REVIEW_PLAYBACK_PRESET', 'medium'),
+        'playback_video_crf' => max(18, (int) env('CAMERA_REVIEW_PLAYBACK_VIDEO_CRF', 26)),
+        'playback_video_max_bitrate' => env('CAMERA_REVIEW_PLAYBACK_VIDEO_MAX_BITRATE', '1500k'),
+        'playback_video_buffer_size' => env('CAMERA_REVIEW_PLAYBACK_VIDEO_BUFFER_SIZE', '3000k'),
+        'playback_fps' => max(10, (int) env('CAMERA_REVIEW_PLAYBACK_FPS', 20)),
+        'playback_audio_bitrate' => env('CAMERA_REVIEW_PLAYBACK_AUDIO_BITRATE', '96k'),
         'cache_max_entries' => max(12, (int) env('CAMERA_REVIEW_CACHE_MAX_ENTRIES', 36)),
         'cache_max_bytes' => max(16777216, (int) env('CAMERA_REVIEW_CACHE_MAX_BYTES', 157286400)),
     ],

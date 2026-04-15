@@ -762,6 +762,53 @@
                 <section class="form-section">
                     <div class="form-section__header">
                         <div>
+                            <h3 class="panel-title">Live relay transcoding</h3>
+                            <p class="panel-copy">Override the browser-facing live relay only for this camera when a feed needs different transcode behavior. Quality profiles are shown by their actual preset and CRF names, with a quick CPU cost hint.</p>
+                        </div>
+                    </div>
+
+                    <div class="camera-form-grid">
+                        <label class="field-stack">
+                            <span>Preset and quality target</span>
+                            <select class="form-select" wire:model="form.live_transcode_quality">
+                                @foreach ($liveTranscodeQualityOptions as $qualityValue => $qualityLabel)
+                                    <option value="{{ $qualityValue }}">{{ $qualityLabel }}</option>
+                                @endforeach
+                            </select>
+                            <small class="probe-note">Lower preset speeds improve detail but cost more CPU. CRF is ignored if you switch rate control to CBR.</small>
+                            @error('form.live_transcode_quality')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>Rate control</span>
+                            <select class="form-select" wire:model="form.live_transcode_rate_control">
+                                @foreach ($liveTranscodeRateControlOptions as $rateControlValue => $rateControlLabel)
+                                    <option value="{{ $rateControlValue }}">{{ $rateControlLabel }}</option>
+                                @endforeach
+                            </select>
+                            @error('form.live_transcode_rate_control')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+
+                        <label class="field-stack">
+                            <span>CBR target bitrate</span>
+                            <input class="form-input" type="number" min="250" max="20000" step="50" wire:model="form.live_transcode_bitrate_kbps" {{ ($form['live_transcode_rate_control'] ?? App\Models\Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT) === App\Models\Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR ? '' : 'disabled' }}>
+                            <small class="probe-note">Enter kilobits per second. Only used when constant bitrate mode is selected.</small>
+                            @error('form.live_transcode_bitrate_kbps')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
+                    </div>
+
+                    <p class="probe-note">These settings affect only the live-wall relay. Recordings and the raw RTSP source path stay untouched.</p>
+                </section>
+
+                <section class="form-section">
+                    <div class="form-section__header">
+                        <div>
                             <h3 class="panel-title">Recording policy</h3>
                             <p class="panel-copy">Choose whether this feed stays off, records continuously, or records only when the selected motion region changes enough to cross the threshold.</p>
                         </div>

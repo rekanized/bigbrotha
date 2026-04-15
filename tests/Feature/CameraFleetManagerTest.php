@@ -40,6 +40,9 @@ class CameraFleetManagerTest extends TestCase
             ->assertSet('form.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertSet('form.rtsp_path', '/stream1')
             ->assertSet('form.recording_rtsp_path', '/stream1')
+            ->set('form.live_transcode_quality', Camera::LIVE_TRANSCODE_QUALITY_QUALITY)
+            ->set('form.live_transcode_rate_control', Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR)
+            ->set('form.live_transcode_bitrate_kbps', 3500)
             ->call('saveCamera');
 
         $camera = Camera::query()->firstOrFail();
@@ -54,6 +57,9 @@ class CameraFleetManagerTest extends TestCase
         $this->assertSame('/stream1', $camera->recording_rtsp_path);
         $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
         $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->metadata['onvif']['mac_address']);
+        $this->assertSame(Camera::LIVE_TRANSCODE_QUALITY_QUALITY, $camera->metadata['live_transcode']['quality']);
+        $this->assertSame(Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR, $camera->metadata['live_transcode']['rate_control']);
+        $this->assertSame(3500, $camera->metadata['live_transcode']['bitrate_kbps']);
         $this->assertCount(1, $camera->rtspProfiles());
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id));
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id.'/previews'));
@@ -62,6 +68,9 @@ class CameraFleetManagerTest extends TestCase
             ->call('editCamera', $camera->id)
             ->assertSet('isEditorModalOpen', true)
             ->assertSet('form.password', 'secret')
+            ->assertSet('form.live_transcode_quality', Camera::LIVE_TRANSCODE_QUALITY_QUALITY)
+            ->assertSet('form.live_transcode_rate_control', Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR)
+            ->assertSet('form.live_transcode_bitrate_kbps', 3500)
             ->set('form.name', 'Front Gate')
             ->call('saveCamera')
             ->call('toggleEnabled', $camera->id);

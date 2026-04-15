@@ -45,9 +45,6 @@
         "relay:start": [
             "@php artisan relay:start"
         ],
-        "ffmpeg:binaries:chmod": [
-            "@php -r 'foreach ([\"bin/ffmpeg\", \"bin/ffprobe\"] as $binary) { if (is_file($binary)) { chmod($binary, 0755); echo \"chmod +x {$binary}\".PHP_EOL; } }'"
-        ],
         "relay:stop": [
             "@php artisan relay:stop"
         ],
@@ -63,11 +60,7 @@
             "@php artisan package:discover --ansi"
         ],
         "post-update-cmd": [
-            "@ffmpeg:binaries:chmod",
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
-        ],
-        "post-install-cmd": [
-            "@ffmpeg:binaries:chmod"
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi"

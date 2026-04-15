@@ -29,14 +29,14 @@
                         <strong>This recording is not playable yet.</strong>
                         <p>The segment either failed, was skipped because no motion was detected, or the saved file is no longer present on disk.</p>
                     </div>
-                @elseif (!$ffmpegAvailable)
+                @elseif (!$browserPlaybackAvailable)
                     <div class="empty-state">
                         <strong>ffmpeg is not available for playback remuxing.</strong>
-                        <p>The original file can still be downloaded, but browser playback needs ffmpeg to remux the private segment into fragmented MP4.</p>
+                        <p>The original file can still be downloaded, but browser playback needs either a ready playback asset or ffmpeg to remux the private segment into MP4.</p>
                     </div>
                 @else
                     <div class="recording-player__shell">
-                        <video class="recording-player__video" controls preload="metadata" src="{{ route('recordings.review-stream', ['recording' => $recording]) }}"></video>
+                        <video class="recording-player__video" controls preload="metadata" src="{{ route('recordings.stream', ['recording' => $recording]) }}"></video>
                     </div>
                 @endif
             </div>

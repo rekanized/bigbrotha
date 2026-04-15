@@ -72,7 +72,6 @@ RUN mkdir -p \
         storage/framework/views \
         storage/logs \
     && composer dump-autoload --optimize \
-    && composer run-script post-install-cmd \
     && chown -R www-data:www-data bootstrap/cache storage
 
 COPY docker/entrypoint.sh /usr/local/bin/container-entrypoint

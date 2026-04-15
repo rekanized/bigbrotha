@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -933,12 +934,36 @@ class CameraRecordingService
         }
     }
 
-    public function playbackResponse(CameraRecording $recording): StreamedResponse
+    public function playbackResponse(CameraRecording $recording): Response|BinaryFileResponse|StreamedResponse
     {
         $absolutePath = $this->storage->resolveRecordingAbsolutePath($recording->relative_path);
 
         if ($absolutePath === null) {
             throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));
+        }
+
+        if ($this->shouldServeRecordingDirectly($recording->relative_path)) {
+            $response = response()->file($absolutePath, [
+                'Content-Type' => 'video/mp4',
+                'Content-Disposition' => 'inline; filename="'.$this->playbackFileName($recording).'"',
+                'Cache-Control' => 'private, max-age=300',
+            ]);
+            $response->deleteFileAfterSend($this->storage->isTemporaryManagedPath($absolutePath));
+
+            return $response;
+        }
+
+        $cachedPlaybackPath = $this->reviewAssets->resolvedPlaybackAbsolutePath($recording);
+
+        if ($cachedPlaybackPath !== null && is_file($cachedPlaybackPath)) {
+            $response = response()->file($cachedPlaybackPath, [
+                'Content-Type' => 'video/mp4',
+                'Content-Disposition' => 'inline; filename="'.$this->playbackFileName($recording).'"',
+                'Cache-Control' => 'private, max-age=300',
+            ]);
+            $response->deleteFileAfterSend($this->storage->isTemporaryManagedPath($cachedPlaybackPath));
+
+            return $response;
         }
 
         $command = $this->buildPlaybackCommand($absolutePath);
@@ -965,6 +990,30 @@ class CameraRecordingService
 
         if ($absolutePath === null) {
             throw new RuntimeException($this->storage->missingRecordingSegmentMessage($recording->relative_path));
+        }
+
+        if ($this->shouldServeRecordingDirectly($recording->relative_path)) {
+            $response = response()->file($absolutePath, [
+                'Content-Type' => 'video/mp4',
+                'Content-Disposition' => 'inline; filename="'.$this->playbackFileName($recording).'"',
+                'Cache-Control' => 'private, max-age=300',
+            ]);
+            $response->deleteFileAfterSend($this->storage->isTemporaryManagedPath($absolutePath));
+
+            return $response;
+        }
+
+        $cachedPlaybackPath = $this->reviewAssets->resolvedPlaybackAbsolutePath($recording);
+
+        if ($cachedPlaybackPath !== null && is_file($cachedPlaybackPath)) {
+            $response = response()->file($cachedPlaybackPath, [
+                'Content-Type' => 'video/mp4',
+                'Content-Disposition' => 'inline; filename="'.$this->playbackFileName($recording).'"',
+                'Cache-Control' => 'private, max-age=300',
+            ]);
+            $response->deleteFileAfterSend($this->storage->isTemporaryManagedPath($cachedPlaybackPath));
+
+            return $response;
         }
 
         $bufferedPath = $this->bufferedPlaybackAbsolutePath($recording);
@@ -1739,9 +1788,7 @@ class CameraRecordingService
             $fpsMode !== '' ? $fpsMode : 'passthrough',
             '-avoid_negative_ts',
             $avoidNegativeTs !== '' ? $avoidNegativeTs : 'make_zero',
-            '-c:v',
-            'copy',
-            '-copyinkf',
+            ...$this->playbackVideoArguments($absolutePath),
             '-c:a',
             'aac',
             '-b:a',
@@ -1792,9 +1839,7 @@ class CameraRecordingService
             $fpsMode !== '' ? $fpsMode : 'passthrough',
             '-avoid_negative_ts',
             $avoidNegativeTs !== '' ? $avoidNegativeTs : 'make_zero',
-            '-c:v',
-            'copy',
-            '-copyinkf',
+            ...$this->playbackVideoArguments($absolutePath),
             '-c:a',
             'aac',
             '-b:a',
@@ -1814,6 +1859,87 @@ class CameraRecordingService
     private function playbackFileName(CameraRecording $recording): string
     {
         return Str::slug($recording->camera?->name ?: 'camera-recording').'-'.($recording->scheduled_for?->format('Ymd_His') ?? 'segment').'.mp4';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function playbackVideoArguments(string $absolutePath): array
+    {
+        if ($this->canCopyPlaybackVideo($absolutePath)) {
+            return [
+                '-c:v',
+                'copy',
+                '-copyinkf',
+            ];
+        }
+
+        $gop = max(24, (int) config('mediamtx.transcode.gop', 30));
+
+        return [
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-profile:v',
+            'baseline',
+            '-pix_fmt',
+            'yuv420p',
+            '-crf',
+            (string) max(16, (int) config('recording.review_assets.video_crf', 24)),
+            '-g',
+            (string) $gop,
+            '-keyint_min',
+            (string) $gop,
+            '-sc_threshold',
+            '0',
+        ];
+    }
+
+    private function canCopyPlaybackVideo(string $absolutePath): bool
+    {
+        return in_array($this->recordingVideoCodec($absolutePath), ['h264', 'h.264'], true);
+    }
+
+    private function shouldServeRecordingDirectly(?string $relativePath): bool
+    {
+        return strtolower((string) pathinfo((string) $relativePath, PATHINFO_EXTENSION)) === 'mp4';
+    }
+
+    private function recordingVideoCodec(string $absolutePath): ?string
+    {
+        $ffprobeBinary = $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
+
+        if ($ffprobeBinary === null || !is_file($absolutePath)) {
+            return null;
+        }
+
+        try {
+            $process = new Process([
+                $ffprobeBinary,
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'stream=codec_name',
+                '-of',
+                'default=noprint_wrappers=1:nokey=1',
+                $absolutePath,
+            ]);
+            $process->setTimeout(5);
+            $process->run();
+
+            if (!$process->isSuccessful()) {
+                return null;
+            }
+
+            $codec = strtolower(trim($process->getOutput()));
+
+            return $codec !== '' ? $codec : null;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function bufferedPlaybackAbsolutePath(CameraRecording $recording): string

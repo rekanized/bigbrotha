@@ -157,27 +157,50 @@ class RecordingMotionDetectorService
 
         $pixelDeltaThreshold = $this->maskService->pixelDeltaThreshold();
         $activityThreshold = $camera->motionTriggerThreshold() / 100;
+        $refreshSpikeWindowFrames = max(1, (int) config('recording.motion.persistence_window_frames', 2));
+        $refreshSpikeActivityRatio = max(
+            $activityThreshold,
+            min(1.0, (float) config('recording.motion.refresh_spike_activity_ratio', 0.85))
+        );
         $peakChangedPixels = 0;
         $detected = false;
-        $previousFrame = substr($output, 0, $frameSize);
+        $frames = [];
+
+        for ($frameIndex = 0; $frameIndex < $frameCount; $frameIndex++) {
+            $frames[] = substr($output, $frameIndex * $frameSize, $frameSize);
+        }
 
         for ($frameIndex = 1; $frameIndex < $frameCount; $frameIndex++) {
-            $currentFrame = substr($output, $frameIndex * $frameSize, $frameSize);
-            $changedPixels = 0;
+            $changedPixels = $this->changedPixels(
+                $frames[$frameIndex - 1],
+                $frames[$frameIndex],
+                $selectedIndexes,
+                $pixelDeltaThreshold,
+            );
+            $activityRatio = $changedPixels / $selectedPixels;
 
-            foreach ($selectedIndexes as $index) {
-                if (abs(ord($currentFrame[$index]) - ord($previousFrame[$index])) >= $pixelDeltaThreshold) {
-                    $changedPixels++;
-                }
+            if ($activityRatio < $activityThreshold) {
+                continue;
+            }
+
+            if ($this->isIsolatedRefreshSpike(
+                $frames,
+                $frameIndex,
+                $selectedIndexes,
+                $frameSize,
+                $pixelDeltaThreshold,
+                $activityThreshold,
+                $refreshSpikeActivityRatio,
+                $refreshSpikeWindowFrames,
+                $selectedPixels,
+            )) {
+                continue;
             }
 
             $peakChangedPixels = max($peakChangedPixels, $changedPixels);
-
-            if (($changedPixels / $selectedPixels) >= $activityThreshold) {
+            if ($activityRatio >= $activityThreshold) {
                 $detected = true;
             }
-
-            $previousFrame = $currentFrame;
         }
 
         return [
@@ -187,6 +210,98 @@ class RecordingMotionDetectorService
             'selected_pixels' => $selectedPixels,
             'frame_count' => $frameCount,
         ];
+    }
+
+    /**
+     * @param  array<int, string>  $frames
+     * @param  array<int, int>  $selectedIndexes
+     */
+    private function isIsolatedRefreshSpike(
+        array $frames,
+        int $frameIndex,
+        array $selectedIndexes,
+        int $frameSize,
+        int $pixelDeltaThreshold,
+        float $activityThreshold,
+        float $refreshSpikeActivityRatio,
+        int $refreshSpikeWindowFrames,
+        int $selectedPixels,
+    ): bool {
+        $previousFrame = $frames[$frameIndex - 1] ?? null;
+        $currentFrame = $frames[$frameIndex] ?? null;
+
+        if ($previousFrame === null || $currentFrame === null) {
+            return false;
+        }
+
+        $currentTransitionRatio = $this->changedPixelsAcrossFrame($previousFrame, $currentFrame, $frameSize, $pixelDeltaThreshold) / $frameSize;
+
+        if ($currentTransitionRatio < $refreshSpikeActivityRatio) {
+            return false;
+        }
+
+        for ($lookahead = 1; $lookahead <= $refreshSpikeWindowFrames; $lookahead++) {
+            $futureFrame = $frames[$frameIndex + $lookahead] ?? null;
+
+            if ($futureFrame === null) {
+                break;
+            }
+
+            $futureChangedPixels = $this->changedPixelsAcrossFrame($currentFrame, $futureFrame, $frameSize, $pixelDeltaThreshold);
+            $recoveredPixels = $this->changedPixelsAcrossFrame($previousFrame, $futureFrame, $frameSize, $pixelDeltaThreshold);
+
+            if (($futureChangedPixels / $frameSize) >= $refreshSpikeActivityRatio
+                && ($recoveredPixels / $frameSize) < $activityThreshold) {
+                return true;
+            }
+        }
+
+        for ($lookback = 1; $lookback <= $refreshSpikeWindowFrames; $lookback++) {
+            $olderFrame = $frames[$frameIndex - $lookback - 1] ?? null;
+
+            if ($olderFrame === null) {
+                break;
+            }
+
+            $pastChangedPixels = $this->changedPixelsAcrossFrame($olderFrame, $previousFrame, $frameSize, $pixelDeltaThreshold);
+            $recoveredPixels = $this->changedPixelsAcrossFrame($olderFrame, $currentFrame, $frameSize, $pixelDeltaThreshold);
+
+            if (($pastChangedPixels / $frameSize) >= $refreshSpikeActivityRatio
+                && ($recoveredPixels / $frameSize) < $activityThreshold) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, int>  $selectedIndexes
+     */
+    private function changedPixels(string $leftFrame, string $rightFrame, array $selectedIndexes, int $pixelDeltaThreshold): int
+    {
+        $changedPixels = 0;
+
+        foreach ($selectedIndexes as $index) {
+            if (abs(ord($leftFrame[$index]) - ord($rightFrame[$index])) >= $pixelDeltaThreshold) {
+                $changedPixels++;
+            }
+        }
+
+        return $changedPixels;
+    }
+
+    private function changedPixelsAcrossFrame(string $leftFrame, string $rightFrame, int $frameSize, int $pixelDeltaThreshold): int
+    {
+        $changedPixels = 0;
+
+        for ($index = 0; $index < $frameSize; $index++) {
+            if (abs(ord($leftFrame[$index]) - ord($rightFrame[$index])) >= $pixelDeltaThreshold) {
+                $changedPixels++;
+            }
+        }
+
+        return $changedPixels;
     }
 
 }

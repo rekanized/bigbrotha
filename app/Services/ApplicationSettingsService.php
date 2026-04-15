@@ -286,8 +286,19 @@ class ApplicationSettingsService
         return [
             'host' => $segments[0],
             'share' => $segments[1],
-            'root' => implode('/', array_slice($segments, 2)),
+            'root' => $this->normalizeNetworkStorageRoot(implode('/', array_slice($segments, 2))),
         ];
+    }
+
+    private function normalizeNetworkStorageRoot(string $root): string
+    {
+        $normalizedRoot = trim(str_replace('\\', '/', $root), '/');
+
+        if ($normalizedRoot === '' || !preg_match('#(?:^|/)cameras$#i', $normalizedRoot)) {
+            return $normalizedRoot;
+        }
+
+        return trim((string) preg_replace('#(?:^|/)cameras$#i', '', $normalizedRoot), '/');
     }
 
     private function setting(string $key): ?string

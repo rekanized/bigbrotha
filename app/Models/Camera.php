@@ -57,10 +57,37 @@ class Camera extends Model
 
     public const RECORDING_MODE_MOTION = 'motion';
 
+    public const LIVE_TRANSCODE_QUALITY_DEFAULT = 'default';
+
+    public const LIVE_TRANSCODE_QUALITY_SPEED = 'speed';
+
+    public const LIVE_TRANSCODE_QUALITY_BALANCED = 'balanced';
+
+    public const LIVE_TRANSCODE_QUALITY_QUALITY = 'quality';
+
+    public const LIVE_TRANSCODE_RATE_CONTROL_DEFAULT = 'default';
+
+    public const LIVE_TRANSCODE_RATE_CONTROL_CRF = 'crf';
+
+    public const LIVE_TRANSCODE_RATE_CONTROL_CBR = 'cbr';
+
     public const RECORDING_MODES = [
         self::RECORDING_MODE_OFF,
         self::RECORDING_MODE_CONTINUOUS,
         self::RECORDING_MODE_MOTION,
+    ];
+
+    public const LIVE_TRANSCODE_QUALITY_OPTIONS = [
+        self::LIVE_TRANSCODE_QUALITY_DEFAULT,
+        self::LIVE_TRANSCODE_QUALITY_SPEED,
+        self::LIVE_TRANSCODE_QUALITY_BALANCED,
+        self::LIVE_TRANSCODE_QUALITY_QUALITY,
+    ];
+
+    public const LIVE_TRANSCODE_RATE_CONTROL_OPTIONS = [
+        self::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT,
+        self::LIVE_TRANSCODE_RATE_CONTROL_CRF,
+        self::LIVE_TRANSCODE_RATE_CONTROL_CBR,
     ];
 
     public function recordings(): HasMany
@@ -232,6 +259,37 @@ class Camera extends Model
     public function motionTriggerThreshold(): int
     {
         return max(1, min(100, is_numeric($this->motion_sensitivity) ? (int) $this->motion_sensitivity : 35));
+    }
+
+    /**
+     * @return array{quality: string, rate_control: string, bitrate_kbps: int|null}
+     */
+    public function liveTranscodeSettings(): array
+    {
+        $settings = is_array($this->metadata['live_transcode'] ?? null)
+            ? $this->metadata['live_transcode']
+            : [];
+
+        $quality = strtolower(trim((string) ($settings['quality'] ?? self::LIVE_TRANSCODE_QUALITY_DEFAULT)));
+
+        if (!in_array($quality, self::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+            $quality = self::LIVE_TRANSCODE_QUALITY_DEFAULT;
+        }
+
+        $rateControl = strtolower(trim((string) ($settings['rate_control'] ?? self::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
+
+        if (!in_array($rateControl, self::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+            $rateControl = self::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
+        }
+
+        $bitrateKbps = $settings['bitrate_kbps'] ?? null;
+        $bitrateKbps = is_numeric($bitrateKbps) ? max(250, min(20000, (int) $bitrateKbps)) : null;
+
+        return [
+            'quality' => $quality,
+            'rate_control' => $rateControl,
+            'bitrate_kbps' => $bitrateKbps,
+        ];
     }
 
     public function motionPreRollSeconds(): int

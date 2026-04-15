@@ -1315,12 +1315,14 @@
 
 .camera-row__layout {
     display: grid;
-    grid-template-columns: minmax(200px, 228px) minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 248px) minmax(0, 1fr);
     gap: 18px;
     align-items: start;
 }
 
 .camera-row {
+    container-type: inline-size;
+    container-name: camera-row-card;
     gap: 18px;
     height: 100%;
     padding: 20px;
@@ -1360,14 +1362,27 @@
 }
 
 .camera-row__media {
+    --camera-row-preview-width: 204px;
+    --camera-row-preview-height: 136px;
     align-content: start;
+    justify-items: stretch;
+    min-width: 0;
+    width: 100%;
     padding: 12px;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 22px;
     background: linear-gradient(180deg, hsla(0 0% 100% / 0.72) 0%, hsla(204 30% 97% / 0.9) 100%);
 }
 
 .camera-row__preview-frame {
+    display: grid;
+    place-items: center;
+    width: min(100%, var(--camera-row-preview-width));
+    height: var(--camera-row-preview-height);
+    max-width: 100%;
+    min-width: 0;
+    justify-self: center;
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 18px;
@@ -1429,7 +1444,12 @@
 }
 
 .camera-row__preview-image {
-    aspect-ratio: 16 / 10;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    aspect-ratio: auto;
+    object-fit: contain;
+    object-position: center;
     border: 0;
     border-radius: 0;
 }
@@ -1439,12 +1459,27 @@
     font-size: 0.84rem;
 }
 
+.camera-row__preview-meta {
+    width: 100%;
+    min-width: 0;
+}
+
 .camera-row__preview-meta strong {
     line-height: 1.3;
+    overflow-wrap: anywhere;
 }
 
 .camera-row__preview-empty {
-    min-height: 100%;
+    display: grid;
+    place-items: center;
+    width: min(100%, var(--camera-row-preview-width));
+    min-height: var(--camera-row-preview-height);
+    padding: 12px;
+    justify-self: center;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 18px;
+    background: hsla(0 0% 100% / 0.52);
 }
 
 .camera-row__footer {
@@ -1452,7 +1487,7 @@
 }
 
 .camera-row__actions {
-    grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
     align-content: start;
     gap: 10px;
     padding-top: 16px;
@@ -1462,6 +1497,36 @@
 .camera-row__actions .button {
     width: 100%;
     justify-content: center;
+}
+
+@container camera-row-card (max-width: 920px) {
+    .camera-row__fact-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .camera-row__fact--wide {
+        grid-column: span 2;
+    }
+}
+
+@container camera-row-card (max-width: 760px) {
+    .camera-row__layout,
+    .camera-row__fact-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .camera-row__media {
+        --camera-row-preview-width: min(100%, 360px);
+        --camera-row-preview-height: clamp(180px, 48vw, 240px);
+    }
+
+    .camera-row__fact--wide {
+        grid-column: auto;
+    }
+
+    .camera-row__actions {
+        grid-template-columns: 1fr;
+    }
 }
 
 .stream-preview-shell,
@@ -2386,7 +2451,7 @@ body.live-wall-focus-mode {
     justify-items: start;
     gap: 10px;
     width: fit-content;
-    max-width: min(320px, calc(100vw - 48px));
+    max-width: min(420px, calc(100vw - 48px));
     padding: 12px;
     border: 1px solid hsla(0 0% 100% / 0.14);
     border-radius: 18px;
@@ -2403,8 +2468,8 @@ body.live-wall-focus-mode {
 
 .recording-review-focus__scrub-preview-frame {
     position: relative;
-    width: 160px;
-    height: 90px;
+    width: 220px;
+    height: 124px;
     min-width: 0;
     min-height: 0;
     max-width: 100%;
@@ -3821,7 +3886,7 @@ body.live-wall-focus-mode {
 
     .recording-review-focus__scrub-preview {
         right: 14px;
-        max-width: min(280px, calc(100% - 28px));
+        max-width: min(340px, calc(100% - 28px));
     }
 }
 
@@ -4022,6 +4087,12 @@ body.live-wall-focus-mode {
     .camera-row__layout,
     .camera-row__fact-grid {
         grid-template-columns: 1fr;
+    }
+
+    .camera-row__media {
+        --camera-row-preview-width: 100%;
+        --camera-row-preview-height: clamp(180px, 52vw, 240px);
+        justify-items: stretch;
     }
 
     .camera-row__fact--wide {

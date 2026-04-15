@@ -85,7 +85,7 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 - Blade plus Livewire 4 for the operator UI.
 - Laravel Socialite for Google sign-in.
 - Standard CSS under `public/css`.
-- bundled or image-baked ffmpeg and ffprobe for RTSP diagnostics and preview generation.
+- image-baked ffmpeg and ffprobe for RTSP diagnostics and preview generation.
 - ffmpeg stream-copy recording with persistent continuous segmenting and a rolling short-segment motion buffer that stitches dynamic motion events with pre-roll and resettable post-trigger time.
 - MediaMTX for shared WebRTC fan-out from RTSP camera sources, bundled into the Docker app image and run as the dedicated `relay` service in Docker Compose.
 - Admin-managed Google sign-in allowlist with automatic first-user bootstrap.
@@ -212,7 +212,7 @@ Minimum usable deployment rules:
 
 Container notes:
 
-- the published app image includes ffmpeg, ffprobe, and the bundled MediaMTX binary.
+- the published app image includes ffmpeg, ffprobe, and MediaMTX.
 - the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then serves `php-fpm`.
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.
 - the `web` container serves Nginx for the operator UI and proxies `/__webrtc/` traffic to `relay`.

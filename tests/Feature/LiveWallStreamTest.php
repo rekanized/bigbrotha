@@ -79,6 +79,10 @@ class LiveWallStreamTest extends TestCase
             ->assertSee('data-access-token="', false)
             ->assertSee('data-access-token-expires-in="180"', false)
             ->assertSee('data-access-token-issued-at="', false)
+            ->assertSee('data-expected-video-codec="h264"', false)
+            ->assertSee('data-expected-audio-codec="opus"', false)
+            ->assertSee('data-expected-audio-channels="2"', false)
+            ->assertSee('data-expected-audio-sample-rate="48000"', false)
             ->assertSee('data-role="audio-toggle"', false)
             ->assertSee('aria-label="Listen to Tapo C200"', false)
             ->assertSee('data-role="audio-indicator"', false)
@@ -434,7 +438,7 @@ class LiveWallStreamTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
-    public function test_non_google_users_are_forbidden_from_media_routes(): void
+    public function test_authenticated_non_google_users_can_access_media_routes(): void
     {
         $this->mockRelayProcess(running: true);
 
@@ -466,11 +470,11 @@ class LiveWallStreamTest extends TestCase
 
         $this->actingAs($user)
             ->get(route('live-wall.player', ['camera' => $camera]))
-            ->assertForbidden();
+            ->assertOk();
 
         $this->actingAs($user)
             ->getJson(route('live-wall.session', ['camera' => $camera]))
-            ->assertForbidden();
+            ->assertOk();
     }
 
     public function test_authenticated_operator_can_request_a_short_lived_live_wall_session(): void
@@ -511,7 +515,11 @@ class LiveWallStreamTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
-            ->assertJsonPath('whep_url', 'https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep');
+            ->assertJsonPath('whep_url', 'https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep')
+            ->assertJsonPath('stream.video_codec', 'h264')
+            ->assertJsonPath('stream.audio_codec', 'opus')
+            ->assertJsonPath('stream.audio_channels', 2)
+            ->assertJsonPath('stream.audio_sample_rate', 48000);
 
         $payload = $response->json();
 

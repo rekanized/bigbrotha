@@ -9,6 +9,7 @@ use App\Services\CameraStorageService;
 use App\Services\Onvif\OnvifRtspStreamService;
 use App\Services\Onvif\RtspStreamDiagnosticsService;
 use App\Services\RecordingMotionMaskService;
+use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
@@ -205,6 +206,9 @@ class Manager extends Component
             'recording_motion_y' => $camera->recordingMotionArea()['y'],
             'recording_motion_width' => $camera->recordingMotionArea()['width'],
             'recording_motion_height' => $camera->recordingMotionArea()['height'],
+            'live_transcode_quality' => $camera->liveTranscodeSettings()['quality'],
+            'live_transcode_rate_control' => $camera->liveTranscodeSettings()['rate_control'],
+            'live_transcode_bitrate_kbps' => $camera->liveTranscodeSettings()['bitrate_kbps'],
         ];
         $this->probeEndpointUrl = $camera->onvifEndpoint() ?? '';
         $this->probeResponse = [];
@@ -256,6 +260,9 @@ class Manager extends Component
             'form.recording_motion_pre_roll_seconds' => ['required', 'integer', 'between:0,30'],
             'form.recording_motion_post_trigger_seconds' => ['required', 'integer', 'between:1,60'],
             'form.recording_motion_mask' => ['nullable', 'array'],
+            'form.live_transcode_quality' => ['required', Rule::in(Camera::LIVE_TRANSCODE_QUALITY_OPTIONS)],
+            'form.live_transcode_rate_control' => ['required', Rule::in(Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS)],
+            'form.live_transcode_bitrate_kbps' => ['nullable', 'integer', 'between:250,20000'],
         ]);
 
         $validator->after(function ($validator): void {
@@ -279,6 +286,11 @@ class Manager extends Component
                 && $this->probeResponse === []
             ) {
                 $validator->errors()->add('probeEndpointUrl', 'Probe a reachable ONVIF endpoint before creating a new camera.');
+            }
+
+            if (($this->form['live_transcode_rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT) === Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR
+                && !is_numeric($this->form['live_transcode_bitrate_kbps'] ?? null)) {
+                $validator->errors()->add('form.live_transcode_bitrate_kbps', 'Enter a target bitrate in kbps when constant bitrate mode is selected.');
             }
         });
 
@@ -335,14 +347,21 @@ class Manager extends Component
             $metadata['rtsp_profiles'] = $this->rtspProfiles;
         }
 
-        if ($metadata !== []) {
-            $camera->metadata = $metadata;
+        $liveTranscodeSettings = $this->normalizedLiveTranscodeSettings($validated);
+
+        if ($liveTranscodeSettings !== null) {
+            $metadata['live_transcode'] = $liveTranscodeSettings;
+        } else {
+            unset($metadata['live_transcode']);
         }
+
+        $camera->metadata = $metadata !== [] ? $metadata : null;
 
         $camera->password = $password !== '' ? $password : null;
 
         $camera->save();
         app(CameraStorageService::class)->ensureCameraDirectories($camera);
+        $this->syncRelayConfig();
 
         $this->pendingDeleteCameraId = null;
         $this->editingCameraId = $camera->id;
@@ -369,6 +388,7 @@ class Manager extends Component
     {
         $camera = Camera::query()->findOrFail($cameraId);
         $camera->forceFill(['is_enabled' => !$camera->is_enabled])->save();
+        $this->syncRelayConfig();
 
         $this->pendingDeleteCameraId = null;
 
@@ -409,6 +429,7 @@ class Manager extends Component
         $name = $camera->name;
         app(CameraStorageService::class)->deleteCameraDirectories($camera);
         $camera->delete();
+        $this->syncRelayConfig();
 
         $this->pendingDeleteCameraId = null;
 
@@ -431,6 +452,7 @@ class Manager extends Component
         try {
             if (!$camera->supports_onvif || $camera->onvifEndpoint() === null) {
                 $camera = $this->syncSavedRtspEndpoint($camera);
+                $this->syncRelayConfig();
 
                 if ($this->editingCameraId === $camera->id) {
                     $this->editCamera($camera->id);
@@ -482,6 +504,7 @@ class Manager extends Component
             }
 
             $camera->save();
+            $this->syncRelayConfig();
             $camera = $camera->refresh();
 
             if ($this->editingCameraId === $camera->id) {
@@ -533,6 +556,7 @@ class Manager extends Component
             $camera->metadata = $metadata;
             $camera->last_seen_at = now();
             $camera->save();
+            $this->syncRelayConfig();
 
             $this->rtspProfiles = $camera->refresh()->rtspProfiles();
             $this->rtspStatusMessage = ($profiles[$profileIndex]['probe_status'] ?? null) === 'Healthy'
@@ -574,6 +598,17 @@ class Manager extends Component
                 Camera::RECORDING_MODE_OFF => 'Off',
                 Camera::RECORDING_MODE_CONTINUOUS => 'Constantly recording',
                 Camera::RECORDING_MODE_MOTION => 'Record on movement',
+            ],
+            'liveTranscodeQualityOptions' => [
+                Camera::LIVE_TRANSCODE_QUALITY_DEFAULT => 'Stack default: preset ultrafast, CRF 23 (CPU low)',
+                Camera::LIVE_TRANSCODE_QUALITY_SPEED => 'Preset ultrafast, CRF 25 (CPU low)',
+                Camera::LIVE_TRANSCODE_QUALITY_BALANCED => 'Preset veryfast, CRF 22 (CPU medium)',
+                Camera::LIVE_TRANSCODE_QUALITY_QUALITY => 'Preset fast, CRF 20 (CPU high)',
+            ],
+            'liveTranscodeRateControlOptions' => [
+                Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT => 'Use stack default',
+                Camera::LIVE_TRANSCODE_RATE_CONTROL_CRF => 'Quality-first (CRF)',
+                Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR => 'Constant bitrate (CBR)',
             ],
         ]);
     }
@@ -634,6 +669,9 @@ class Manager extends Component
             'recording_motion_y' => 0,
             'recording_motion_width' => 100,
             'recording_motion_height' => 100,
+            'live_transcode_quality' => Camera::LIVE_TRANSCODE_QUALITY_DEFAULT,
+            'live_transcode_rate_control' => Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT,
+            'live_transcode_bitrate_kbps' => null,
         ];
     }
 
@@ -670,6 +708,48 @@ class Manager extends Component
         }
 
         return is_numeric($value) ? (int) $value : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @return array{quality: string, rate_control: string, bitrate_kbps?: int}|null
+     */
+    private function normalizedLiveTranscodeSettings(array $values): ?array
+    {
+        $quality = strtolower(trim((string) ($values['live_transcode_quality'] ?? Camera::LIVE_TRANSCODE_QUALITY_DEFAULT)));
+
+        if (!in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+            $quality = Camera::LIVE_TRANSCODE_QUALITY_DEFAULT;
+        }
+
+        $rateControl = strtolower(trim((string) ($values['live_transcode_rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
+
+        if (!in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+            $rateControl = Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
+        }
+
+        $bitrateKbps = $this->nullableInteger($values['live_transcode_bitrate_kbps'] ?? null);
+
+        if ($bitrateKbps !== null) {
+            $bitrateKbps = max(250, min(20000, $bitrateKbps));
+        }
+
+        if ($quality === Camera::LIVE_TRANSCODE_QUALITY_DEFAULT
+            && $rateControl === Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT
+            && $bitrateKbps === null) {
+            return null;
+        }
+
+        $settings = [
+            'quality' => $quality,
+            'rate_control' => $rateControl,
+        ];
+
+        if ($bitrateKbps !== null) {
+            $settings['bitrate_kbps'] = $bitrateKbps;
+        }
+
+        return $settings;
     }
 
     /**
@@ -729,6 +809,17 @@ class Manager extends Component
         $camera->save();
 
         return $camera->refresh();
+    }
+
+    private function syncRelayConfig(): void
+    {
+        try {
+            app(MediaMtxProcessService::class)->syncConfig();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            $this->errorMessage = 'Saved the camera change, but the relay configuration could not be refreshed automatically.';
+        }
     }
 
     /**

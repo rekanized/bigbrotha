@@ -188,6 +188,7 @@ class RecordingController extends Controller
         $recording->loadMissing('camera');
         $durationSeconds = $this->durationSeconds($recording);
         $playbackAvailable = $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path);
+        $playbackAssetReady = app(RecordingReviewAssetService::class)->hasReadyPlaybackAsset($recording);
 
         return view('recordings.show', [
             'recording' => $recording,
@@ -195,11 +196,11 @@ class RecordingController extends Controller
             'durationSeconds' => $durationSeconds,
             'displayTimezone' => $this->settings->appTimezone(),
             'playbackAvailable' => $playbackAvailable,
-            'ffmpegAvailable' => $recordings->ffmpegBinary() !== null,
+            'browserPlaybackAvailable' => $playbackAvailable && ($playbackAssetReady || $recordings->ffmpegBinary() !== null),
         ]);
     }
 
-    public function stream(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): StreamedResponse
+    public function stream(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): Response|BinaryFileResponse|StreamedResponse
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
         abort_unless($storage->recordingExists($recording->relative_path), Response::HTTP_NOT_FOUND);

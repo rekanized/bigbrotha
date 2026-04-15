@@ -21,7 +21,7 @@
         @if (!($relayStatus['installed'] ?? false))
             <div class="empty-state live-wall-canvas__empty">
                 <strong>Media relay binary is missing from the app container.</strong>
-                <p>Rebuild and restart the Docker app service so the bundled MediaMTX binary is available to the live wall.</p>
+                <p>Rebuild and restart the Docker app service so the configured MediaMTX binary is available to the live wall.</p>
             </div>
         @elseif (!($relayStatus['running'] ?? false))
             <div class="empty-state live-wall-canvas__empty">
@@ -89,6 +89,10 @@
                                         data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
                                         data-access-token-expires-in="{{ $sessionBootstrap['expires_in'] ?? '' }}"
                                         data-access-token-issued-at="{{ $sessionBootstrap['issued_at'] ?? '' }}"
+                                        data-expected-video-codec="{{ $streamFormat['video_codec'] ?? 'h264' }}"
+                                        data-expected-audio-codec="{{ $streamFormat['audio_codec'] ?? 'opus' }}"
+                                        data-expected-audio-channels="{{ $streamFormat['audio_channels'] ?? 2 }}"
+                                        data-expected-audio-sample-rate="{{ $streamFormat['audio_sample_rate'] ?? 48000 }}"
                                         data-player-label="{{ $camera->name }}"
                                     >
                                         <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>

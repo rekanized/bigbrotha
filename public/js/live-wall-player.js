@@ -25,6 +25,28 @@
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
 
+    const normalizeCodecName = (value, fallback) => {
+        if (typeof value !== 'string') {
+            return fallback;
+        }
+
+        const normalized = value.trim().toLowerCase();
+
+        return normalized !== '' ? normalized : fallback;
+    };
+
+    const readPositiveInteger = (value, fallback) => {
+        const normalized = Number(value);
+
+        return Number.isInteger(normalized) && normalized > 0 ? normalized : fallback;
+    };
+
+    const displayCodecName = (codec) => {
+        const normalized = normalizeCodecName(codec, '');
+
+        return normalized === 'h264' ? 'H.264' : normalized === 'opus' ? 'Opus' : normalized.toUpperCase();
+    };
+
     const clearFocusedTile = () => {
         if (!(state.focusedTile instanceof HTMLElement)) {
             state.focusedTile = null;
@@ -198,6 +220,10 @@
         setMasterVolume(Number(target.value) / 100);
     };
 
+    const handlePlaybackUnlock = () => {
+        state.players.forEach((player) => player.resumeAfterUserActivation());
+    };
+
     class BigBrothaWhepPlayer {
         constructor(root) {
             this.root = root;
@@ -209,18 +235,25 @@
             this.bootstrapAccessTokenExpiresIn = root.dataset.accessTokenExpiresIn || bootstrapContainer?.dataset.accessTokenExpiresIn || '';
             this.bootstrapAccessTokenIssuedAt = root.dataset.accessTokenIssuedAt || bootstrapContainer?.dataset.accessTokenIssuedAt || '';
             this.label = root.dataset.playerLabel || 'camera';
+            this.expectedVideoCodec = normalizeCodecName(root.dataset.expectedVideoCodec, 'h264');
+            this.expectedAudioCodec = normalizeCodecName(root.dataset.expectedAudioCodec, 'opus');
+            this.expectedAudioChannels = readPositiveInteger(root.dataset.expectedAudioChannels, 2);
+            this.expectedAudioSampleRate = readPositiveInteger(root.dataset.expectedAudioSampleRate, 48000);
             this.video = root.querySelector('[data-role="video"]');
             this.message = root.querySelector('[data-role="message"]');
             this.tile = root.closest('.wall-monitor-tile');
             this.audioToggle = root.querySelector('[data-role="audio-toggle"]');
+            this.audioToggleLabel = root.querySelector('[data-role="audio-toggle-label"]');
             this.audioIndicator = root.querySelector('[data-role="audio-indicator"]');
             this.isAudioSelectable = this.audioToggle !== null && this.audioIndicator !== null;
             this.hasStream = false;
+            this.hasVideoTrack = false;
             this.hasAudioTrack = false;
             this.mediaStream = new MediaStream();
             this.reader = null;
             this.closed = false;
             this.hasRetriedFreshSession = false;
+            this.awaitingUserActivation = false;
             this.retryTimeout = null;
 
             this.handleAudioToggle = this.handleAudioToggle.bind(this);
@@ -238,11 +271,19 @@
             this.closed = false;
             this.clearRetryTimeout();
 
-                if (this.isAudioSelectable) {
+            this.hasStream = false;
+            this.hasVideoTrack = false;
+            this.hasAudioTrack = false;
+            this.awaitingUserActivation = false;
+
+            if (this.video) {
+                this.video.autoplay = true;
                 this.video.defaultMuted = true;
-                this.hasStream = false;
-                this.hasAudioTrack = false;
                 this.video.muted = true;
+                this.video.playsInline = true;
+            }
+
+            if (this.isAudioSelectable) {
                 this.syncAudioUi();
             }
 
@@ -253,7 +294,7 @@
 
         async connect() {
             this.destroyConnection();
-            this.setMessage('Loading secure stream…');
+            this.setMessage(`Loading secure ${this.expectedStreamLabel()} stream…`);
 
             const bootstrapSession = this.readBootstrapSession();
             const hintedReaderUrl = bootstrapSession?.reader_url || this.bootstrapReaderUrl;
@@ -312,7 +353,10 @@
                 throw new Error(await this.readError(response, 'The secure player session could not be started.'));
             }
 
-            return response.json();
+            const session = await response.json();
+            this.applyStreamHints(session?.stream || null);
+
+            return session;
         }
 
         readBootstrapSession() {
@@ -363,9 +407,9 @@
                 this.applyAudioSelection();
             }
 
-            this.video.play().catch(() => undefined);
-
-            this.setMessage('');
+            this.tryPlay().catch((error) => {
+                this.handleFailure(error);
+            });
         }
 
         handleAudioToggle() {
@@ -380,7 +424,7 @@
             }
 
             setActiveAudioPlayer(this);
-            this.video.play().catch(() => undefined);
+            this.tryPlay().catch(() => undefined);
         }
 
         mergeIncomingTrack(event) {
@@ -423,11 +467,14 @@
             const tracks = this.mediaStream.getTracks();
 
             this.hasStream = tracks.length > 0;
+            this.hasVideoTrack = tracks.some((track) => track.kind === 'video' && track.readyState === 'live');
             this.hasAudioTrack = tracks.some((track) => track.kind === 'audio' && track.readyState === 'live');
 
             if (state.activeAudioPlayer === this && !this.hasAudioTrack) {
                 state.activeAudioPlayer = null;
             }
+
+            this.updateStatusMessage();
         }
 
         applyAudioSelection() {
@@ -442,7 +489,7 @@
             this.video.volume = isActive ? state.masterVolume : 0;
 
             if (isActive) {
-                this.video.play().catch(() => undefined);
+                this.tryPlay().catch(() => undefined);
             }
 
             this.syncAudioUi();
@@ -464,6 +511,8 @@
 
             if (!this.hasStream) {
                 this.audioIndicator.textContent = 'Connecting';
+            } else if (!this.hasVideoTrack) {
+                this.audioIndicator.textContent = `Waiting for ${displayCodecName(this.expectedVideoCodec)}`;
             } else if (!this.hasAudioTrack) {
                 this.audioIndicator.textContent = 'No audio';
             } else {
@@ -473,6 +522,14 @@
             this.audioToggle.disabled = !this.hasAudioTrack;
             this.audioToggle.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             this.audioToggle.setAttribute('aria-label', isActive ? `Stop listening to ${this.label}` : `Listen to ${this.label}`);
+
+            if (this.audioToggleLabel) {
+                if (!this.hasAudioTrack) {
+                    this.audioToggleLabel.textContent = 'Audio unavailable';
+                } else {
+                    this.audioToggleLabel.textContent = isActive ? 'Mute audio' : 'Enable audio';
+                }
+            }
         }
 
         handleFailure(error) {
@@ -503,7 +560,9 @@
             });
 
             this.hasStream = false;
+            this.hasVideoTrack = false;
             this.hasAudioTrack = false;
+            this.awaitingUserActivation = false;
         }
 
         close() {
@@ -520,6 +579,95 @@
 
             this.destroyConnection();
             this.syncAudioUi();
+        }
+
+        resumeAfterUserActivation() {
+            if (!this.awaitingUserActivation || this.closed) {
+                return;
+            }
+
+            this.tryPlay().catch(() => undefined);
+        }
+
+        async tryPlay() {
+            if (this.video === null) {
+                return false;
+            }
+
+            try {
+                await this.video.play();
+                this.awaitingUserActivation = false;
+                this.updateStatusMessage();
+
+                return true;
+            } catch (error) {
+                if (this.isAutoplayBlocked(error)) {
+                    this.awaitingUserActivation = true;
+                    this.updateStatusMessage();
+
+                    return false;
+                }
+
+                throw error;
+            }
+        }
+
+        isAutoplayBlocked(error) {
+            const errorName = typeof error?.name === 'string' ? error.name : '';
+            const errorMessage = `${error instanceof Error ? error.message : error}`.toLowerCase();
+
+            return errorName === 'NotAllowedError'
+                || errorMessage.includes('notallowederror')
+                || errorMessage.includes('autoplay')
+                || errorMessage.includes('user gesture');
+        }
+
+        updateStatusMessage() {
+            if (!this.message) {
+                return;
+            }
+
+            if (!this.hasStream) {
+                return;
+            }
+
+            if (!this.hasVideoTrack) {
+                this.setMessage(`Waiting for ${displayCodecName(this.expectedVideoCodec)} video track…`);
+
+                return;
+            }
+
+            if (this.awaitingUserActivation) {
+                this.setMessage(this.autoplayBlockedMessage());
+
+                return;
+            }
+
+            this.setMessage('');
+        }
+
+        autoplayBlockedMessage() {
+            const audioHint = this.hasAudioTrack
+                ? `${displayCodecName(this.expectedAudioCodec)} audio is ready. Interact once with the page to continue playback.`
+                : 'Interact once with the page to continue playback.';
+
+            return `${displayCodecName(this.expectedVideoCodec)} video is ready. ${audioHint}`;
+        }
+
+        expectedStreamLabel() {
+            return `${displayCodecName(this.expectedVideoCodec)}/${displayCodecName(this.expectedAudioCodec)} ${this.expectedAudioSampleRate / 1000} kHz ${this.expectedAudioChannels}ch`;
+        }
+
+        applyStreamHints(stream) {
+            if (!stream || typeof stream !== 'object') {
+                return;
+            }
+
+            this.expectedVideoCodec = normalizeCodecName(stream.video_codec, this.expectedVideoCodec);
+            this.expectedAudioCodec = normalizeCodecName(stream.audio_codec, this.expectedAudioCodec);
+            this.expectedAudioChannels = readPositiveInteger(stream.audio_channels, this.expectedAudioChannels);
+            this.expectedAudioSampleRate = readPositiveInteger(stream.audio_sample_rate, this.expectedAudioSampleRate);
+            this.updateStatusMessage();
         }
 
         deriveReaderUrl(whepUrl) {
@@ -723,8 +871,10 @@
     const initialize = () => {
         document.addEventListener('input', handleMasterVolumeInput);
         document.addEventListener('dblclick', handleTileDoubleClick);
+        document.addEventListener('pointerdown', handlePlaybackUnlock, { passive: true });
         document.addEventListener('pointerup', handleTilePointerUp);
         document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keydown', handlePlaybackUnlock);
         document.addEventListener('livewire:navigating', closePlayers);
         document.addEventListener('livewire:navigated', bootstrapPlayers);
         window.addEventListener('beforeunload', closePlayers);

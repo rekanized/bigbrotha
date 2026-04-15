@@ -51,6 +51,7 @@ class LiveWallSessionController extends Controller
             'reader_url' => $relayConfig->browserReaderUrlForPath($path, $request),
             'access_token' => $accessTokenService->issueReadToken($request->user(), $path),
             'expires_in' => $accessTokenService->ttl(),
+            'stream' => $relayConfig->browserCompatibleStreamFormat(),
         ]);
     }
 

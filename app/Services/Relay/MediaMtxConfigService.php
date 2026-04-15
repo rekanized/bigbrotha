@@ -19,7 +19,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraRelayDefinition(Camera $camera): ?array
     {
@@ -37,6 +37,7 @@ class MediaMtxConfigService
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
             'transport' => $selection['transport'],
+            'live_transcode' => $camera->liveTranscodeSettings(),
         ];
     }
 
@@ -61,7 +62,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -69,7 +70,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraSourceRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -87,11 +88,12 @@ class MediaMtxConfigService
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
             'transport' => $selection['transport'],
+            'live_transcode' => $camera->liveTranscodeSettings(),
         ];
     }
 
     /**
-     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraProfilePlaybackDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -109,11 +111,12 @@ class MediaMtxConfigService
             'profile' => $selection['profile'],
             'authenticated_uri' => $selection['authenticated_uri'],
             'transport' => $selection['transport'],
+            'live_transcode' => $camera->liveTranscodeSettings(),
         ];
     }
 
     /**
-     * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraMotionEditorRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -177,6 +180,19 @@ class MediaMtxConfigService
     public function internalPlayerUrl(string $path): string
     {
         return rtrim((string) config('mediamtx.webrtc.internal_base_url'), '/').'/'.$path;
+    }
+
+    /**
+     * @return array{video_codec: string, audio_codec: string, audio_channels: int, audio_sample_rate: int}
+     */
+    public function browserCompatibleStreamFormat(): array
+    {
+        return [
+            'video_codec' => 'h264',
+            'audio_codec' => $this->browserAudioCodecName((string) config('mediamtx.transcode.audio_codec', 'libopus')),
+            'audio_channels' => max(1, (int) config('mediamtx.transcode.audio_channels', 2)),
+            'audio_sample_rate' => max(1, (int) config('mediamtx.transcode.audio_sample_rate', 48000)),
+        ];
     }
 
     public function buildConfig(): string
@@ -444,13 +460,15 @@ class MediaMtxConfigService
                 $definition['profile'],
                 $definition['authenticated_uri'],
                 $definition['transport'],
+                $definition['live_transcode'] ?? [],
             );
     }
 
     /**
      * @param  array<string, string|null>  $profile
+     * @param  array{quality?: string, rate_control?: string, bitrate_kbps?: int|null}  $transcodeOverrides
      */
-    private function buildLiveRunOnDemandCommand(string $ffmpegBinary, array $profile, string $authenticatedUri, string $transport): string
+    private function buildLiveRunOnDemandCommand(string $ffmpegBinary, array $profile, string $authenticatedUri, string $transport, array $transcodeOverrides = []): string
     {
         $gop = (int) config('mediamtx.transcode.gop', 30);
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
@@ -459,6 +477,10 @@ class MediaMtxConfigService
         $inputFflags = trim((string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'));
         $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
+        $transcodeVideo = $this->shouldTranscodeVideo($profile);
+        $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
+        $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
+        $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
@@ -481,17 +503,22 @@ class MediaMtxConfigService
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
             escapeshellarg((string) $inputProbeSize),
+            ...$this->hardwareAccelerationInputArguments($profile, $transcodeVideo),
             '-i',
             escapeshellarg($authenticatedUri),
             '-map',
             '0:v:0',
             '-map',
             '0:a:0?',
+            '-sn',
+            '-dn',
         ];
 
-        if ($fpsMode !== '') {
+        $effectiveFpsMode = $transcodeVideo ? $transcodeFpsMode : $fpsMode;
+
+        if ($effectiveFpsMode !== '') {
             $command[] = '-fps_mode';
-            $command[] = escapeshellarg($fpsMode);
+            $command[] = escapeshellarg($effectiveFpsMode);
         }
 
         if ($avoidNegativeTs !== '') {
@@ -499,41 +526,14 @@ class MediaMtxConfigService
             $command[] = escapeshellarg($avoidNegativeTs);
         }
 
-        if ($this->shouldCopyVideo($profile)) {
+        if (!$transcodeVideo) {
             $command[] = '-c:v';
             $command[] = 'copy';
             $command[] = '-copyinkf';
         } else {
-            array_push($command,
-                '-c:v',
-                'libx264',
-                '-pix_fmt',
-                'yuv420p',
-                '-profile:v',
-                'baseline',
-                '-preset',
-                escapeshellarg((string) config('mediamtx.transcode.preset', 'ultrafast')),
-                '-tune',
-                'zerolatency',
-                '-bf',
-                '0',
-                '-refs',
-                '1',
-                '-g',
-                escapeshellarg((string) $gop),
-                '-keyint_min',
-                escapeshellarg((string) $gop),
-                '-sc_threshold',
-                '0',
-                '-crf',
-                escapeshellarg((string) config('mediamtx.transcode.video_crf', 23)),
-                '-b:v',
-                escapeshellarg((string) config('mediamtx.transcode.video_bitrate', '1200k')),
-                '-maxrate',
-                escapeshellarg((string) config('mediamtx.transcode.video_maxrate', '1800k')),
-                '-bufsize',
-                escapeshellarg((string) config('mediamtx.transcode.video_bufsize', '1800k')),
-            );
+            $command[] = '-r';
+            $command[] = escapeshellarg((string) $transcodeFps);
+            array_push($command, ...$this->videoTranscodeArguments($gop, $transcodeOptions));
         }
 
         array_push($command,
@@ -630,9 +630,370 @@ class MediaMtxConfigService
      */
     private function shouldCopyVideo(array $profile): bool
     {
-        $codec = strtolower(trim((string) ($profile['video_codec'] ?? $profile['encoding'] ?? '')));
+        $codec = $this->normalizedVideoCodec($profile);
 
         return in_array($codec, ['h264', 'h.264'], true);
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function shouldTranscodeVideo(array $profile): bool
+    {
+        return !$this->shouldCopyVideo($profile)
+            || (bool) config('mediamtx.transcode.force_video_transcode', false);
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     * @return array<int, string>
+     */
+    private function hardwareAccelerationInputArguments(array $profile, bool $transcodeVideo): array
+    {
+        if (!$transcodeVideo) {
+            return [];
+        }
+
+        $engine = $this->hardwareAccelerationEngine();
+
+        if ($engine === '') {
+            return [];
+        }
+
+        $configuredDecoder = $this->stringOrNull(config('mediamtx.transcode.hardware_acceleration.decoder'));
+        $decoder = $configuredDecoder ?? $this->hardwareAccelerationDecoder($engine, $profile);
+        $device = $this->stringOrNull(config('mediamtx.transcode.hardware_acceleration.device'));
+
+        return match ($engine) {
+            'cuda', 'nvidia', 'nvenc' => array_merge(
+                $this->nvidiaHardwareInputArguments($decoder, $device),
+                $this->configuredHardwareInputArguments(),
+            ),
+            'qsv', 'intel', 'quicksync' => array_merge(
+                $this->quickSyncHardwareInputArguments($decoder, $device),
+                $this->configuredHardwareInputArguments(),
+            ),
+            default => $this->configuredHardwareInputArguments(),
+        };
+    }
+
+    /**
+     * @param  array{preset: string, crf: int, rate_control: string, bitrate: string, maxrate: string, bufsize: string}  $transcodeOptions
+     * @return array<int, string>
+     */
+    private function videoTranscodeArguments(int $gop, array $transcodeOptions): array
+    {
+        $engine = $this->hardwareAccelerationEngine();
+
+        return match ($engine) {
+            'cuda', 'nvidia', 'nvenc' => $this->nvidiaVideoTranscodeArguments($gop, $transcodeOptions),
+            'qsv', 'intel', 'quicksync' => $this->quickSyncVideoTranscodeArguments($gop, $transcodeOptions),
+            default => $this->softwareVideoTranscodeArguments($gop, $transcodeOptions),
+        };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function softwareVideoTranscodeArguments(int $gop, array $transcodeOptions): array
+    {
+        $arguments = [
+            '-c:v',
+            (string) config('mediamtx.transcode.video_codec', 'libx264'),
+            '-pix_fmt',
+            'yuv420p',
+            '-profile:v',
+            'baseline',
+            '-preset',
+            escapeshellarg($transcodeOptions['preset']),
+            '-tune',
+            'zerolatency',
+            '-bf',
+            '0',
+            '-refs',
+            '1',
+            '-g',
+            escapeshellarg((string) $gop),
+            '-keyint_min',
+            escapeshellarg((string) $gop),
+            '-sc_threshold',
+            '0',
+            '-b:v',
+            escapeshellarg($transcodeOptions['bitrate']),
+            '-maxrate',
+            escapeshellarg($transcodeOptions['maxrate']),
+            '-bufsize',
+            escapeshellarg($transcodeOptions['bufsize']),
+        ];
+
+        if ($transcodeOptions['rate_control'] === Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR) {
+            $arguments[] = '-minrate';
+            $arguments[] = escapeshellarg($transcodeOptions['bitrate']);
+            $arguments[] = '-x264-params';
+            $arguments[] = escapeshellarg('nal-hrd=cbr:force-cfr=1');
+
+            return $arguments;
+        }
+
+        $arguments[] = '-crf';
+        $arguments[] = escapeshellarg((string) $transcodeOptions['crf']);
+
+        return $arguments;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nvidiaHardwareInputArguments(?string $decoder, ?string $device): array
+    {
+        $arguments = [
+            '-hwaccel',
+            'cuda',
+            '-hwaccel_output_format',
+            'cuda',
+        ];
+
+        if ($device !== null) {
+            $arguments[] = '-hwaccel_device';
+            $arguments[] = escapeshellarg($device);
+        }
+
+        if ($decoder !== null) {
+            $arguments[] = '-c:v';
+            $arguments[] = $decoder;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function quickSyncHardwareInputArguments(?string $decoder, ?string $device): array
+    {
+        $arguments = [];
+
+        if ($device !== null) {
+            $arguments[] = '-qsv_device';
+            $arguments[] = escapeshellarg($device);
+        }
+
+        $arguments[] = '-hwaccel';
+        $arguments[] = 'qsv';
+        $arguments[] = '-hwaccel_output_format';
+        $arguments[] = 'qsv';
+
+        if ($decoder !== null) {
+            $arguments[] = '-c:v';
+            $arguments[] = $decoder;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nvidiaVideoTranscodeArguments(int $gop, array $transcodeOptions): array
+    {
+        $encoder = $this->stringOrNull(config('mediamtx.transcode.hardware_acceleration.encoder')) ?? 'h264_nvenc';
+
+        return array_merge([
+            '-c:v',
+            $encoder,
+            '-profile:v',
+            'baseline',
+            '-preset',
+            escapeshellarg($transcodeOptions['preset'] === 'ultrafast' ? 'p4' : 'p5'),
+            '-tune',
+            'll',
+            '-bf',
+            '0',
+            '-g',
+            escapeshellarg((string) $gop),
+            '-keyint_min',
+            escapeshellarg((string) $gop),
+            '-rc',
+            'cbr',
+            '-b:v',
+            escapeshellarg($transcodeOptions['bitrate']),
+            '-maxrate',
+            escapeshellarg($transcodeOptions['maxrate']),
+            '-bufsize',
+            escapeshellarg($transcodeOptions['bufsize']),
+        ], $this->configuredHardwareOutputArguments());
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function quickSyncVideoTranscodeArguments(int $gop, array $transcodeOptions): array
+    {
+        $encoder = $this->stringOrNull(config('mediamtx.transcode.hardware_acceleration.encoder')) ?? 'h264_qsv';
+
+        return array_merge([
+            '-c:v',
+            $encoder,
+            '-profile:v',
+            'baseline',
+            '-preset',
+            escapeshellarg($transcodeOptions['preset'] === 'ultrafast' ? 'veryfast' : $transcodeOptions['preset']),
+            '-look_ahead',
+            '0',
+            '-bf',
+            '0',
+            '-g',
+            escapeshellarg((string) $gop),
+            '-keyint_min',
+            escapeshellarg((string) $gop),
+            '-b:v',
+            escapeshellarg($transcodeOptions['bitrate']),
+            '-maxrate',
+            escapeshellarg($transcodeOptions['maxrate']),
+            '-bufsize',
+            escapeshellarg($transcodeOptions['bufsize']),
+        ], $this->configuredHardwareOutputArguments());
+    }
+
+    /**
+     * @param  array{quality?: string, rate_control?: string, bitrate_kbps?: int|null}  $transcodeOverrides
+     * @return array{preset: string, crf: int, rate_control: string, bitrate: string, maxrate: string, bufsize: string}
+     */
+    private function resolvedLiveTranscodeOptions(array $transcodeOverrides): array
+    {
+        $quality = strtolower(trim((string) ($transcodeOverrides['quality'] ?? Camera::LIVE_TRANSCODE_QUALITY_DEFAULT)));
+
+        if (!in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+            $quality = Camera::LIVE_TRANSCODE_QUALITY_DEFAULT;
+        }
+
+        $rateControl = strtolower(trim((string) ($transcodeOverrides['rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
+
+        if (!in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+            $rateControl = Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
+        }
+
+        $preset = match ($quality) {
+            Camera::LIVE_TRANSCODE_QUALITY_SPEED => 'ultrafast',
+            Camera::LIVE_TRANSCODE_QUALITY_BALANCED => 'veryfast',
+            Camera::LIVE_TRANSCODE_QUALITY_QUALITY => 'fast',
+            default => (string) config('mediamtx.transcode.preset', 'ultrafast'),
+        };
+
+        $crf = match ($quality) {
+            Camera::LIVE_TRANSCODE_QUALITY_SPEED => 25,
+            Camera::LIVE_TRANSCODE_QUALITY_BALANCED => 22,
+            Camera::LIVE_TRANSCODE_QUALITY_QUALITY => 20,
+            default => (int) config('mediamtx.transcode.video_crf', 23),
+        };
+
+        $configuredBitrate = (string) config('mediamtx.transcode.video_bitrate', '1200k');
+        $configuredMaxrate = (string) config('mediamtx.transcode.video_maxrate', '1800k');
+        $configuredBufsize = (string) config('mediamtx.transcode.video_bufsize', '1800k');
+        $bitrateKbps = is_numeric($transcodeOverrides['bitrate_kbps'] ?? null)
+            ? max(250, min(20000, (int) $transcodeOverrides['bitrate_kbps']))
+            : $this->bitrateStringToKbps($configuredBitrate);
+
+        if ($rateControl === Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR) {
+            return [
+                'preset' => $preset,
+                'crf' => $crf,
+                'rate_control' => $rateControl,
+                'bitrate' => $this->formatBitrateKbps($bitrateKbps),
+                'maxrate' => $this->formatBitrateKbps($bitrateKbps),
+                'bufsize' => $this->formatBitrateKbps($bitrateKbps * 2),
+            ];
+        }
+
+        return [
+            'preset' => $preset,
+            'crf' => $crf,
+            'rate_control' => $rateControl,
+            'bitrate' => $configuredBitrate,
+            'maxrate' => $configuredMaxrate,
+            'bufsize' => $configuredBufsize,
+        ];
+    }
+
+    private function bitrateStringToKbps(string $value): int
+    {
+        $normalized = strtolower(trim($value));
+
+        if (preg_match('/^([0-9]+)(k|m)?$/', $normalized, $matches) !== 1) {
+            return 1200;
+        }
+
+        $amount = (int) $matches[1];
+        $unit = $matches[2] ?? 'k';
+
+        return $unit === 'm' ? $amount * 1000 : $amount;
+    }
+
+    private function formatBitrateKbps(int $kbps): string
+    {
+        return max(250, $kbps).'k';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function configuredHardwareInputArguments(): array
+    {
+        return array_values(array_map(
+            static fn (mixed $value): string => (string) $value,
+            (array) config('mediamtx.transcode.hardware_acceleration.input_args', []),
+        ));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function configuredHardwareOutputArguments(): array
+    {
+        return array_values(array_map(
+            static fn (mixed $value): string => (string) $value,
+            (array) config('mediamtx.transcode.hardware_acceleration.output_args', []),
+        ));
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function normalizedVideoCodec(array $profile): string
+    {
+        return strtolower(trim((string) ($profile['video_codec'] ?? $profile['encoding'] ?? '')));
+    }
+
+    private function browserAudioCodecName(string $codec): string
+    {
+        $normalized = strtolower(trim($codec));
+
+        return $normalized === 'libopus' ? 'opus' : $normalized;
+    }
+
+    private function hardwareAccelerationEngine(): string
+    {
+        return strtolower(trim((string) config('mediamtx.transcode.hardware_acceleration.engine', '')));
+    }
+
+    /**
+     * @param  array<string, string|null>  $profile
+     */
+    private function hardwareAccelerationDecoder(string $engine, array $profile): ?string
+    {
+        return match ($engine) {
+            'cuda', 'nvidia', 'nvenc' => match ($this->normalizedVideoCodec($profile)) {
+                'h264', 'h.264' => 'h264_cuvid',
+                'hevc', 'h265', 'h.265' => 'hevc_cuvid',
+                default => null,
+            },
+            'qsv', 'intel', 'quicksync' => match ($this->normalizedVideoCodec($profile)) {
+                'h264', 'h.264' => 'h264_qsv',
+                'hevc', 'h265', 'h.265' => 'hevc_qsv',
+                default => null,
+            },
+            default => null,
+        };
     }
 
     private function internalPublishUrl(string $path): string

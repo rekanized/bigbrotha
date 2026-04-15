@@ -57,6 +57,85 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertNull($camera->fresh()->recording_last_motion_at);
     }
 
+    public function test_it_ignores_single_frame_refresh_spikes_in_hevc_motion_segments(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.persistence_window_frames', 2);
+
+        Camera::query()->create([
+            'name' => 'HEVC Yard',
+            'local_ip' => '192.168.1.88',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream17',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-refresh-glitch')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+
+        $camera = Camera::query()->firstOrFail();
+
+        $this->assertNull($camera->fresh()->recording_last_motion_at);
+    }
+
+    public function test_it_still_detects_brief_localized_motion_segments(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.persistence_window_frames', 2);
+
+        Camera::query()->create([
+            'name' => 'Front Walkway',
+            'local_ip' => '192.168.1.89',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream18',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-brief-local')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 1);
+        $this->assertNotNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
     public function test_it_ignores_motion_outside_the_selected_mask(): void
     {
         config()->set('queue.default', 'sync');

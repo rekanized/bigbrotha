@@ -220,13 +220,14 @@ Current behavior:
 1. the wall resolves the selected active layout and renders only its enabled camera tiles.
 2. each tile picks a lower-cost RTSP profile when the camera exposes one.
 3. the selected profile is mapped to a shared MediaMTX path and transcoded on demand into a WebRTC-safe stream.
-4. the browser-facing tile renders a Laravel-owned player shell instead of the stock public MediaMTX page.
-5. the player requests `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token and the proxied WHEP URL for the selected camera path.
-6. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
-7. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
-8. operators can promote one live tile at a time to output wall audio, while every other tile stays muted, the selected source is visibly marked, and a shared wall volume slider sits in the bottom dock.
-9. each tile still exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
-10. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, or relay auth settings change.
+4. Camera Fleet can override live-relay transcode behavior per camera when a specific HEVC or otherwise browser-unsafe feed needs different quality or constant-bitrate settings than the stack default.
+5. the browser-facing tile renders a Laravel-owned player shell instead of the stock public MediaMTX page.
+6. the player requests `/live-wall/{camera}/session` to receive a short-lived signed MediaMTX read token and the proxied WHEP URL for the selected camera path.
+7. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
+8. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
+9. operators can promote one live tile at a time to output wall audio, while every other tile stays muted, the selected source is visibly marked, and a shared wall volume slider sits in the bottom dock.
+10. each tile still exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
+11. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, relay auth settings, or camera-specific live-transcode overrides change.
 
 This gives operators a shared live view path for multiple simultaneous viewers while keeping a separate no-transcode path available for consumers that do not need WebRTC.
 

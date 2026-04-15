@@ -24,7 +24,7 @@ Plain `docker compose up -d` does not read `.env.docker` for Compose-level inter
 
 The stack runs these services:
 
-- `app` for Laravel under `php-fpm` plus the bundled MediaMTX relay.
+- `app` for Laravel under `php-fpm` plus the MediaMTX relay.
 - `web` for Nginx and `/__webrtc/` proxying.
 - `worker` for `php artisan queue:work` on `recordings,default,review-assets`.
 - `scheduler` for the recurring `php artisan schedule:run` loop.
@@ -33,7 +33,6 @@ The stack runs these services:
 ## Prerequisites
 
 - Docker with Compose support.
-- The repository `bin/ffmpeg` and `bin/ffprobe` binaries present in the checkout.
 - Routed reachability from the Docker host to the camera network.
 
 ## 1. Review Deployment Values
@@ -85,7 +84,7 @@ The `app` container will:
 - wait for PostgreSQL on `database:5432`
 - ensure `APP_KEY` and persist it under `./.docker-state/app.key` on the Docker host
 - apply pending Laravel migrations automatically and bootstrap an empty database when needed
-- start the bundled MediaMTX relay
+- start the MediaMTX relay
 - write the bootstrap marker that unblocks `worker` and `scheduler`
 
 After the containers are healthy on a brand-new deployment, open `/setup` on the published application URL and complete the onboarding wizard:

@@ -3351,12 +3351,23 @@
         const activeLayer = layers[activeLayerIndex] || layers[0] || null;
         const hasActiveSprite = activeLayer instanceof HTMLElement && (activeLayer.dataset.spriteUrl || '') !== '';
         const activeSpriteUrl = activeLayer instanceof HTMLElement ? (activeLayer.dataset.spriteUrl || '') : '';
+        const maxPreviewWidth = Math.max(
+            220,
+            Math.min(
+                360,
+                Math.max(220, window.innerWidth - 96),
+                shell instanceof HTMLElement ? Math.max(220, shell.clientWidth - 28) : 360,
+            ),
+        );
+        const previewScale = clamp(260 / Math.max(frameWidth, 1), 1.25, 2.1);
+        const scaledFrameWidth = Math.round(clamp(frameWidth * previewScale, 220, maxPreviewWidth));
+        const scaledFrameHeight = Math.round((scaledFrameWidth / Math.max(frameWidth, 1)) * frameHeight);
 
         state.scrubPreviewVisible = true;
         state.scrubPreviewFocusMs = focusMs;
 
-        frame.style.width = `${frameWidth}px`;
-        frame.style.height = `${frameHeight}px`;
+        frame.style.width = `${scaledFrameWidth}px`;
+        frame.style.height = `${scaledFrameHeight}px`;
         frame.style.aspectRatio = `${frameWidth} / ${frameHeight}`;
         preview.dataset.requestId = requestId;
 
@@ -3417,7 +3428,7 @@
 
         if (shell instanceof HTMLElement && viewport instanceof HTMLElement) {
             const focusOffsetPx = railTrackOffsetPxForMs(scope, focusMs) - viewport.scrollTop;
-            const previewHeight = Math.max(preview.offsetHeight || 0, frameHeight + 64);
+            const previewHeight = Math.max(preview.offsetHeight || 0, scaledFrameHeight + 64);
             const shellHeight = Math.max(shell.clientHeight, viewport.clientHeight, previewHeight + 24);
             const nextTop = clamp(focusOffsetPx - (previewHeight / 2), 12, Math.max(12, shellHeight - previewHeight - 12));
 

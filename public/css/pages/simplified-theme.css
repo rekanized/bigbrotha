@@ -730,8 +730,8 @@ body.page-dashboard .camera-row {
 }
 
 body.page-dashboard .camera-row__layout {
-    grid-template-columns: 188px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: minmax(220px, 236px) minmax(0, 1fr);
+    gap: 16px;
 }
 
 body.page-dashboard .camera-row__identity strong {
@@ -746,6 +746,8 @@ body.page-dashboard .recording-browser__row-header p {
 }
 
 body.page-dashboard .camera-row__media {
+    --camera-row-preview-width: 100%;
+    --camera-row-preview-height: 148px;
     gap: 10px;
     padding: 10px;
     border-radius: 10px;
@@ -756,10 +758,6 @@ body.page-dashboard .camera-row__preview-frame,
 body.page-dashboard .recording-player__shell {
     border-radius: 10px;
     background: #e5e7eb;
-}
-
-body.page-dashboard .camera-row__preview-image {
-    aspect-ratio: 16 / 9;
 }
 
 body.page-dashboard .camera-row__preview-meta strong {
@@ -806,9 +804,35 @@ body.page-dashboard .camera-row__footer {
 }
 
 body.page-dashboard .camera-row__actions {
-    grid-template-columns: repeat(3, minmax(0, 180px));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
     gap: 8px;
     padding-top: 12px;
+}
+
+@container camera-row-card (max-width: 980px) {
+    body.page-dashboard .camera-row__fact-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container camera-row-card (max-width: 760px) {
+    body.page-dashboard .camera-row__layout,
+    body.page-dashboard .camera-row__fact-grid {
+        grid-template-columns: 1fr;
+    }
+
+    body.page-dashboard .camera-row__media {
+        --camera-row-preview-width: 100%;
+        --camera-row-preview-height: clamp(188px, 54vw, 248px);
+    }
+
+    body.page-dashboard .camera-row__fact--wide {
+        grid-column: auto;
+    }
+
+    body.page-dashboard .camera-row__actions {
+        grid-template-columns: 1fr;
+    }
 }
 
 body.page-dashboard .recording-browser__filters {

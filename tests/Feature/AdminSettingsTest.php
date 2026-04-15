@@ -520,6 +520,21 @@ class AdminSettingsTest extends TestCase
         );
     }
 
+    public function test_network_storage_disk_config_normalizes_roots_that_end_with_cameras(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha/cameras',
+            'administrator',
+            'secret-pass',
+        );
+
+        $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
+
+        $this->assertNotNull($diskConfig);
+        $this->assertSame('Applications/bigbrotha', $diskConfig['root']);
+    }
+
     public function test_timeline_review_allows_zooming_beyond_eight_times(): void
     {
         Livewire::test(TimelineReview::class, [

@@ -30,6 +30,7 @@ class LiveWallPlayerController extends Controller
             'liveSelection' => $liveSelection,
             'relayStatus' => $relayStatus,
             'sessionUrl' => $liveDefinition !== null ? route('live-wall.session', ['camera' => $camera]) : null,
+            'streamFormat' => $relayConfig->browserCompatibleStreamFormat(),
             'webrtcPath' => $liveDefinition['path'] ?? $relayConfig->cameraPathName($camera),
             'webrtcWhepUrl' => $liveDefinition !== null ? $relayConfig->browserWhepUrlForPath($liveDefinition['path'], $request) : null,
         ]);

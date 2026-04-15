@@ -591,5 +591,60 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertStringContainsString('-strftime', $arguments);
         $this->assertStringContainsString('-c', $arguments);
         $this->assertStringContainsString('copy', $arguments);
+        $this->assertStringNotContainsString('concat', $arguments);
+    }
+
+    public function test_continuous_recording_prefers_the_internal_source_relay_even_with_live_transcode_overrides(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
+
+        $inputLogPath = storage_path('app/private/test-binaries/ffmpeg-last-input.log');
+        File::delete($inputLogPath);
+
+        $camera = Camera::query()->create([
+            'name' => 'HEVC Warehouse',
+            'local_ip' => '192.168.1.171',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream171',
+            'recording_rtsp_path' => '/stream171',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+            'metadata' => [
+                'live_transcode' => [
+                    'quality' => Camera::LIVE_TRANSCODE_QUALITY_QUALITY,
+                    'rate_control' => Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR,
+                    'bitrate_kbps' => 3500,
+                ],
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'mainStream',
+                        'uri' => 'rtsp://192.168.1.171:554/stream171',
+                        'encoding' => 'H265',
+                        'video_codec' => 'hevc',
+                    ],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous-log-input')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $recording = CameraRecording::query()->firstOrFail();
+
+        $this->assertSame(Camera::RECORDING_MODE_CONTINUOUS, $recording->capture_mode);
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertSame(60, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
+        $this->assertFileExists($inputLogPath);
+        $this->assertSame(
+            'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-source-profile-0',
+            trim((string) File::get($inputLogPath)),
+        );
     }
 }

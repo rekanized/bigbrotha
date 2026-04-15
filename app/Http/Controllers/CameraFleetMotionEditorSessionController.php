@@ -52,6 +52,7 @@ class CameraFleetMotionEditorSessionController extends Controller
             'reader_url' => $relayConfig->browserReaderUrlForPath($definition['path'], $request),
             'access_token' => $accessTokenService->issueReadToken($request->user(), $definition['path']),
             'expires_in' => $accessTokenService->ttl(),
+            'stream' => $relayConfig->browserCompatibleStreamFormat(),
         ]);
     }
 }

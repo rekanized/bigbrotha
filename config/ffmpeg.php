@@ -1,12 +1,14 @@
 <?php
 
 $defaultFfmpegBinaryCandidates = array_values(array_filter([
-    is_file('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : null,
-    base_path('bin/ffmpeg'),
+    is_executable('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : null,
+    is_executable('/usr/local/bin/ffmpeg') ? '/usr/local/bin/ffmpeg' : null,
+    'ffmpeg',
 ]));
 $defaultFfprobeBinaryCandidates = array_values(array_filter([
-    is_file('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : null,
-    base_path('bin/ffprobe'),
+    is_executable('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : null,
+    is_executable('/usr/local/bin/ffprobe') ? '/usr/local/bin/ffprobe' : null,
+    'ffprobe',
 ]));
 $configuredFfmpegBinaryCandidates = (static function () use ($defaultFfmpegBinaryCandidates): array {
     $configured = env('FFMPEG_BINARIES');
@@ -101,9 +103,10 @@ return [
     ],
 
     'playback' => [
-        'audio_bitrate' => (string) env('FFMPEG_PLAYBACK_AUDIO_BITRATE', '128k'),
+        'audio_bitrate' => (string) env('FFMPEG_PLAYBACK_AUDIO_BITRATE', '96k'),
         'fragment_duration' => max(100000, (int) env('FFMPEG_PLAYBACK_FRAGMENT_DURATION', env('FFMPEG_LIVE_RELAY_FRAGMENT_DURATION', 500000))),
-        'audio_resample' => trim((string) env('FFMPEG_PLAYBACK_AUDIO_RESAMPLE', 'aresample=async=1:first_pts=0')),
+        'input_fflags' => trim((string) env('FFMPEG_PLAYBACK_INPUT_FFLAGS', '+genpts+discardcorrupt')),
+        'audio_resample' => trim((string) env('FFMPEG_PLAYBACK_AUDIO_RESAMPLE', 'aresample=async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB')),
         'fps_mode' => trim((string) env('FFMPEG_PLAYBACK_FPS_MODE', 'passthrough')),
         'avoid_negative_ts' => trim((string) env('FFMPEG_PLAYBACK_AVOID_NEGATIVE_TS', 'make_zero')),
         'max_muxing_queue_size' => max(32, (int) env('FFMPEG_PLAYBACK_MAX_MUXING_QUEUE_SIZE', 1024)),

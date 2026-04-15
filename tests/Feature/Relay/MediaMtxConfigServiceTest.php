@@ -57,6 +57,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-c copy', $sourceBlock);
         $this->assertStringContainsString('-map 0:v:0', $liveBlock);
         $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
+        $this->assertStringContainsString('-sn', $liveBlock);
+        $this->assertStringContainsString('-dn', $liveBlock);
         $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $liveBlock);
         $this->assertStringNotContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
         $this->assertStringContainsString('-c:v copy', $liveBlock);
@@ -71,6 +73,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-c:a', $liveBlock);
         $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $liveBlock);
         $this->assertStringContainsString("'libopus'", $liveBlock);
+        $this->assertStringContainsString("-ac '2'", $liveBlock);
+        $this->assertStringContainsString("-ar '48000'", $liveBlock);
         $this->assertStringContainsString("-max_muxing_queue_size '1024'", $liveBlock);
         $this->assertStringContainsString('runOnDemandStartTimeout: 45s', $liveBlock);
         $this->assertStringContainsString('runOnDemandStartTimeout: 30s', $sourceBlock);
@@ -170,11 +174,159 @@ class MediaMtxConfigServiceTest extends TestCase
         ]);
 
         $config = app(MediaMtxConfigService::class)->buildConfig();
+        $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
         $this->assertStringContainsString('camera-'.$camera->id.'-live:', $config);
         $this->assertStringContainsString('-c:v libx264', $config);
         $this->assertStringContainsString('-profile:v baseline', $config);
+        $this->assertStringContainsString("-ac '2'", $config);
+        $this->assertStringContainsString("-ar '48000'", $config);
         $this->assertStringContainsString('-b:v', $config);
+        $this->assertStringContainsString("-fps_mode 'cfr'", $liveBlock);
+        $this->assertStringContainsString("-r '15'", $liveBlock);
+    }
+
+    public function test_build_config_can_use_nvidia_hardware_acceleration_for_hevc_live_transcoding(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-nvidia-transcode-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.transcode.hardware_acceleration.engine', 'nvidia');
+
+        $camera = Camera::query()->create([
+            'name' => 'NVIDIA HEVC Camera',
+            'local_ip' => '192.168.1.95',
+            'http_port' => 80,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/main',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'encoding' => 'H265',
+                        'video_codec' => 'hevc',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.95:554/main',
+                    ],
+                ],
+            ],
+        ]);
+
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+
+        $this->assertStringContainsString('-hwaccel cuda', $config);
+        $this->assertStringContainsString('-hwaccel_output_format cuda', $config);
+        $this->assertStringContainsString('-c:v hevc_cuvid', $config);
+        $this->assertStringContainsString('-c:v h264_nvenc', $config);
+        $this->assertStringContainsString('-tune ll', $config);
+        $this->assertStringContainsString("-fps_mode 'cfr'", $config);
+        $this->assertStringContainsString("-r '15'", $config);
+    }
+
+    public function test_build_config_can_use_quicksync_hardware_acceleration_for_hevc_live_transcoding(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-qsv-transcode-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.transcode.hardware_acceleration.engine', 'qsv');
+
+        $camera = Camera::query()->create([
+            'name' => 'QuickSync HEVC Camera',
+            'local_ip' => '192.168.1.96',
+            'http_port' => 80,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/main',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'encoding' => 'H265',
+                        'video_codec' => 'hevc',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.96:554/main',
+                    ],
+                ],
+            ],
+        ]);
+
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+
+        $this->assertStringContainsString('-hwaccel qsv', $config);
+        $this->assertStringContainsString('-hwaccel_output_format qsv', $config);
+        $this->assertStringContainsString('-c:v hevc_qsv', $config);
+        $this->assertStringContainsString('-c:v h264_qsv', $config);
+        $this->assertStringContainsString('-look_ahead 0', $config);
+        $this->assertStringContainsString("-fps_mode 'cfr'", $config);
+        $this->assertStringContainsString("-r '15'", $config);
+    }
+
+    public function test_build_config_applies_per_camera_cbr_settings_to_live_transcoding(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-camera-cbr-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Tuned HEVC Camera',
+            'local_ip' => '192.168.1.97',
+            'http_port' => 80,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/main',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'live_transcode' => [
+                    'quality' => Camera::LIVE_TRANSCODE_QUALITY_QUALITY,
+                    'rate_control' => Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR,
+                    'bitrate_kbps' => 3500,
+                ],
+                'rtsp_profiles' => [
+                    [
+                        'name' => 'MainStream',
+                        'encoding' => 'H265',
+                        'video_codec' => 'hevc',
+                        'resolution' => '1920x1080',
+                        'uri' => 'rtsp://192.168.1.97:554/main',
+                    ],
+                ],
+            ],
+        ]);
+
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+        $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
+
+        $this->assertStringContainsString("-preset 'fast'", $liveBlock);
+        $this->assertStringContainsString("-b:v '3500k'", $liveBlock);
+        $this->assertStringContainsString("-minrate '3500k'", $liveBlock);
+        $this->assertStringContainsString("-maxrate '3500k'", $liveBlock);
+        $this->assertStringContainsString("-bufsize '7000k'", $liveBlock);
+        $this->assertStringContainsString("-x264-params 'nal-hrd=cbr:force-cfr=1'", $liveBlock);
+        $this->assertStringNotContainsString('-crf', $liveBlock);
     }
 
     public function test_live_run_on_demand_uses_the_camera_rtsp_uri_instead_of_a_relay_reader_url(): void

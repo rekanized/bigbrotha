@@ -76,7 +76,7 @@ Important model helpers:
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras and lets the motion-mask editor reuse an already-active live relay when it matches the selected recording profile, avoiding extra RTSP sessions on single-session cameras.
 - `App\Services\Relay\MediaMtxConfigService` now emits a three-stage topology per profile when needed: a canonical `camera-{id}-source[-profile-{n}]` ingest path that is the only path allowed to touch the hardware camera, plus derived `camera-{id}-live` or `camera-{id}-live-profile-{n}` playback paths that read from that internal source path for WebRTC delivery.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
-- `App\Services\Relay\MediaMtxInstaller` verifies that the bundled MediaMTX binary is present inside the Docker image.
+- `App\Services\Relay\MediaMtxInstaller` verifies that the configured MediaMTX binary path is present and executable inside the Docker image.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay process, and checks relay health.
 
 ## Operator Authentication
@@ -120,7 +120,7 @@ Current behavior includes:
 
 - browser-side filtering by camera, recorder status, capture mode, date range, and free-text search.
 - a dedicated playback page per saved segment.
-- private playback through Laravel using a review-stream route that serves browser-safe MP4/H.264/AAC files with direct byte-range streaming from private storage and falls back to one cached ffmpeg-generated H.264/AAC MP4 per recording revision for incompatible containers or codecs such as MKV or HEVC.
+- private playback through Laravel using a post-save normalization step on the existing review-assets queue: once a segment is saved, Laravel rewrites the durable recording itself to a browser-playable MP4 in the real `cameras/{id}/recordings/...` tree, updates the `camera_recordings.relative_path` row to that playable file, and then serves that normalized recording directly.
 - direct download of the original private segment file for archival or external review.
 - review of failed captures alongside successful recordings, while quiet motion evaluations are discarded instead of being kept as durable segment rows.
 
@@ -138,9 +138,9 @@ Current live viewing behavior:
 - uses a shared MediaMTX WebRTC relay for operator wall playback.
 - preserves optional camera audio in the shared relay by publishing an Opus audio track alongside the browser-safe H.264 wall video.
 - lets operators select exactly one wall tile for live audio output at a time, with a shared wall volume control in the bottom dock and the active audio source marked directly on the wall.
-- copies source H.264 video into the shared relay when the selected profile is already browser-safe, otherwise transcodes once per active camera into WebRTC-safe H.264 output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer.
+- copies source H.264 video into the shared relay when the selected profile is already browser-safe, otherwise transcodes once per active camera into WebRTC-safe H.264 output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer; HEVC and other non-H.264 feeds are republished as H.264 plus Opus at 48 kHz stereo so browser decoders stay on the common WebRTC path.
 - uses canonical internal MediaMTX source paths so live playback ffmpeg processes read the already-buffered internal RTSP feed instead of opening a second hardware RTSP session for the same selected profile.
-- normalizes live audio timestamps and transcodes audio to Opus in the shared relay path so cameras with unstable AAC timing do not corrupt live playback.
+- normalizes live timestamps in the shared relay path with generated PTS, wallclock-backed input timestamps, `aresample=async=1:first_pts=0`, and `avoid_negative_ts=make_zero` so cameras with unstable AAC timing do not corrupt live playback.
 - serves a Laravel-rendered player shell and an authenticated session bootstrap endpoint instead of embedding the stock public MediaMTX iframe page.
 - uses `public/js/live-wall-player.js` to fetch session bootstrap data and then load the official per-path MediaMTX `reader.js` implementation.
 - issues short-lived Laravel-signed MediaMTX read tokens per authenticated operator and per camera path.
@@ -155,11 +155,11 @@ The current secure playback sequence is:
 1. `App\Livewire\LiveWall\TilesManager` saves named walls and explicit camera tile assignments.
 2. `App\Http\Controllers\LiveWallController` renders the selected wall's saved tile assignments with Laravel session bootstrap URLs.
 3. `App\Http\Controllers\LiveWallPlayerController` renders the single-camera secure player page.
-4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token }`.
+4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token, stream }`.
 5. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
 6. MediaMTX calls `App\Http\Controllers\Relay\MediaMtxAuthController` with `action=read` and `protocol=webrtc`.
 7. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
-8. ffmpeg pulls the selected camera RTSP URI, copies H.264 video when the source is already browser-safe or otherwise transcodes to browser-safe H.264, normalizes audio timestamps while transcoding audio to Opus, and republishes locally to the same MediaMTX path over RTSP.
+8. ffmpeg pulls the selected camera RTSP URI, copies H.264 video when the source is already browser-safe or otherwise transcodes HEVC or other unsupported video into browser-safe H.264, transcodes AAC or other source audio into Opus at 48 kHz stereo, rebuilds timestamps with generated PTS and wallclock-backed timing, and republishes locally to the same MediaMTX path over RTSP.
 9. MediaMTX calls the same auth controller with `action=publish` and `protocol=rtsp` for that internal republish.
 10. The auth controller accepts that internal publish only when the configured publisher credentials match and the request IP comes from the Docker network.
 11. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.
@@ -182,7 +182,7 @@ This split keeps relay auth enabled for public-facing WebRTC while still allowin
 Current relay management behavior:
 
 - `config/mediamtx.php` pins the relay ports, runtime paths, and Docker-internal service URLs.
-- `App\Services\Relay\MediaMtxInstaller` validates the bundled relay binary path before startup.
+- `App\Services\Relay\MediaMtxInstaller` validates the configured relay binary path before startup.
 - `App\Services\Relay\MediaMtxConfigService` renders `storage/app/private/mediamtx/mediamtx.yml` from enabled cameras.
 - generated relay config now separates source-ingest paths from playback paths, so operator playback and recorder workers consume internal `camera-*-source*` paths instead of embedding camera RTSP URLs into every downstream path definition.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay, reconciles stale pid files, and checks the Control API.
@@ -206,6 +206,7 @@ Current recording management behavior:
 - stale `queued` or `processing` rows are re-dispatched on later scheduler ticks after the configured timeout window instead of remaining silently pending forever, except for transient motion rows whose buffered live window is no longer relevant and are therefore discarded.
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
 - review-asset jobs now dispatch onto a dedicated `review-assets` queue, while the shared worker polls `recordings`, then `default`, then `review-assets` so capture work stays ahead of SMB-heavy preview generation.
+- review-asset generation now also normalizes the durable recording itself into a browser-playable MP4 with audio before producing the low-resolution timeline preview assets, so the Recordings page and buffered review route can usually serve the saved recording directly instead of starting ffmpeg in the request path.
 - routine model lifecycle changes can now persist immutable `audit_logs` rows through a reusable Eloquent auditing trait, and recording status transitions use those database audit rows instead of emitting application-state `info` lines into `storage/logs/laravel.log`.
 - the Admin navigation now exposes an Audit log page with filters for subject type, actor type, source, event key, and free-text actor or IP search.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
