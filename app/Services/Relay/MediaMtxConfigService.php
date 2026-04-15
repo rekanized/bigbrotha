@@ -373,11 +373,25 @@ class MediaMtxConfigService
             return null;
         }
 
-        if ($this->definitionSupportsColdStart($definition) || isset($this->pathStatusService->activePaths()[$definition['path']])) {
+        if ($this->definitionSupportsColdStart($definition) || $this->definitionCanRetryWhenUnavailable($definition)) {
+            return $definition;
+        }
+
+        if (isset($this->pathStatusService->activePaths()[$definition['path']])) {
             return $definition;
         }
 
         return null;
+    }
+
+    /**
+    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     */
+    private function definitionCanRetryWhenUnavailable(array $definition): bool
+    {
+        $probeSource = $this->stringOrNull($definition['profile']['probe_source'] ?? null);
+
+        return $probeSource === null || strcasecmp($probeSource, 'motion-buffer') !== 0;
     }
 
     /**

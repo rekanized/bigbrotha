@@ -79,7 +79,8 @@
             this.maskPayloadNode = root.querySelector('[data-role="motion-mask-json"]');
             this.statusBadge = root.querySelector('[data-role="motion-status"]');
             this.activityValue = root.querySelector('[data-role="motion-activity-value"]');
-            this.changedPixelsValue = root.querySelector('[data-role="motion-changed-pixels"]');
+            this.triggerPixelsValue = root.querySelector('[data-role="motion-trigger-pixels"]');
+            this.pixelsNeededValue = root.querySelector('[data-role="motion-pixels-needed"]');
             this.selectedPixelsValue = root.querySelector('[data-role="motion-selected-pixels"]');
             this.stateValue = root.querySelector('[data-role="motion-state-value"]');
             this.paintButton = root.querySelector('[data-role="paint-button"]');
@@ -106,6 +107,9 @@
             this.tool = 'paint';
             this.sampleFps = 4;
             this.pixelDeltaThreshold = Math.max(1, Number.parseInt(root.dataset.pixelDeltaThreshold || '18', 10) || 18);
+            this.isolatedPixelRadius = Math.max(1, Number.parseInt(root.dataset.isolatedPixelRadius || '1', 10) || 1);
+            this.refreshSpikeWindowFrames = Math.max(1, Number.parseInt(root.dataset.refreshSpikeWindowFrames || '2', 10) || 2);
+            this.refreshSpikeActivityRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.refreshSpikeActivityRatio || '0.85') || 0.85));
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
             this.gridHeight = Math.max(1, Number.parseInt(root.dataset.gridHeight || '90', 10) || 90);
             this.totalPixels = this.gridWidth * this.gridHeight;
@@ -115,6 +119,7 @@
             this.offscreenContext = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
             this.maskBits = new Uint8Array(this.totalPixels);
             this.changedBits = new Uint8Array(this.totalPixels);
+            this.frameHistory = [];
             this.previousFrame = null;
             this.currentChangedPixels = 0;
             this.currentActivityRatio = 0;
@@ -497,28 +502,13 @@
             this.activityContext.imageSmoothingEnabled = false;
             this.activityContext.clearRect(0, 0, this.gridWidth, this.gridHeight);
 
-            if (!this.isTriggered || this.currentChangedPixels < 1) {
+            if (this.currentChangedPixels < 1) {
                 return;
             }
 
-            const bounds = this.changedAreaBounds();
-
-            if (!bounds) {
-                return;
-            }
-
-            this.activityContext.fillStyle = 'rgba(255, 88, 88, 0.24)';
-            this.activityContext.strokeStyle = 'rgba(255, 88, 88, 0.92)';
-            this.activityContext.lineWidth = 1;
-            this.activityContext.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-            this.activityContext.strokeRect(bounds.x + 0.5, bounds.y + 0.5, Math.max(0, bounds.width - 1), Math.max(0, bounds.height - 1));
-        }
-
-        changedAreaBounds() {
-            let minX = this.gridWidth;
-            let minY = this.gridHeight;
-            let maxX = -1;
-            let maxY = -1;
+            this.activityContext.fillStyle = this.isTriggered
+                ? 'rgba(255, 88, 88, 0.72)'
+                : 'rgba(255, 186, 82, 0.58)';
 
             for (let index = 0; index < this.totalPixels; index += 1) {
                 if (this.changedBits[index] !== 1) {
@@ -527,23 +517,8 @@
 
                 const x = index % this.gridWidth;
                 const y = Math.floor(index / this.gridWidth);
-
-                minX = Math.min(minX, x);
-                minY = Math.min(minY, y);
-                maxX = Math.max(maxX, x);
-                maxY = Math.max(maxY, y);
+                this.activityContext.fillRect(x, y, 1, 1);
             }
-
-            if (maxX < minX || maxY < minY) {
-                return null;
-            }
-
-            return {
-                x: minX,
-                y: minY,
-                width: (maxX - minX) + 1,
-                height: (maxY - minY) + 1,
-            };
         }
 
         refreshToolUi() {
@@ -570,13 +545,18 @@
 
         refreshMetrics() {
             const selectedPixels = this.selectedPixels();
+            const pixelsNeeded = this.triggerPixelsNeeded(selectedPixels);
 
             if (this.activityValue instanceof HTMLElement) {
                 this.activityValue.textContent = `${Math.round(this.currentActivityRatio * 100)}%`;
             }
 
-            if (this.changedPixelsValue instanceof HTMLElement) {
-                this.changedPixelsValue.textContent = String(this.currentChangedPixels);
+            if (this.triggerPixelsValue instanceof HTMLElement) {
+                this.triggerPixelsValue.textContent = String(this.currentChangedPixels);
+            }
+
+            if (this.pixelsNeededValue instanceof HTMLElement) {
+                this.pixelsNeededValue.textContent = String(pixelsNeeded);
             }
 
             if (this.selectedPixelsValue instanceof HTMLElement) {
@@ -588,16 +568,22 @@
                     this.stateValue.textContent = 'Mask empty';
                 } else if (this.isTriggered) {
                     this.stateValue.textContent = 'Recording';
+                } else if (this.currentChangedPixels > 0) {
+                    this.stateValue.textContent = 'Tracking';
                 } else {
-                    this.stateValue.textContent = 'Armed';
+                    this.stateValue.textContent = 'Watching';
                 }
             }
 
             if (this.statusBadge instanceof HTMLElement) {
-                this.statusBadge.dataset.state = this.isTriggered ? 'triggered' : (selectedPixels < 1 ? 'empty' : 'watching');
+                this.statusBadge.dataset.state = selectedPixels < 1
+                    ? 'empty'
+                    : (this.isTriggered ? 'triggered' : (this.currentChangedPixels > 0 ? 'active' : 'watching'));
                 this.statusBadge.textContent = selectedPixels < 1
                     ? 'Mask empty'
-                    : (this.isTriggered ? 'Recording trigger active' : 'Armed and watching');
+                    : (this.isTriggered
+                        ? 'Recording trigger active'
+                        : (this.currentChangedPixels > 0 ? 'Trigger pixels visible' : 'Armed and watching'));
             }
         }
 
@@ -695,32 +681,32 @@
                 );
             }
 
-            if (!(this.previousFrame instanceof Uint8Array)) {
+            this.frameHistory.push(currentFrame);
+
+            if (this.frameHistory.length > Math.max(2, this.refreshSpikeWindowFrames + 2)) {
+                this.frameHistory.shift();
+            }
+
+            if (this.frameHistory.length < 2) {
                 this.previousFrame = currentFrame;
 
                 return;
             }
 
-            let changedPixels = 0;
+            const transition = this.currentTransition();
             const selectedPixels = this.selectedPixels();
 
-            this.changedBits.fill(0);
+            this.previousFrame = currentFrame;
 
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                if (this.maskBits[index] !== 1) {
-                    continue;
-                }
-
-                if (Math.abs(currentFrame[index] - this.previousFrame[index]) >= this.pixelDeltaThreshold) {
-                    this.changedBits[index] = 1;
-                    changedPixels += 1;
-                }
+            if (transition === null) {
+                return;
             }
 
-            this.previousFrame = currentFrame;
-            this.currentChangedPixels = changedPixels;
-            this.currentActivityRatio = selectedPixels > 0 ? (changedPixels / selectedPixels) : 0;
-            this.isTriggered = selectedPixels > 0 && this.currentActivityRatio >= (this.threshold() / 100);
+            this.changedBits.fill(0);
+            this.changedBits.set(transition.bits);
+            this.currentChangedPixels = transition.changedPixels;
+            this.currentActivityRatio = selectedPixels > 0 ? (transition.changedPixels / selectedPixels) : 0;
+            this.isTriggered = selectedPixels > 0 && transition.changedPixels >= this.triggerPixelsNeeded(selectedPixels);
             this.renderActivity();
             this.refreshMetrics();
         }
@@ -781,7 +767,178 @@
             return count;
         }
 
+        triggerPixelsNeeded(selectedPixels = this.selectedPixels()) {
+            if (selectedPixels < 1) {
+                return 0;
+            }
+
+            return Math.max(1, Math.ceil(selectedPixels * (this.threshold() / 100)));
+        }
+
+        currentTransition() {
+            const currentIndex = this.frameHistory.length - 1;
+
+            if (currentIndex < 1) {
+                return null;
+            }
+
+            const previousFrame = this.frameHistory[currentIndex - 1];
+            const currentFrame = this.frameHistory[currentIndex];
+            const bits = new Uint8Array(this.totalPixels);
+            let changedPixels = 0;
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                if (this.maskBits[index] !== 1) {
+                    continue;
+                }
+
+                if (Math.abs(currentFrame[index] - previousFrame[index]) >= this.pixelDeltaThreshold) {
+                    bits[index] = 1;
+                    changedPixels += 1;
+                }
+            }
+
+            if (changedPixels < 1) {
+                return {
+                    bits,
+                    changedPixels: 0,
+                };
+            }
+
+            const filteredBits = this.filterIsolatedChangedBits(bits);
+            const filteredChangedPixels = this.countChangedBits(filteredBits);
+
+            if (filteredChangedPixels < 1) {
+                return {
+                    bits: filteredBits,
+                    changedPixels: 0,
+                };
+            }
+
+            if (this.isIsolatedRefreshSpike(currentIndex)) {
+                return {
+                    bits: new Uint8Array(this.totalPixels),
+                    changedPixels: 0,
+                };
+            }
+
+            return {
+                bits: filteredBits,
+                changedPixels: filteredChangedPixels,
+            };
+        }
+
+        filterIsolatedChangedBits(bits) {
+            if (!(bits instanceof Uint8Array)) {
+                return new Uint8Array(this.totalPixels);
+            }
+
+            const filteredBits = new Uint8Array(this.totalPixels);
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                if (bits[index] !== 1) {
+                    continue;
+                }
+
+                const x = index % this.gridWidth;
+                const y = Math.floor(index / this.gridWidth);
+
+                if (this.hasNearbyChangedBit(bits, x, y)) {
+                    filteredBits[index] = 1;
+                }
+            }
+
+            return filteredBits;
+        }
+
+        hasNearbyChangedBit(bits, x, y) {
+            for (let neighborY = Math.max(0, y - this.isolatedPixelRadius); neighborY <= Math.min(this.gridHeight - 1, y + this.isolatedPixelRadius); neighborY += 1) {
+                for (let neighborX = Math.max(0, x - this.isolatedPixelRadius); neighborX <= Math.min(this.gridWidth - 1, x + this.isolatedPixelRadius); neighborX += 1) {
+                    if (neighborX === x && neighborY === y) {
+                        continue;
+                    }
+
+                    if (bits[(neighborY * this.gridWidth) + neighborX] === 1) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        countChangedBits(bits) {
+            let changedPixels = 0;
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                changedPixels += bits[index] === 1 ? 1 : 0;
+            }
+
+            return changedPixels;
+        }
+
+        isIsolatedRefreshSpike(currentIndex) {
+            const previousFrame = this.frameHistory[currentIndex - 1] ?? null;
+            const currentFrame = this.frameHistory[currentIndex] ?? null;
+
+            if (!(previousFrame instanceof Uint8Array) || !(currentFrame instanceof Uint8Array)) {
+                return false;
+            }
+
+            const activityThreshold = this.threshold() / 100;
+            const currentTransitionRatio = this.changedPixelsAcrossFrame(previousFrame, currentFrame) / this.totalPixels;
+
+            if (currentTransitionRatio < this.refreshSpikeActivityRatio) {
+                return false;
+            }
+
+            for (let lookahead = 1; lookahead <= this.refreshSpikeWindowFrames; lookahead += 1) {
+                const futureFrame = this.frameHistory[currentIndex + lookahead] ?? null;
+
+                if (!(futureFrame instanceof Uint8Array)) {
+                    break;
+                }
+
+                const futureChangedRatio = this.changedPixelsAcrossFrame(currentFrame, futureFrame) / this.totalPixels;
+                const recoveredRatio = this.changedPixelsAcrossFrame(previousFrame, futureFrame) / this.totalPixels;
+
+                if (futureChangedRatio >= this.refreshSpikeActivityRatio && recoveredRatio < activityThreshold) {
+                    return true;
+                }
+            }
+
+            for (let lookback = 1; lookback <= this.refreshSpikeWindowFrames; lookback += 1) {
+                const olderFrame = this.frameHistory[currentIndex - lookback - 1] ?? null;
+
+                if (!(olderFrame instanceof Uint8Array)) {
+                    break;
+                }
+
+                const pastChangedRatio = this.changedPixelsAcrossFrame(olderFrame, previousFrame) / this.totalPixels;
+                const recoveredRatio = this.changedPixelsAcrossFrame(olderFrame, currentFrame) / this.totalPixels;
+
+                if (pastChangedRatio >= this.refreshSpikeActivityRatio && recoveredRatio < activityThreshold) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        changedPixelsAcrossFrame(leftFrame, rightFrame) {
+            let changedPixels = 0;
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                if (Math.abs(leftFrame[index] - rightFrame[index]) >= this.pixelDeltaThreshold) {
+                    changedPixels += 1;
+                }
+            }
+
+            return changedPixels;
+        }
+
         resetDetectionState() {
+            this.frameHistory = [];
             this.previousFrame = null;
             this.changedBits.fill(0);
             this.currentChangedPixels = 0;

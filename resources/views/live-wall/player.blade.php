@@ -32,7 +32,7 @@
                 @elseif (!is_array($liveSelection) || !is_string($sessionUrl) || $sessionUrl === '')
                     <div class="empty-state">
                         <strong>No live RTSP stream is ready.</strong>
-                        <p>Refresh stream profiles or run a stream test from Camera Fleet to populate a playable stream.</p>
+                        <p>This player retries configured live feeds automatically every 15 seconds. Save or verify a direct RTSP path in Camera Fleet first if this camera still has no retryable live path.</p>
                     </div>
                 @else
                     <div class="wall-tile__stream">

@@ -539,7 +539,7 @@
 
             this.destroyConnection();
             const failureMessage = error instanceof Error ? error.message : `Unable to play ${this.label}.`;
-            this.setMessage(`${failureMessage} Retrying in 15 seconds.`);
+            this.setMessage(`${failureMessage} Retrying automatically in 15 seconds.`);
             this.scheduleReconnect();
         }
 

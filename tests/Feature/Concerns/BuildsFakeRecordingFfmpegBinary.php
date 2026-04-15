@@ -61,6 +61,10 @@ emit_brief_motion_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
+emit_isolated_pixel_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+}
+
 emit_quiet_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
@@ -94,6 +98,16 @@ write_segments() {
                 case "$index" in
                     4|5|6)
                         label="brief-motion"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
+            isolated-pixel)
+                case "$index" in
+                    4|5|6)
+                        label="isolated-pixel"
                         ;;
                     *)
                         label="quiet"
@@ -149,6 +163,8 @@ if arg_has 'rawvideo' "$@"; then
         emit_motion_frame
     elif [[ "$contents" == brief-motion* ]]; then
         emit_brief_motion_frame
+    elif [[ "$contents" == isolated-pixel* ]]; then
+        emit_isolated_pixel_frame
     elif [[ "$contents" == refresh-glitch* ]]; then
         emit_refresh_glitch_frame
     else
@@ -299,6 +315,7 @@ BASH,
             'motion-late' => $rollingMotionScript('corner'),
             'motion-preroll-only' => $rollingMotionScript('preroll-only'),
             'motion-brief-local' => $rollingMotionScript('brief-motion'),
+            'motion-isolated-pixel' => $rollingMotionScript('isolated-pixel'),
             'motion-refresh-glitch' => $rollingMotionScript('refresh-glitch'),
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash

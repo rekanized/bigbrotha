@@ -2913,6 +2913,7 @@ html[data-theme='dark'] body.page-dashboard .tile-builder-row__drag-handle {
 }
 
 html[data-theme='dark'] body.page-dashboard .motion-editor__brush-value,
+html[data-theme='dark'] body.page-dashboard .motion-editor__hint,
 html[data-theme='dark'] body.page-dashboard .wall-record__meta,
 html[data-theme='dark'] body.page-dashboard .wall-record__description {
     color: var(--muted);

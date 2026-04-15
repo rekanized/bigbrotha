@@ -157,6 +157,7 @@ class RecordingMotionDetectorService
 
         $pixelDeltaThreshold = $this->maskService->pixelDeltaThreshold();
         $activityThreshold = $camera->motionTriggerThreshold() / 100;
+        $isolatedPixelRadius = max(1, (int) config('recording.motion.isolated_pixel_radius', 1));
         $refreshSpikeWindowFrames = max(1, (int) config('recording.motion.persistence_window_frames', 2));
         $refreshSpikeActivityRatio = max(
             $activityThreshold,
@@ -171,12 +172,17 @@ class RecordingMotionDetectorService
         }
 
         for ($frameIndex = 1; $frameIndex < $frameCount; $frameIndex++) {
-            $changedPixels = $this->changedPixels(
+            $changedPixels = count($this->filterIsolatedChangedIndexes(
+                $this->changedIndexes(
                 $frames[$frameIndex - 1],
                 $frames[$frameIndex],
                 $selectedIndexes,
                 $pixelDeltaThreshold,
-            );
+                ),
+                $gridWidth,
+                $gridHeight,
+                $isolatedPixelRadius,
+            ));
             $activityRatio = $changedPixels / $selectedPixels;
 
             if ($activityRatio < $activityThreshold) {
@@ -278,17 +284,62 @@ class RecordingMotionDetectorService
     /**
      * @param  array<int, int>  $selectedIndexes
      */
-    private function changedPixels(string $leftFrame, string $rightFrame, array $selectedIndexes, int $pixelDeltaThreshold): int
+    private function changedIndexes(string $leftFrame, string $rightFrame, array $selectedIndexes, int $pixelDeltaThreshold): array
     {
-        $changedPixels = 0;
+        $changedIndexes = [];
 
         foreach ($selectedIndexes as $index) {
             if (abs(ord($leftFrame[$index]) - ord($rightFrame[$index])) >= $pixelDeltaThreshold) {
-                $changedPixels++;
+                $changedIndexes[] = $index;
             }
         }
 
-        return $changedPixels;
+        return $changedIndexes;
+    }
+
+    /**
+     * @param  array<int, int>  $changedIndexes
+     * @return array<int, int>
+     */
+    private function filterIsolatedChangedIndexes(array $changedIndexes, int $gridWidth, int $gridHeight, int $radius): array
+    {
+        if (count($changedIndexes) < 2) {
+            return [];
+        }
+
+        $changedLookup = array_fill_keys($changedIndexes, true);
+        $filtered = [];
+
+        foreach ($changedIndexes as $index) {
+            $x = $index % $gridWidth;
+            $y = intdiv($index, $gridWidth);
+
+            if ($this->hasNearbyChangedIndex($changedLookup, $x, $y, $gridWidth, $gridHeight, $radius)) {
+                $filtered[] = $index;
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * @param  array<int, bool>  $changedLookup
+     */
+    private function hasNearbyChangedIndex(array $changedLookup, int $x, int $y, int $gridWidth, int $gridHeight, int $radius): bool
+    {
+        for ($neighborY = max(0, $y - $radius); $neighborY <= min($gridHeight - 1, $y + $radius); $neighborY++) {
+            for ($neighborX = max(0, $x - $radius); $neighborX <= min($gridWidth - 1, $x + $radius); $neighborX++) {
+                if ($neighborX === $x && $neighborY === $y) {
+                    continue;
+                }
+
+                if (isset($changedLookup[($neighborY * $gridWidth) + $neighborX])) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function changedPixelsAcrossFrame(string $leftFrame, string $rightFrame, int $frameSize, int $pixelDeltaThreshold): int

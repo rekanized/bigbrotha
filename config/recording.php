@@ -85,6 +85,7 @@ return [
         'grid_width' => max(32, (int) env('CAMERA_MOTION_ANALYSIS_WIDTH', 160)),
         'grid_height' => max(18, (int) env('CAMERA_MOTION_ANALYSIS_HEIGHT', 90)),
         'pixel_delta_threshold' => max(1, (int) env('CAMERA_MOTION_PIXEL_DELTA_THRESHOLD', 18)),
+        'isolated_pixel_radius' => max(1, (int) env('CAMERA_MOTION_ISOLATED_PIXEL_RADIUS', 1)),
         'persistence_window_frames' => max(1, (int) env('CAMERA_MOTION_PERSISTENCE_WINDOW_FRAMES', 2)),
         'refresh_spike_activity_ratio' => max(0.5, min(1.0, (float) env('CAMERA_MOTION_REFRESH_SPIKE_ACTIVITY_RATIO', 0.85))),
     ],

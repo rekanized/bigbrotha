@@ -892,7 +892,7 @@
                             <small class="field-error">{{ $message }}</small>
                         @enderror
 
-                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to confirm when the selected area crosses the threshold strongly enough to start recording.</p>
+                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to see exactly which cells are crossing the per-pixel threshold before the recorder trips.</p>
 
                         <div class="motion-editor-shell">
                             @if ($editingCameraId === null)
@@ -914,6 +914,9 @@
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
                                     data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
+                                    data-isolated-pixel-radius="{{ config('recording.motion.isolated_pixel_radius', 1) }}"
+                                    data-refresh-spike-window-frames="{{ config('recording.motion.persistence_window_frames', 2) }}"
+                                    data-refresh-spike-activity-ratio="{{ config('recording.motion.refresh_spike_activity_ratio', 0.85) }}"
                                     wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($form['recording_rtsp_path'] ?? '')) }}"
                                     wire:ignore
                                 >
@@ -945,6 +948,8 @@
                                         </label>
                                     </div>
 
+                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber cells are crossing the per-pixel motion threshold right now. Red cells mean enough trigger pixels are active to start recording.</p>
+
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">
                                             <span>Current activity</span>
@@ -952,8 +957,13 @@
                                         </article>
 
                                         <article class="motion-editor__stat-card">
-                                            <span>Changed masked pixels</span>
-                                            <strong data-role="motion-changed-pixels">0</strong>
+                                            <span>Trigger pixels now</span>
+                                            <strong data-role="motion-trigger-pixels">0</strong>
+                                        </article>
+
+                                        <article class="motion-editor__stat-card">
+                                            <span>Pixels needed</span>
+                                            <strong data-role="motion-pixels-needed">0</strong>
                                         </article>
 
                                         <article class="motion-editor__stat-card">

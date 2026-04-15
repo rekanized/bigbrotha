@@ -132,7 +132,7 @@
                             @else
                                 <div class="wall-tile__empty wall-monitor-tile__stream">
                                     <strong>No live RTSP stream is ready.</strong>
-                                    <p>The wall only shows live relay sessions. Refresh stream profiles or repair the camera feed, then wait for the next reconnect attempt.</p>
+                                    <p>The wall retries configured live feeds automatically every 15 seconds. Save or verify a direct RTSP path in Camera Fleet first if this camera still has no retryable live path.</p>
                                 </div>
                             @endif
                             <div class="wall-monitor-tile__gridline" aria-hidden="true"></div>

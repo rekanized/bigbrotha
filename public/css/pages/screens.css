@@ -3510,6 +3510,11 @@ body.live-wall-focus-mode {
     background: hsla(5 63% 52% / 0.9);
 }
 
+.motion-editor__status-badge[data-state='active'] {
+    background: hsla(35 95% 54% / 0.92);
+    color: hsla(220 37% 9% / 0.94);
+}
+
 .motion-editor__status-badge[data-state='empty'] {
     background: hsla(33 83% 42% / 0.9);
 }
@@ -3549,8 +3554,12 @@ body.live-wall-focus-mode {
     font-size: 0.9rem;
 }
 
+.motion-editor__hint {
+    margin-top: -2px;
+}
+
 .motion-editor__stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .motion-editor__stat-card {

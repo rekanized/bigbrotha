@@ -155,9 +155,10 @@ class LiveWallStreamTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertDontSee(route('live-wall.session', ['camera' => $camera]), false)
-            ->assertDontSee('data-profile-index="0"', false)
-            ->assertSee('No live RTSP stream is ready.', false);
+            ->assertSee(route('live-wall.session', ['camera' => $camera]), false)
+            ->assertSee('data-profile-index="1"', false)
+            ->assertDontSee('The wall retries configured live feeds automatically every 15 seconds.', false)
+            ->assertSee('data-webrtc-player', false);
     }
 
     public function test_live_wall_does_not_render_saved_preview_images_when_live_stream_bootstrap_is_unavailable(): void
@@ -223,9 +224,10 @@ class LiveWallStreamTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('No live RTSP stream is ready.', false)
+            ->assertSee(route('live-wall.session', ['camera' => $camera]), false)
             ->assertDontSee(route('camera-fleet.preview', ['camera' => $camera, 'profileIndex' => 1]), false)
-            ->assertDontSee('Latest saved preview for Back Lot', false);
+            ->assertDontSee('Latest saved preview for Back Lot', false)
+            ->assertSee('data-webrtc-player', false);
     }
 
     public function test_live_wall_only_renders_cameras_assigned_to_the_selected_wall(): void
@@ -588,6 +590,46 @@ class LiveWallStreamTest extends TestCase
             ->assertDontSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false)
             ->assertDontSee('data-reader-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/reader.js"', false)
             ->assertDontSee('data-whep-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep"', false);
+    }
+
+    public function test_live_wall_session_allows_retry_bootstrap_for_a_failed_configured_profile(): void
+    {
+        config()->set('mediamtx.auto_start', false);
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example/__webrtc');
+        config()->set('mediamtx.auth.token_secret', 'test-stream-secret');
+        $this->mockRelayProcess(running: true);
+
+        $camera = Camera::query()->create([
+            'name' => 'Kitchen',
+            'local_ip' => '192.168.1.66',
+            'http_port' => 2020,
+            'onvif_port' => 2020,
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [
+                    [
+                        'token' => 'profile_2',
+                        'name' => 'minorStream',
+                        'encoding' => 'H264',
+                        'resolution' => '1280x720',
+                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'path' => '/stream2',
+                        'probe_status' => 'Failed',
+                        'transport_persistable' => false,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->getJson(route('live-wall.session', ['camera' => $camera]))
+            ->assertOk()
+            ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
+            ->assertJsonPath('whep_url', 'https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep');
     }
 
     public function test_live_wall_session_can_use_an_already_active_live_path_even_when_the_profile_is_not_cold_startable(): void

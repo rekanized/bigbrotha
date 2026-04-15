@@ -136,6 +136,44 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertNotNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
     }
 
+    public function test_it_ignores_isolated_single_pixel_changes_inside_the_mask(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.isolated_pixel_radius', 1);
+
+        Camera::query()->create([
+            'name' => 'Office Door',
+            'local_ip' => '192.168.1.90',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream19',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-isolated-pixel')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+        $this->assertNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
     public function test_it_ignores_motion_outside_the_selected_mask(): void
     {
         config()->set('queue.default', 'sync');
