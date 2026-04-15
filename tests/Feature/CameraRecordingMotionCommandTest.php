@@ -174,6 +174,85 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
     }
 
+    public function test_it_ignores_two_pixel_adjacent_changes_when_three_connected_pixels_are_required(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.isolated_pixel_radius', 1);
+        config()->set('recording.motion.minimum_cluster_pixels', 3);
+
+        Camera::query()->create([
+            'name' => 'Loading Bay Pair Noise',
+            'local_ip' => '192.168.1.92',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream21',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-adjacent-pair')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+        $this->assertNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
+    public function test_it_weights_dense_motion_clusters_more_than_sparse_changes(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.cluster_bonus_min_size', 3);
+        config()->set('recording.motion.cluster_bonus_multiplier', 2);
+
+        Camera::query()->create([
+            'name' => 'Clustered Motion Yard',
+            'local_ip' => '192.168.1.91',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream20',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_trigger_pixels' => 4,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-clustered-triplet')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 1);
+        $this->assertNotNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
     public function test_it_ignores_motion_outside_the_selected_mask(): void
     {
         config()->set('queue.default', 'sync');

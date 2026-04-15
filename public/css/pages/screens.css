@@ -3445,12 +3445,12 @@ body.live-wall-focus-mode {
     align-items: end;
 }
 
-.motion-threshold-card__slider {
+.motion-threshold-card__input {
     min-width: 100%;
 }
 
 .motion-threshold-card__value {
-    min-width: 64px;
+    min-width: 88px;
     text-align: right;
     font-size: 1.15rem;
 }

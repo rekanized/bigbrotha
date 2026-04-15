@@ -65,6 +65,14 @@ emit_isolated_pixel_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
+emit_adjacent_pair_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+}
+
+emit_clustered_triplet_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+}
+
 emit_quiet_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
@@ -108,6 +116,26 @@ write_segments() {
                 case "$index" in
                     4|5|6)
                         label="isolated-pixel"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
+            adjacent-pair)
+                case "$index" in
+                    4|5|6)
+                        label="adjacent-pair"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
+            clustered-triplet)
+                case "$index" in
+                    4|5|6)
+                        label="clustered-triplet"
                         ;;
                     *)
                         label="quiet"
@@ -165,6 +193,10 @@ if arg_has 'rawvideo' "$@"; then
         emit_brief_motion_frame
     elif [[ "$contents" == isolated-pixel* ]]; then
         emit_isolated_pixel_frame
+    elif [[ "$contents" == adjacent-pair* ]]; then
+        emit_adjacent_pair_frame
+    elif [[ "$contents" == clustered-triplet* ]]; then
+        emit_clustered_triplet_frame
     elif [[ "$contents" == refresh-glitch* ]]; then
         emit_refresh_glitch_frame
     else
@@ -316,6 +348,8 @@ BASH,
             'motion-preroll-only' => $rollingMotionScript('preroll-only'),
             'motion-brief-local' => $rollingMotionScript('brief-motion'),
             'motion-isolated-pixel' => $rollingMotionScript('isolated-pixel'),
+            'motion-adjacent-pair' => $rollingMotionScript('adjacent-pair'),
+            'motion-clustered-triplet' => $rollingMotionScript('clustered-triplet'),
             'motion-refresh-glitch' => $rollingMotionScript('refresh-glitch'),
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash

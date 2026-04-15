@@ -89,8 +89,8 @@
             this.clearButton = root.querySelector('[data-role="clear-button"]');
             this.brushInput = root.querySelector('[data-role="brush-input"]');
             this.brushValue = root.querySelector('[data-role="brush-value"]');
-            this.thresholdInput = null;
-            this.thresholdValue = null;
+            this.triggerPixelsInput = null;
+            this.triggerPixelsValueLabel = null;
             this.profileInput = null;
             this.saveButton = null;
             this.player = null;
@@ -98,8 +98,6 @@
             this.playerRestartTimer = null;
             this.playerRestartAttempts = 0;
             this.maxPlayerRestartAttempts = 40;
-            this.maskSyncTimer = null;
-            this.thresholdSyncTimer = null;
             this.sampleFrameHandle = null;
             this.lastSampleAt = 0;
             this.isPainting = false;
@@ -108,6 +106,9 @@
             this.sampleFps = 4;
             this.pixelDeltaThreshold = Math.max(1, Number.parseInt(root.dataset.pixelDeltaThreshold || '18', 10) || 18);
             this.isolatedPixelRadius = Math.max(1, Number.parseInt(root.dataset.isolatedPixelRadius || '1', 10) || 1);
+            this.minimumClusterPixels = Math.max(3, Number.parseInt(root.dataset.minimumClusterPixels || '3', 10) || 3);
+            this.clusterBonusMinSize = Math.max(3, Number.parseInt(root.dataset.clusterBonusMinSize || '3', 10) || 3);
+            this.clusterBonusMultiplier = Math.max(0, Number.parseInt(root.dataset.clusterBonusMultiplier || '2', 10) || 2);
             this.refreshSpikeWindowFrames = Math.max(1, Number.parseInt(root.dataset.refreshSpikeWindowFrames || '2', 10) || 2);
             this.refreshSpikeActivityRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.refreshSpikeActivityRatio || '0.85') || 0.85));
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
@@ -122,13 +123,14 @@
             this.frameHistory = [];
             this.previousFrame = null;
             this.currentChangedPixels = 0;
+            this.currentRawChangedPixels = 0;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 
             this.handlePointerDown = this.handlePointerDown.bind(this);
             this.handlePointerMove = this.handlePointerMove.bind(this);
             this.handlePointerUp = this.handlePointerUp.bind(this);
-            this.handleThresholdInput = this.handleThresholdInput.bind(this);
+            this.handleTriggerPixelsInput = this.handleTriggerPixelsInput.bind(this);
             this.handleProfileChange = this.handleProfileChange.bind(this);
             this.handlePaintModeClick = this.handlePaintModeClick.bind(this);
             this.handleEraseModeClick = this.handleEraseModeClick.bind(this);
@@ -141,7 +143,7 @@
             this.refreshComponentBindings();
             this.bindEvents();
             this.refreshToolUi();
-            this.refreshThresholdUi();
+            this.refreshTriggerPixelsUi();
             this.refreshMetrics();
             this.renderMask();
             this.renderActivity();
@@ -157,7 +159,7 @@
             }
 
             document.removeEventListener('pointerup', this.handlePointerUp);
-            this.thresholdInput?.removeEventListener('input', this.handleThresholdInput);
+            this.triggerPixelsInput?.removeEventListener('input', this.handleTriggerPixelsInput);
             this.profileInput?.removeEventListener('change', this.handleProfileChange);
             this.paintButton?.removeEventListener('click', this.handlePaintModeClick);
             this.eraseButton?.removeEventListener('click', this.handleEraseModeClick);
@@ -165,14 +167,6 @@
             this.clearButton?.removeEventListener('click', this.handleClearMaskClick);
             this.brushInput?.removeEventListener('input', this.handleBrushInput);
             this.saveButton?.removeEventListener('click', this.handleSaveButtonClick, true);
-
-            if (this.maskSyncTimer !== null) {
-                window.clearTimeout(this.maskSyncTimer);
-            }
-
-            if (this.thresholdSyncTimer !== null) {
-                window.clearTimeout(this.thresholdSyncTimer);
-            }
 
             if (this.sampleFrameHandle !== null) {
                 window.cancelAnimationFrame(this.sampleFrameHandle);
@@ -194,20 +188,20 @@
         }
 
         refreshComponentBindings() {
-            const nextThresholdInput = this.findInComponent('[data-role="motion-threshold-input"]');
-            const nextThresholdValue = this.findInComponent('[data-role="motion-threshold-value"]');
+            const nextTriggerPixelsInput = this.findInComponent('[data-role="motion-trigger-pixels-input"]');
+            const nextTriggerPixelsValue = this.findInComponent('[data-role="motion-trigger-pixels-value"]');
             const nextProfileInput = this.findInComponent('[data-role="motion-profile-select"]');
             const nextSaveButton = this.findInComponent('[data-role="camera-save-button"]');
 
-            if (this.thresholdInput !== nextThresholdInput) {
-                this.thresholdInput?.removeEventListener('input', this.handleThresholdInput);
-                this.thresholdInput = nextThresholdInput;
-                this.thresholdInput?.addEventListener('input', this.handleThresholdInput);
+            if (this.triggerPixelsInput !== nextTriggerPixelsInput) {
+                this.triggerPixelsInput?.removeEventListener('input', this.handleTriggerPixelsInput);
+                this.triggerPixelsInput = nextTriggerPixelsInput;
+                this.triggerPixelsInput?.addEventListener('input', this.handleTriggerPixelsInput);
             }
 
-            if (this.thresholdValue !== nextThresholdValue) {
-                this.thresholdValue = nextThresholdValue;
-                this.refreshThresholdUi();
+            if (this.triggerPixelsValueLabel !== nextTriggerPixelsValue) {
+                this.triggerPixelsValueLabel = nextTriggerPixelsValue;
+                this.refreshTriggerPixelsUi();
             }
 
             if (this.profileInput !== nextProfileInput) {
@@ -297,24 +291,20 @@
             event.preventDefault();
             event.stopImmediatePropagation();
 
-            if (this.maskSyncTimer !== null) {
-                window.clearTimeout(this.maskSyncTimer);
-                this.maskSyncTimer = null;
-            }
-
-            if (this.thresholdSyncTimer !== null) {
-                window.clearTimeout(this.thresholdSyncTimer);
-                this.thresholdSyncTimer = null;
-            }
-
             this.isSaving = true;
 
+            if (this.saveButton instanceof HTMLButtonElement) {
+                this.saveButton.disabled = true;
+            }
+
             try {
-                await component.call('syncMotionMask', this.maskPayload());
-                await component.call('syncMotionThreshold', this.threshold());
-                await component.call('saveCamera');
+                await component.call('saveCameraFromMotionEditor', this.maskPayload(), this.triggerPixelsThreshold());
             } finally {
                 this.isSaving = false;
+
+                if (this.saveButton instanceof HTMLButtonElement) {
+                    this.saveButton.disabled = false;
+                }
             }
         }
 
@@ -334,7 +324,6 @@
             this.renderMask();
             this.renderActivity();
             this.refreshMetrics();
-            this.syncMaskSoon(true);
         }
 
         handleClearMaskClick() {
@@ -343,7 +332,6 @@
             this.renderMask();
             this.renderActivity();
             this.refreshMetrics();
-            this.syncMaskSoon(true);
         }
 
         handleBrushInput() {
@@ -352,20 +340,8 @@
             }
         }
 
-        handleThresholdInput() {
-            this.refreshThresholdUi();
-
-            if (this.thresholdSyncTimer !== null) {
-                window.clearTimeout(this.thresholdSyncTimer);
-            }
-
-            this.thresholdSyncTimer = window.setTimeout(() => {
-                const component = this.livewireComponent();
-
-                if (component && typeof component.call === 'function') {
-                    component.call('syncMotionThreshold', this.threshold());
-                }
-            }, 140);
+        handleTriggerPixelsInput() {
+            this.refreshTriggerPixelsUi();
         }
 
         handleProfileChange() {
@@ -400,7 +376,6 @@
             }
 
             this.isPainting = false;
-            this.syncMaskSoon(true);
         }
 
         paintAt(event) {
@@ -432,7 +407,6 @@
 
             this.renderMask();
             this.refreshMetrics();
-            this.syncMaskSoon(false);
         }
 
         gridPointFromEvent(event) {
@@ -450,20 +424,6 @@
                 x: Math.max(0, Math.min(this.gridWidth - 1, Math.floor(((event.clientX - rect.left) / rect.width) * this.gridWidth))),
                 y: Math.max(0, Math.min(this.gridHeight - 1, Math.floor(((event.clientY - rect.top) / rect.height) * this.gridHeight))),
             };
-        }
-
-        syncMaskSoon(immediate) {
-            if (this.maskSyncTimer !== null) {
-                window.clearTimeout(this.maskSyncTimer);
-            }
-
-            this.maskSyncTimer = window.setTimeout(() => {
-                const component = this.livewireComponent();
-
-                if (component && typeof component.call === 'function') {
-                    component.call('syncMotionMask', this.maskPayload());
-                }
-            }, immediate ? 0 : 120);
         }
 
         renderMask() {
@@ -537,15 +497,27 @@
             this.handleBrushInput();
         }
 
-        refreshThresholdUi() {
-            if (this.thresholdValue instanceof HTMLElement) {
-                this.thresholdValue.textContent = `${this.threshold()}%`;
+        refreshTriggerPixelsUi() {
+            const selectedPixels = this.selectedPixels();
+            const maximum = this.maximumTriggerPixels(selectedPixels);
+
+            if (this.triggerPixelsInput instanceof HTMLInputElement) {
+                const nextValue = Math.max(1, Math.min(maximum, Number.parseInt(this.triggerPixelsInput.value || '1', 10) || 1));
+
+                this.triggerPixelsInput.max = String(maximum);
+                this.triggerPixelsInput.value = String(nextValue);
+            }
+
+            if (this.triggerPixelsValueLabel instanceof HTMLElement) {
+                this.triggerPixelsValueLabel.textContent = String(this.triggerPixelsThreshold());
             }
         }
 
         refreshMetrics() {
             const selectedPixels = this.selectedPixels();
             const pixelsNeeded = this.triggerPixelsNeeded(selectedPixels);
+
+            this.refreshTriggerPixelsUi();
 
             if (this.activityValue instanceof HTMLElement) {
                 this.activityValue.textContent = `${Math.round(this.currentActivityRatio * 100)}%`;
@@ -705,7 +677,8 @@
             this.changedBits.fill(0);
             this.changedBits.set(transition.bits);
             this.currentChangedPixels = transition.changedPixels;
-            this.currentActivityRatio = selectedPixels > 0 ? (transition.changedPixels / selectedPixels) : 0;
+            this.currentRawChangedPixels = transition.rawChangedPixels;
+            this.currentActivityRatio = selectedPixels > 0 ? Math.min(1, (transition.changedPixels / selectedPixels)) : 0;
             this.isTriggered = selectedPixels > 0 && transition.changedPixels >= this.triggerPixelsNeeded(selectedPixels);
             this.renderActivity();
             this.refreshMetrics();
@@ -741,12 +714,15 @@
             };
         }
 
-        threshold() {
-            if (!(this.thresholdInput instanceof HTMLInputElement)) {
-                return 35;
+        triggerPixelsThreshold() {
+            if (!(this.triggerPixelsInput instanceof HTMLInputElement)) {
+                return 1;
             }
 
-            return Math.max(1, Math.min(100, Number.parseInt(this.thresholdInput.value || '35', 10) || 35));
+            const selectedPixels = this.selectedPixels();
+            const maximum = this.maximumTriggerPixels(selectedPixels);
+
+            return Math.max(1, Math.min(maximum, Number.parseInt(this.triggerPixelsInput.value || '1', 10) || 1));
         }
 
         brushRadius() {
@@ -772,7 +748,15 @@
                 return 0;
             }
 
-            return Math.max(1, Math.ceil(selectedPixels * (this.threshold() / 100)));
+            return Math.max(1, Math.min(this.maximumTriggerPixels(selectedPixels), this.triggerPixelsThreshold()));
+        }
+
+        maximumTriggerPixels(selectedPixels = this.selectedPixels()) {
+            if (selectedPixels < 1) {
+                return 1;
+            }
+
+            return Math.max(1, selectedPixels + (selectedPixels * this.clusterBonusMultiplier));
         }
 
         currentTransition() {
@@ -802,6 +786,7 @@
                 return {
                     bits,
                     changedPixels: 0,
+                    rawChangedPixels: 0,
                 };
             }
 
@@ -812,6 +797,7 @@
                 return {
                     bits: filteredBits,
                     changedPixels: 0,
+                    rawChangedPixels: 0,
                 };
             }
 
@@ -819,12 +805,16 @@
                 return {
                     bits: new Uint8Array(this.totalPixels),
                     changedPixels: 0,
+                    rawChangedPixels: 0,
                 };
             }
 
+            const weightedTriggerPixels = this.weightedTriggerPixels(filteredBits);
+
             return {
                 bits: filteredBits,
-                changedPixels: filteredChangedPixels,
+                changedPixels: weightedTriggerPixels,
+                rawChangedPixels: filteredChangedPixels,
             };
         }
 
@@ -834,37 +824,63 @@
             }
 
             const filteredBits = new Uint8Array(this.totalPixels);
+            const visited = new Uint8Array(this.totalPixels);
 
             for (let index = 0; index < this.totalPixels; index += 1) {
-                if (bits[index] !== 1) {
+                if (bits[index] !== 1 || visited[index] === 1) {
                     continue;
                 }
 
-                const x = index % this.gridWidth;
-                const y = Math.floor(index / this.gridWidth);
+                const cluster = this.connectedClusterIndexes(bits, index, visited, this.isolatedPixelRadius);
 
-                if (this.hasNearbyChangedBit(bits, x, y)) {
-                    filteredBits[index] = 1;
+                if (cluster.length < this.minimumClusterPixels) {
+                    continue;
+                }
+
+                for (const clusterIndex of cluster) {
+                    filteredBits[clusterIndex] = 1;
                 }
             }
 
             return filteredBits;
         }
 
-        hasNearbyChangedBit(bits, x, y) {
-            for (let neighborY = Math.max(0, y - this.isolatedPixelRadius); neighborY <= Math.min(this.gridHeight - 1, y + this.isolatedPixelRadius); neighborY += 1) {
-                for (let neighborX = Math.max(0, x - this.isolatedPixelRadius); neighborX <= Math.min(this.gridWidth - 1, x + this.isolatedPixelRadius); neighborX += 1) {
-                    if (neighborX === x && neighborY === y) {
-                        continue;
-                    }
+        connectedClusterIndexes(bits, startingIndex, visited, radius = 1) {
+            const stack = [startingIndex];
+            const cluster = [];
+            visited[startingIndex] = 1;
 
-                    if (bits[(neighborY * this.gridWidth) + neighborX] === 1) {
-                        return true;
+            while (stack.length > 0) {
+                const index = stack.pop();
+
+                if (typeof index !== 'number') {
+                    continue;
+                }
+
+                cluster.push(index);
+
+                const x = index % this.gridWidth;
+                const y = Math.floor(index / this.gridWidth);
+
+                for (let neighborY = Math.max(0, y - radius); neighborY <= Math.min(this.gridHeight - 1, y + radius); neighborY += 1) {
+                    for (let neighborX = Math.max(0, x - radius); neighborX <= Math.min(this.gridWidth - 1, x + radius); neighborX += 1) {
+                        if (neighborX === x && neighborY === y) {
+                            continue;
+                        }
+
+                        const neighborIndex = (neighborY * this.gridWidth) + neighborX;
+
+                        if (bits[neighborIndex] !== 1 || visited[neighborIndex] === 1) {
+                            continue;
+                        }
+
+                        visited[neighborIndex] = 1;
+                        stack.push(neighborIndex);
                     }
                 }
             }
 
-            return false;
+            return cluster;
         }
 
         countChangedBits(bits) {
@@ -877,6 +893,65 @@
             return changedPixels;
         }
 
+        weightedTriggerPixels(bits) {
+            const visited = new Uint8Array(this.totalPixels);
+            let triggerPixels = 0;
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                if (bits[index] !== 1 || visited[index] === 1) {
+                    continue;
+                }
+
+                const clusterSize = this.connectedClusterSize(bits, index, visited);
+
+                triggerPixels += clusterSize;
+
+                if (clusterSize >= this.clusterBonusMinSize) {
+                    triggerPixels += (clusterSize - (this.clusterBonusMinSize - 1)) * this.clusterBonusMultiplier;
+                }
+            }
+
+            return triggerPixels;
+        }
+
+        connectedClusterSize(bits, startingIndex, visited) {
+            const stack = [startingIndex];
+            visited[startingIndex] = 1;
+            let clusterSize = 0;
+
+            while (stack.length > 0) {
+                const index = stack.pop();
+
+                if (typeof index !== 'number') {
+                    continue;
+                }
+
+                clusterSize += 1;
+
+                const x = index % this.gridWidth;
+                const y = Math.floor(index / this.gridWidth);
+
+                for (let neighborY = Math.max(0, y - 1); neighborY <= Math.min(this.gridHeight - 1, y + 1); neighborY += 1) {
+                    for (let neighborX = Math.max(0, x - 1); neighborX <= Math.min(this.gridWidth - 1, x + 1); neighborX += 1) {
+                        if (neighborX === x && neighborY === y) {
+                            continue;
+                        }
+
+                        const neighborIndex = (neighborY * this.gridWidth) + neighborX;
+
+                        if (bits[neighborIndex] !== 1 || visited[neighborIndex] === 1) {
+                            continue;
+                        }
+
+                        visited[neighborIndex] = 1;
+                        stack.push(neighborIndex);
+                    }
+                }
+            }
+
+            return clusterSize;
+        }
+
         isIsolatedRefreshSpike(currentIndex) {
             const previousFrame = this.frameHistory[currentIndex - 1] ?? null;
             const currentFrame = this.frameHistory[currentIndex] ?? null;
@@ -885,7 +960,7 @@
                 return false;
             }
 
-            const activityThreshold = this.threshold() / 100;
+            const activityThreshold = this.triggerPixelsNeeded() / Math.max(1, this.selectedPixels());
             const currentTransitionRatio = this.changedPixelsAcrossFrame(previousFrame, currentFrame) / this.totalPixels;
 
             if (currentTransitionRatio < this.refreshSpikeActivityRatio) {
@@ -942,6 +1017,7 @@
             this.previousFrame = null;
             this.changedBits.fill(0);
             this.currentChangedPixels = 0;
+            this.currentRawChangedPixels = 0;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
         }

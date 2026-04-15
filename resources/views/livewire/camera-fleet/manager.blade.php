@@ -839,7 +839,9 @@
 
                     @if (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION)
                         @php($motionMask = is_array($form['recording_motion_mask'] ?? null) ? $form['recording_motion_mask'] : app(App\Services\RecordingMotionMaskService::class)->fullFrameMask())
-                        @php($motionThreshold = max(1, min(100, (int) ($form['motion_sensitivity'] ?? 35))))
+                        @php($selectedMotionPixels = max(0, (int) ($motionMask['selected_pixels'] ?? 0)))
+                        @php($motionTriggerPixels = max(1, (int) ($form['recording_motion_trigger_pixels'] ?? max(1, (int) ceil(max(1, $selectedMotionPixels) * 0.35)))))
+                        @php($motionTriggerPixelLimit = max(1, $selectedMotionPixels + ($selectedMotionPixels * max(0, (int) config('recording.motion.cluster_bonus_multiplier', 2)))))
                         @php($motionPreRollSeconds = max(0, min(30, (int) ($form['recording_motion_pre_roll_seconds'] ?? config('recording.motion.pre_roll_seconds', 8)))))
                         @php($motionPostTriggerSeconds = max(1, min(60, (int) ($form['recording_motion_post_trigger_seconds'] ?? config('recording.motion.post_trigger_seconds', 20)))))
                         @php($motionSessionUrlBase = $selectedCameraId ? route('camera-fleet.motion-editor-session', ['camera' => $selectedCameraId]) : '')
@@ -871,20 +873,21 @@
 
                         <div class="motion-threshold-card">
                             <div>
-                                <h4 class="panel-title">Motion activity threshold</h4>
-                                <p class="panel-copy">This uses the same activity percentage shown below. Recording starts when current activity reaches this threshold.</p>
+                                <h4 class="panel-title">Motion trigger pixels</h4>
+                                <p class="panel-copy">Recording starts when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
                             </div>
 
                             <div class="motion-threshold-card__control">
                                 <label class="field-stack">
-                                    <span>Activity percentage needed</span>
-                                    <input class="form-input motion-threshold-card__slider" type="range" min="1" max="100" value="{{ $motionThreshold }}" data-role="motion-threshold-input">
+                                    <span>Trigger pixels needed</span>
+                                    <input class="form-input motion-threshold-card__input" type="number" min="1" max="{{ $motionTriggerPixelLimit }}" step="1" value="{{ min($motionTriggerPixelLimit, $motionTriggerPixels) }}" data-role="motion-trigger-pixels-input">
+                                    <small class="probe-note">Current mask supports up to {{ $motionTriggerPixelLimit }} effective trigger pixels with cluster weighting.</small>
                                 </label>
-                                <strong class="motion-threshold-card__value" data-role="motion-threshold-value">{{ $motionThreshold }}%</strong>
+                                <strong class="motion-threshold-card__value" data-role="motion-trigger-pixels-value">{{ min($motionTriggerPixelLimit, $motionTriggerPixels) }}</strong>
                             </div>
                         </div>
 
-                        @error('form.motion_sensitivity')
+                        @error('form.recording_motion_trigger_pixels')
                             <small class="field-error">{{ $message }}</small>
                         @enderror
 
@@ -892,7 +895,7 @@
                             <small class="field-error">{{ $message }}</small>
                         @enderror
 
-                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to see exactly which cells are crossing the per-pixel threshold before the recorder trips.</p>
+                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to see exactly which cells are active before the recorder trips on effective trigger pixels.</p>
 
                         <div class="motion-editor-shell">
                             @if ($editingCameraId === null)
@@ -915,6 +918,9 @@
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
                                     data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
                                     data-isolated-pixel-radius="{{ config('recording.motion.isolated_pixel_radius', 1) }}"
+                                    data-minimum-cluster-pixels="{{ config('recording.motion.minimum_cluster_pixels', 3) }}"
+                                    data-cluster-bonus-min-size="{{ config('recording.motion.cluster_bonus_min_size', 3) }}"
+                                    data-cluster-bonus-multiplier="{{ config('recording.motion.cluster_bonus_multiplier', 2) }}"
                                     data-refresh-spike-window-frames="{{ config('recording.motion.persistence_window_frames', 2) }}"
                                     data-refresh-spike-activity-ratio="{{ config('recording.motion.refresh_spike_activity_ratio', 0.85) }}"
                                     wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($form['recording_rtsp_path'] ?? '')) }}"
@@ -948,7 +954,7 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber cells are crossing the per-pixel motion threshold right now. Red cells mean enough trigger pixels are active to start recording.</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber cells are changed right now after isolated speckles and 2-pixel pairs are removed. Red cells mean enough effective trigger pixels are active to start recording, with dense clusters counting extra.</p>
 
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">
@@ -957,7 +963,7 @@
                                         </article>
 
                                         <article class="motion-editor__stat-card">
-                                            <span>Trigger pixels now</span>
+                                            <span>Effective trigger pixels</span>
                                             <strong data-role="motion-trigger-pixels">0</strong>
                                         </article>
 
@@ -1007,8 +1013,19 @@
                         </label>
                     </div>
 
+                    @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
+
                     <div class="probe-actions">
-                        <button class="button button--primary" type="button" wire:click="saveCamera" wire:loading.attr="disabled" wire:target="saveCamera" data-role="camera-save-button">
+                        <button
+                            class="button button--primary"
+                            type="button"
+                            @unless($usesMotionEditorSave)
+                                wire:click="saveCamera"
+                                wire:loading.attr="disabled"
+                                wire:target="saveCamera"
+                            @endunless
+                            data-role="camera-save-button"
+                        >
                             <span class="button__content">
                                 <span class="button__icon-slot" aria-hidden="true">
                                     <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

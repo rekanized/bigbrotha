@@ -199,6 +199,7 @@ class Manager extends Component
             'recording_mode' => $camera->recording_mode,
             'recording_retention_days' => $camera->recording_retention_days,
             'motion_sensitivity' => $camera->motion_sensitivity,
+            'recording_motion_trigger_pixels' => $camera->motionTriggerPixels(),
             'recording_motion_pre_roll_seconds' => $camera->motionPreRollSeconds(),
             'recording_motion_post_trigger_seconds' => $camera->motionPostTriggerSeconds(),
             'recording_motion_mask' => $camera->recordingMotionMask(),
@@ -256,7 +257,7 @@ class Manager extends Component
             'form.is_enabled' => ['boolean'],
             'form.recording_mode' => ['required', Rule::in(Camera::RECORDING_MODES)],
             'form.recording_retention_days' => ['required', 'integer', 'between:1,365'],
-            'form.motion_sensitivity' => ['required', 'integer', 'between:1,100'],
+            'form.recording_motion_trigger_pixels' => ['required', 'integer', 'min:1'],
             'form.recording_motion_pre_roll_seconds' => ['required', 'integer', 'between:0,30'],
             'form.recording_motion_post_trigger_seconds' => ['required', 'integer', 'between:1,60'],
             'form.recording_motion_mask' => ['nullable', 'array'],
@@ -278,6 +279,11 @@ class Manager extends Component
 
             if ($recordingMode === Camera::RECORDING_MODE_MOTION && ($motionMask['selected_pixels'] ?? 0) < 1) {
                 $validator->errors()->add('form.recording_motion_mask', 'Select at least one motion zone pixel before enabling movement recording.');
+            }
+
+            if (($motionMask['selected_pixels'] ?? 0) > 0
+                && (int) ($this->form['recording_motion_trigger_pixels'] ?? 0) > $this->maximumMotionTriggerPixels($motionMask)) {
+                $validator->errors()->add('form.recording_motion_trigger_pixels', 'Trigger pixels cannot exceed the supported effective pixels for the current motion mask.');
             }
 
             if (
@@ -330,7 +336,8 @@ class Manager extends Component
             'is_enabled' => (bool) $validated['is_enabled'],
             'recording_mode' => $validated['recording_mode'],
             'recording_retention_days' => (int) $validated['recording_retention_days'],
-            'motion_sensitivity' => (int) $validated['motion_sensitivity'],
+            'motion_sensitivity' => (int) ($camera->motion_sensitivity ?? 35),
+            'recording_motion_trigger_pixels' => (int) $validated['recording_motion_trigger_pixels'],
             'recording_motion_pre_roll_seconds' => (int) $validated['recording_motion_pre_roll_seconds'],
             'recording_motion_post_trigger_seconds' => (int) $validated['recording_motion_post_trigger_seconds'],
             'recording_motion_area' => $maskService->bounds($motionMask),
@@ -376,12 +383,48 @@ class Manager extends Component
      */
     public function syncMotionMask(array $mask): void
     {
-        $this->form['recording_motion_mask'] = app(RecordingMotionMaskService::class)->normalize($mask, $this->recordingMotionAreaPayload($this->form));
+        $normalizedMask = app(RecordingMotionMaskService::class)->normalize($mask, $this->recordingMotionAreaPayload($this->form));
+
+        $this->form['recording_motion_mask'] = $normalizedMask;
+
+        $selectedPixels = max(0, (int) ($normalizedMask['selected_pixels'] ?? 0));
+        $defaultTriggerPixels = $this->defaultMotionTriggerPixels($normalizedMask);
+        $currentTriggerPixels = is_numeric($this->form['recording_motion_trigger_pixels'] ?? null)
+            ? (int) $this->form['recording_motion_trigger_pixels']
+            : $defaultTriggerPixels;
+
+        $this->form['recording_motion_trigger_pixels'] = $selectedPixels > 0
+            ? max(1, min($this->maximumMotionTriggerPixels($normalizedMask), $currentTriggerPixels))
+            : 1;
+    }
+
+    public function syncMotionTriggerPixels(mixed $triggerPixels): void
+    {
+        $motionMask = is_array($this->form['recording_motion_mask'] ?? null)
+            ? $this->form['recording_motion_mask']
+            : app(RecordingMotionMaskService::class)->fullFrameMask();
+        $selectedPixels = max(0, (int) ($motionMask['selected_pixels'] ?? 0));
+        $fallback = $this->defaultMotionTriggerPixels($motionMask);
+        $value = is_numeric($triggerPixels) ? (int) $triggerPixels : $fallback;
+
+        $this->form['recording_motion_trigger_pixels'] = $selectedPixels > 0
+            ? max(1, min($this->maximumMotionTriggerPixels($motionMask), $value))
+            : 1;
     }
 
     public function syncMotionThreshold(mixed $threshold): void
     {
-        $this->form['motion_sensitivity'] = max(1, min(100, is_numeric($threshold) ? (int) $threshold : 35));
+        $this->syncMotionTriggerPixels($threshold);
+    }
+
+    /**
+     * @param  array<string, mixed>  $mask
+     */
+    public function saveCameraFromMotionEditor(array $mask, mixed $triggerPixels): void
+    {
+        $this->syncMotionMask($mask);
+        $this->syncMotionTriggerPixels($triggerPixels);
+        $this->saveCamera();
     }
 
     public function toggleEnabled(int $cameraId): void
@@ -639,6 +682,8 @@ class Manager extends Component
      */
     private function defaultForm(): array
     {
+        $defaultMask = app(RecordingMotionMaskService::class)->fullFrameMask();
+
         return [
             'name' => '',
             'local_ip' => '',
@@ -662,9 +707,10 @@ class Manager extends Component
             'recording_mode' => Camera::RECORDING_MODE_OFF,
             'recording_retention_days' => 1,
             'motion_sensitivity' => 35,
+            'recording_motion_trigger_pixels' => $this->defaultMotionTriggerPixels($defaultMask),
             'recording_motion_pre_roll_seconds' => max(0, min(30, (int) config('recording.motion.pre_roll_seconds', 8))),
             'recording_motion_post_trigger_seconds' => max(1, min(60, (int) config('recording.motion.post_trigger_seconds', 20))),
-            'recording_motion_mask' => app(RecordingMotionMaskService::class)->fullFrameMask(),
+            'recording_motion_mask' => $defaultMask,
             'recording_motion_x' => 0,
             'recording_motion_y' => 0,
             'recording_motion_width' => 100,
@@ -673,6 +719,33 @@ class Manager extends Component
             'live_transcode_rate_control' => Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT,
             'live_transcode_bitrate_kbps' => null,
         ];
+    }
+
+    /**
+     * @param  array{selected_pixels?: int}|null  $motionMask
+     */
+    private function defaultMotionTriggerPixels(?array $motionMask = null): int
+    {
+        $selectedPixels = max(0, (int) ($motionMask['selected_pixels'] ?? 0));
+
+        if ($selectedPixels < 1) {
+            return 1;
+        }
+
+        return max(1, min($this->maximumMotionTriggerPixels($motionMask), (int) ceil($selectedPixels * 0.35)));
+    }
+
+    /**
+     * @param  array{selected_pixels?: int}|null  $motionMask
+     */
+    private function maximumMotionTriggerPixels(?array $motionMask = null): int
+    {
+        $selectedPixels = max(0, (int) ($motionMask['selected_pixels'] ?? 0));
+        $bonusMultiplier = max(0, (int) config('recording.motion.cluster_bonus_multiplier', 2));
+
+        return $selectedPixels > 0
+            ? max(1, $selectedPixels + ($selectedPixels * $bonusMultiplier))
+            : 1;
     }
 
     private function nullableString(mixed $value): ?string

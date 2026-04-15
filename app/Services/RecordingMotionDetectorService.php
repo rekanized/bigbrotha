@@ -156,8 +156,12 @@ class RecordingMotionDetectorService
         }
 
         $pixelDeltaThreshold = $this->maskService->pixelDeltaThreshold();
-        $activityThreshold = $camera->motionTriggerThreshold() / 100;
+        $triggerPixelThreshold = $camera->motionTriggerPixels($selectedPixels);
+        $activityThreshold = min(1.0, $triggerPixelThreshold / $selectedPixels);
         $isolatedPixelRadius = max(1, (int) config('recording.motion.isolated_pixel_radius', 1));
+        $minimumClusterPixels = max(3, (int) config('recording.motion.minimum_cluster_pixels', 3));
+        $clusterBonusMinSize = max(3, (int) config('recording.motion.cluster_bonus_min_size', 3));
+        $clusterBonusMultiplier = max(0, (int) config('recording.motion.cluster_bonus_multiplier', 2));
         $refreshSpikeWindowFrames = max(1, (int) config('recording.motion.persistence_window_frames', 2));
         $refreshSpikeActivityRatio = max(
             $activityThreshold,
@@ -172,7 +176,7 @@ class RecordingMotionDetectorService
         }
 
         for ($frameIndex = 1; $frameIndex < $frameCount; $frameIndex++) {
-            $changedPixels = count($this->filterIsolatedChangedIndexes(
+            $changedIndexes = $this->filterIsolatedChangedIndexes(
                 $this->changedIndexes(
                 $frames[$frameIndex - 1],
                 $frames[$frameIndex],
@@ -182,10 +186,18 @@ class RecordingMotionDetectorService
                 $gridWidth,
                 $gridHeight,
                 $isolatedPixelRadius,
-            ));
-            $activityRatio = $changedPixels / $selectedPixels;
+                $minimumClusterPixels,
+            );
+            $changedPixels = $this->weightedTriggerPixels(
+                $changedIndexes,
+                $gridWidth,
+                $gridHeight,
+                $clusterBonusMinSize,
+                $clusterBonusMultiplier,
+            );
+            $activityRatio = min(1.0, $changedPixels / $selectedPixels);
 
-            if ($activityRatio < $activityThreshold) {
+            if ($changedPixels < $triggerPixelThreshold) {
                 continue;
             }
 
@@ -301,21 +313,25 @@ class RecordingMotionDetectorService
      * @param  array<int, int>  $changedIndexes
      * @return array<int, int>
      */
-    private function filterIsolatedChangedIndexes(array $changedIndexes, int $gridWidth, int $gridHeight, int $radius): array
+    private function filterIsolatedChangedIndexes(array $changedIndexes, int $gridWidth, int $gridHeight, int $radius, int $minimumClusterPixels): array
     {
-        if (count($changedIndexes) < 2) {
+        if (count($changedIndexes) < $minimumClusterPixels) {
             return [];
         }
 
         $changedLookup = array_fill_keys($changedIndexes, true);
         $filtered = [];
+        $visited = [];
 
         foreach ($changedIndexes as $index) {
-            $x = $index % $gridWidth;
-            $y = intdiv($index, $gridWidth);
+            if (isset($visited[$index])) {
+                continue;
+            }
 
-            if ($this->hasNearbyChangedIndex($changedLookup, $x, $y, $gridWidth, $gridHeight, $radius)) {
-                $filtered[] = $index;
+            $cluster = $this->connectedClusterIndexes($index, $changedLookup, $visited, $gridWidth, $gridHeight, $radius);
+
+            if (count($cluster) >= $minimumClusterPixels) {
+                array_push($filtered, ...$cluster);
             }
         }
 
@@ -324,22 +340,45 @@ class RecordingMotionDetectorService
 
     /**
      * @param  array<int, bool>  $changedLookup
+     * @param  array<int, bool>  $visited
+     * @return array<int, int>
      */
-    private function hasNearbyChangedIndex(array $changedLookup, int $x, int $y, int $gridWidth, int $gridHeight, int $radius): bool
+    private function connectedClusterIndexes(int $startingIndex, array $changedLookup, array &$visited, int $gridWidth, int $gridHeight, int $radius): array
     {
-        for ($neighborY = max(0, $y - $radius); $neighborY <= min($gridHeight - 1, $y + $radius); $neighborY++) {
-            for ($neighborX = max(0, $x - $radius); $neighborX <= min($gridWidth - 1, $x + $radius); $neighborX++) {
-                if ($neighborX === $x && $neighborY === $y) {
-                    continue;
-                }
+        $stack = [$startingIndex];
+        $visited[$startingIndex] = true;
+        $cluster = [];
 
-                if (isset($changedLookup[($neighborY * $gridWidth) + $neighborX])) {
-                    return true;
+        while ($stack !== []) {
+            $index = array_pop($stack);
+
+            if ($index === null) {
+                continue;
+            }
+
+            $cluster[] = $index;
+            $x = $index % $gridWidth;
+            $y = intdiv($index, $gridWidth);
+
+            for ($neighborY = max(0, $y - $radius); $neighborY <= min($gridHeight - 1, $y + $radius); $neighborY++) {
+                for ($neighborX = max(0, $x - $radius); $neighborX <= min($gridWidth - 1, $x + $radius); $neighborX++) {
+                    if ($neighborX === $x && $neighborY === $y) {
+                        continue;
+                    }
+
+                    $neighborIndex = ($neighborY * $gridWidth) + $neighborX;
+
+                    if (!isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
+                        continue;
+                    }
+
+                    $visited[$neighborIndex] = true;
+                    $stack[] = $neighborIndex;
                 }
             }
         }
 
-        return false;
+        return $cluster;
     }
 
     private function changedPixelsAcrossFrame(string $leftFrame, string $rightFrame, int $frameSize, int $pixelDeltaThreshold): int
@@ -353,6 +392,78 @@ class RecordingMotionDetectorService
         }
 
         return $changedPixels;
+    }
+
+    /**
+     * @param  array<int, int>  $changedIndexes
+     */
+    private function weightedTriggerPixels(array $changedIndexes, int $gridWidth, int $gridHeight, int $clusterBonusMinSize, int $clusterBonusMultiplier): int
+    {
+        if ($changedIndexes === []) {
+            return 0;
+        }
+
+        $changedLookup = array_fill_keys($changedIndexes, true);
+        $visited = [];
+        $weightedPixels = 0;
+
+        foreach ($changedIndexes as $index) {
+            if (isset($visited[$index])) {
+                continue;
+            }
+
+            $clusterSize = $this->connectedClusterSize($index, $changedLookup, $visited, $gridWidth, $gridHeight);
+
+            $weightedPixels += $clusterSize;
+
+            if ($clusterSize >= $clusterBonusMinSize) {
+                $weightedPixels += ($clusterSize - ($clusterBonusMinSize - 1)) * $clusterBonusMultiplier;
+            }
+        }
+
+        return $weightedPixels;
+    }
+
+    /**
+     * @param  array<int, bool>  $changedLookup
+     * @param  array<int, bool>  $visited
+     */
+    private function connectedClusterSize(int $startingIndex, array $changedLookup, array &$visited, int $gridWidth, int $gridHeight): int
+    {
+        $stack = [$startingIndex];
+        $visited[$startingIndex] = true;
+        $clusterSize = 0;
+
+        while ($stack !== []) {
+            $index = array_pop($stack);
+
+            if ($index === null) {
+                continue;
+            }
+
+            $clusterSize++;
+            $x = $index % $gridWidth;
+            $y = intdiv($index, $gridWidth);
+
+            for ($neighborY = max(0, $y - 1); $neighborY <= min($gridHeight - 1, $y + 1); $neighborY++) {
+                for ($neighborX = max(0, $x - 1); $neighborX <= min($gridWidth - 1, $x + 1); $neighborX++) {
+                    if ($neighborX === $x && $neighborY === $y) {
+                        continue;
+                    }
+
+                    $neighborIndex = ($neighborY * $gridWidth) + $neighborX;
+
+                    if (!isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
+                        continue;
+                    }
+
+                    $visited[$neighborIndex] = true;
+                    $stack[] = $neighborIndex;
+                }
+            }
+        }
+
+        return $clusterSize;
     }
 
 }

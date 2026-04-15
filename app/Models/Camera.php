@@ -39,6 +39,7 @@ use Illuminate\Support\Str;
     'recording_profile_index',
     'recording_retention_days',
     'motion_sensitivity',
+    'recording_motion_trigger_pixels',
     'recording_motion_pre_roll_seconds',
     'recording_motion_post_trigger_seconds',
     'recording_motion_area',
@@ -261,6 +262,21 @@ class Camera extends Model
         return max(1, min(100, is_numeric($this->motion_sensitivity) ? (int) $this->motion_sensitivity : 35));
     }
 
+    public function motionTriggerPixels(?int $selectedPixels = null): int
+    {
+        $selectedPixels ??= max(0, (int) ($this->recordingMotionMask()['selected_pixels'] ?? 0));
+
+        if ($selectedPixels < 1) {
+            return 1;
+        }
+
+        if (is_numeric($this->recording_motion_trigger_pixels) && (int) $this->recording_motion_trigger_pixels > 0) {
+            return max(1, (int) $this->recording_motion_trigger_pixels);
+        }
+
+        return max(1, (int) ceil($selectedPixels * ($this->motionTriggerThreshold() / 100)));
+    }
+
     /**
      * @return array{quality: string, rate_control: string, bitrate_kbps: int|null}
      */
@@ -354,6 +370,7 @@ class Camera extends Model
             'recording_profile_index' => 'integer',
             'recording_retention_days' => 'integer',
             'motion_sensitivity' => 'integer',
+            'recording_motion_trigger_pixels' => 'integer',
             'recording_motion_pre_roll_seconds' => 'integer',
             'recording_motion_post_trigger_seconds' => 'integer',
             'recording_motion_area' => 'array',

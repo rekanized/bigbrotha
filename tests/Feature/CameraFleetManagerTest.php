@@ -602,6 +602,7 @@ BASH);
             'recording_mode' => Camera::RECORDING_MODE_OFF,
             'recording_retention_days' => 1,
             'motion_sensitivity' => 35,
+            'recording_motion_trigger_pixels' => 17,
             'recording_motion_pre_roll_seconds' => 8,
             'recording_motion_post_trigger_seconds' => 20,
         ]);
@@ -640,6 +641,7 @@ BASH);
             'recording_mode' => Camera::RECORDING_MODE_OFF,
             'recording_retention_days' => 1,
             'motion_sensitivity' => 35,
+            'recording_motion_trigger_pixels' => 17,
             'recording_motion_pre_roll_seconds' => 8,
             'recording_motion_post_trigger_seconds' => 20,
         ]);
@@ -648,7 +650,7 @@ BASH);
             ->call('editCamera', $camera->id)
             ->set('form.recording_mode', Camera::RECORDING_MODE_MOTION)
             ->set('form.recording_retention_days', 1)
-            ->set('form.motion_sensitivity', 14)
+            ->set('form.recording_motion_trigger_pixels', 14)
             ->set('form.recording_motion_pre_roll_seconds', 12)
             ->set('form.recording_motion_post_trigger_seconds', 26)
             ->call('syncMotionMask', $mask)
@@ -659,7 +661,57 @@ BASH);
 
         $this->assertSame(Camera::RECORDING_MODE_MOTION, $camera->recording_mode);
         $this->assertSame(1, $camera->recording_retention_days);
-        $this->assertSame(14, $camera->motionTriggerThreshold());
+        $this->assertSame(14, $camera->motionTriggerPixels());
+        $this->assertSame(12, $camera->motionPreRollSeconds());
+        $this->assertSame(26, $camera->motionPostTriggerSeconds());
+        $this->assertSame($mask, $camera->recordingMotionMask());
+    }
+
+    public function test_it_can_save_recording_policy_settings_via_the_motion_editor_bridge(): void
+    {
+        $mask = [
+            'version' => 1,
+            'grid_width' => 8,
+            'grid_height' => 6,
+            'selected_pixels' => 24,
+            'runs' => [
+                [0, 11],
+                [16, 27],
+            ],
+        ];
+
+        $camera = Camera::query()->create([
+            'name' => 'Parking Lot',
+            'local_ip' => '192.168.1.91',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'rtsp_path' => '/record-stream',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_OFF,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 35,
+            'recording_motion_trigger_pixels' => 17,
+            'recording_motion_pre_roll_seconds' => 8,
+            'recording_motion_post_trigger_seconds' => 20,
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->set('form.recording_mode', Camera::RECORDING_MODE_MOTION)
+            ->set('form.recording_retention_days', 1)
+            ->set('form.recording_motion_pre_roll_seconds', 12)
+            ->set('form.recording_motion_post_trigger_seconds', 26)
+            ->call('saveCameraFromMotionEditor', $mask, 14)
+            ->assertHasNoErrors();
+
+        $camera->refresh();
+
+        $this->assertSame(Camera::RECORDING_MODE_MOTION, $camera->recording_mode);
+        $this->assertSame(14, $camera->motionTriggerPixels());
         $this->assertSame(12, $camera->motionPreRollSeconds());
         $this->assertSame(26, $camera->motionPostTriggerSeconds());
         $this->assertSame($mask, $camera->recordingMotionMask());
