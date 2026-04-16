@@ -521,10 +521,6 @@
         ? video.querySelector('[data-role="video-source"]')
         : null;
 
-    const stagePreviewStreamUrl = (video) => video instanceof HTMLVideoElement
-        ? String(video.dataset.previewStreamUrl || '').trim()
-        : '';
-
     const stageReviewStreamUrl = (video) => video instanceof HTMLVideoElement
         ? String(video.dataset.reviewStreamUrl || '').trim()
         : '';
@@ -532,10 +528,6 @@
     const stageDirectStreamUrl = (video) => video instanceof HTMLVideoElement
         ? String(video.dataset.directStreamUrl || video.dataset.fallbackStreamUrl || '').trim()
         : '';
-
-    const stagePreferredAssetStatusLabel = (video) => video instanceof HTMLVideoElement
-        ? String(video.dataset.previewStatusLabel || 'Assets cached').trim()
-        : 'Assets cached';
 
     const stageReviewAssetStatusLabel = (video) => video instanceof HTMLVideoElement
         ? String(video.dataset.reviewStatusLabel || 'Playback stream').trim()
@@ -551,7 +543,6 @@
         }
 
         return [
-            stagePreviewStreamUrl(video),
             stageReviewStreamUrl(video),
             stageDirectStreamUrl(video),
         ].filter((candidate, index, candidates) => candidate !== '' && candidates.indexOf(candidate) === index);
@@ -590,11 +581,10 @@
     };
 
     const desiredStageStreamUrl = (video) => {
-        const previewUrl = stagePreviewStreamUrl(video);
         const reviewUrl = stageReviewStreamUrl(video);
         const directUrl = stageDirectStreamUrl(video);
 
-        return previewUrl || reviewUrl || directUrl;
+        return reviewUrl || directUrl;
     };
 
     const desiredStageAudioUrl = (video) => {
@@ -604,34 +594,12 @@
         return reviewUrl || directUrl;
     };
 
-    const stageUsesPreviewSource = (video) => {
-        if (!(video instanceof HTMLVideoElement)) {
-            return false;
-        }
-
-        const normalizedPreviewUrl = normalizeMediaUrl(stagePreviewStreamUrl(video));
-        const sourceNode = stageSourceNode(video);
-        const normalizedCurrentSourceUrl = normalizeMediaUrl(
-            video.currentSrc
-            || (sourceNode instanceof HTMLSourceElement ? (sourceNode.getAttribute('src') || '') : '')
-            || video.getAttribute('src')
-            || desiredStageStreamUrl(video),
-        );
-
-        return normalizedPreviewUrl !== '' && normalizedCurrentSourceUrl === normalizedPreviewUrl;
-    };
-
-    const stageUsesCompanionAudio = (video) => stageUsesPreviewSource(video) && desiredStageAudioUrl(video) !== '';
+    const stageUsesCompanionAudio = () => false;
 
     const stageAssetStatusLabelForUrl = (video, sourceUrl) => {
         const normalizedSourceUrl = normalizeMediaUrl(sourceUrl);
-        const normalizedPreviewUrl = normalizeMediaUrl(stagePreviewStreamUrl(video));
         const normalizedReviewUrl = normalizeMediaUrl(stageReviewStreamUrl(video));
         const normalizedDirectUrl = normalizeMediaUrl(stageDirectStreamUrl(video));
-
-        if (normalizedSourceUrl !== '' && normalizedSourceUrl === normalizedPreviewUrl) {
-            return stagePreferredAssetStatusLabel(video);
-        }
 
         if (normalizedSourceUrl !== '' && normalizedSourceUrl === normalizedReviewUrl) {
             return stageReviewAssetStatusLabel(video);
@@ -645,7 +613,7 @@
             return stageReviewAssetStatusLabel(video);
         }
 
-        return normalizedDirectUrl !== '' ? stageDirectAssetStatusLabel(video) : stagePreferredAssetStatusLabel(video);
+        return normalizedDirectUrl !== '' ? stageDirectAssetStatusLabel(video) : stageReviewAssetStatusLabel(video);
     };
 
     const updateStageAssetStatus = (scope, video, sourceUrl = null) => {
@@ -1164,10 +1132,6 @@
         };
 
         audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-
-        if (stageUsesPreviewSource(video)) {
-            ensureStageAudioSource(scope, audio, video);
-        }
 
         state.boundAudio = audio;
         state.boundAudioCleanup = () => {
@@ -2593,10 +2557,8 @@
                 video.dataset.endMs = '';
                 video.dataset.durationSeconds = '';
                 video.dataset.fallbackStreamUrl = '';
-                video.dataset.previewStreamUrl = '';
                 video.dataset.reviewStreamUrl = '';
                 video.dataset.directStreamUrl = '';
-                video.dataset.previewStatusLabel = 'Assets cached';
                 video.dataset.reviewStatusLabel = 'Playback stream';
                 video.dataset.directStatusLabel = 'Direct stream';
                 video.removeAttribute('poster');
@@ -2676,10 +2638,8 @@
         video.dataset.endMs = String(segment.endMs || '');
         video.dataset.durationSeconds = String(segment.durationSeconds || '');
         video.dataset.fallbackStreamUrl = '';
-        video.dataset.previewStreamUrl = '';
         video.dataset.reviewStreamUrl = '';
         video.dataset.directStreamUrl = directUrl;
-        video.dataset.previewStatusLabel = 'Playback stream';
         video.dataset.reviewStatusLabel = 'Playback stream';
         video.dataset.directStatusLabel = 'Playback stream';
         video.removeAttribute('poster');

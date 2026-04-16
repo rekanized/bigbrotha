@@ -53,7 +53,7 @@ class CameraRecordingCommandTest extends TestCase
         $reviewAssets = app(RecordingReviewAssetService::class);
         $assetState = $reviewAssets->assetState($recording);
 
-        $this->assertFileExists($reviewAssets->previewAbsolutePath($recording));
+        $this->assertFileExists($reviewAssets->playbackAbsolutePath($recording));
         $this->assertFileExists($reviewAssets->scrubSpriteAbsolutePath($recording));
         $this->assertTrue((bool) ($assetState['thumbnail_available'] ?? false));
         $this->assertSame(RecordingReviewAssetService::STATUS_READY, $assetState['status']);

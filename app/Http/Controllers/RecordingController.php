@@ -216,33 +216,6 @@ class RecordingController extends Controller
         return $recordings->bufferedPlaybackResponse($recording->loadMissing('camera'), $request->header('Range'));
     }
 
-    public function previewStream(CameraRecording $recording, RecordingReviewAssetService $reviewAssets): BinaryFileResponse|StreamedResponse|Response
-    {
-        abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
-
-        $assetState = $reviewAssets->assetState($recording);
-        $absolutePath = $reviewAssets->previewAbsolutePath($recording);
-
-        if (!$assetState['ready'] || $absolutePath === null || !is_file($absolutePath)) {
-            $reviewAssets->ensureQueued($recording);
-
-            return response('', Response::HTTP_CONFLICT, [
-                'Cache-Control' => 'no-store, no-cache, must-revalidate',
-                'Pragma' => 'no-cache',
-                'X-Review-Asset-Status' => RecordingReviewAssetService::STATUS_PENDING,
-            ]);
-        }
-
-        $response = response()->file($absolutePath, [
-            'Content-Type' => 'video/mp4',
-            'Cache-Control' => 'private, max-age=300',
-        ]);
-
-        $response->deleteFileAfterSend(app(CameraStorageService::class)->isTemporaryManagedPath($absolutePath));
-
-        return $response;
-    }
-
     public function previewThumbnail(CameraRecording $recording, RecordingReviewAssetService $reviewAssets): Response|BinaryFileResponse
     {
         abort_unless($recording->status === CameraRecording::STATUS_RECORDED, Response::HTTP_NOT_FOUND);
@@ -799,7 +772,6 @@ class RecordingController extends Controller
             'renderHeightHours' => round($spanHours, 6),
             'renderHeightPercent' => round(($spanHours / $reviewDurationHours) * 100, 6),
             'previewStatus' => $assetState['status'],
-            'preferredStreamUrl' => $assetState['ready'] ? route('recordings.preview-stream', ['recording' => $recording]) : null,
             'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => $reviewAssets->thumbnailDataUrl($recording),

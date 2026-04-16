@@ -216,7 +216,7 @@ Current recording management behavior:
 - the review screen still loads a padded multi-day span for the selected cameras, but the JavaScript layer is now limited to transient rail dragging, scrub-preview overlays, and stage seek synchronization across Livewire rerenders.
 - the vertical rail DOM is virtualized in plain JavaScript so only the visible tick, segment, and thumbnail nodes remain mounted, while thumbnail images hydrate through an `IntersectionObserver` rooted to the rail viewport.
 - timeline segment selection now treats clip bounds as half-open ranges, so a focus time exactly on a shared clip edge resolves to the following adjacent segment instead of double-matching the earlier one.
-- saved segments can generate private review assets under their `_review` directory, including a preview MP4 and scrub sprite sheet; the rail thumbnail route now crops a frame from the scrub sprite instead of storing a separate poster image.
+- saved segments can generate private review assets under their `_review` directory, including a manifest and scrub sprite sheet; the durable recording itself is normalized into a browser-playable MP4 in the recordings directory, and the rail thumbnail route crops a frame from the scrub sprite instead of storing a separate poster image.
 
 The WebRTC wall is intended for operator viewing with shared fan-out. The copy relay remains available for downstream consumers that want copied camera video without a re-encode step.
 

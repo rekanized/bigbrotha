@@ -80,7 +80,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
         $expiredReviewAssetDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/expired-continuous');
         File::ensureDirectoryExists($expiredReviewAssetDirectory);
-        File::put($expiredReviewAssetDirectory.'/preview.mp4', 'preview');
+        File::put($expiredReviewAssetDirectory.'/manifest.json', '{}');
         File::put($expiredReviewAssetDirectory.'/scrub-sprite.jpg', 'sprite');
 
         $expiredLocalSpritePath = app(CameraStorageService::class)->recordingLocalReviewSpriteAbsolutePath(
@@ -175,9 +175,9 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         ]);
 
         $reviewAssets = app(RecordingReviewAssetService::class);
-        $previewAbsolutePath = $reviewAssets->previewAbsolutePath($recording, true);
+    $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
         $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
-        File::put($previewAbsolutePath, 'preview');
+    File::put($manifestAbsolutePath, '{}');
         File::put($scrubSpriteAbsolutePath, 'sprite');
 
         Artisan::call('camera-recordings:prune');
@@ -187,7 +187,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_FAILED, $recording->status);
         $this->assertNull($recording->file_size_bytes);
         $this->assertStringContainsString('missing from active storage', (string) $recording->message);
-        $this->assertFileDoesNotExist($previewAbsolutePath);
+        $this->assertFileDoesNotExist($manifestAbsolutePath);
         $this->assertFileDoesNotExist($scrubSpriteAbsolutePath);
     }
 
@@ -218,9 +218,9 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         ]);
 
         $reviewAssets = app(RecordingReviewAssetService::class);
-        $previewAbsolutePath = $reviewAssets->previewAbsolutePath($recording, true);
+    $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
         $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
-        File::put($previewAbsolutePath, 'preview');
+    File::put($manifestAbsolutePath, '{}');
         File::put($scrubSpriteAbsolutePath, 'sprite');
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
@@ -237,7 +237,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
         $this->assertSame(4096, $recording->file_size_bytes);
         $this->assertSame('Previously recorded clip.', $recording->message);
-        $this->assertFileExists($previewAbsolutePath);
+        $this->assertFileExists($manifestAbsolutePath);
         $this->assertFileExists($scrubSpriteAbsolutePath);
     }
 
@@ -317,7 +317,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
             $reviewAssetDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/'.pathinfo($fixture['absolute_path'], PATHINFO_FILENAME));
             File::ensureDirectoryExists($reviewAssetDirectory);
-            File::put($reviewAssetDirectory.'/preview.mp4', 'preview');
+            File::put($reviewAssetDirectory.'/manifest.json', '{}');
 
             $scheduledFor = now()->utc()->subDays(2)->startOfMinute()->addMinutes($index);
 
@@ -387,8 +387,8 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-        $orphanPreviewAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'preview.mp4', true);
-        File::put($orphanPreviewAbsolutePath, 'preview');
+    $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
+    File::put($orphanManifestAbsolutePath, '{}');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -401,7 +401,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertFalse($orphanPaths->contains($trackedRelativePath));
         $this->assertFileExists($trackedAbsolutePath);
         $this->assertFileExists($orphanAbsolutePath);
-        $this->assertFileExists($orphanPreviewAbsolutePath);
+        $this->assertFileExists($orphanManifestAbsolutePath);
     }
 
     public function test_it_uses_created_at_for_retention_cutoffs_instead_of_ended_at(): void
@@ -462,7 +462,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $relativePath = 'cameras/'.$camera->id.'/recordings/2026/04/01/missing-expired.mkv';
         $reviewDirectory = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/01/_review/missing-expired');
         File::ensureDirectoryExists($reviewDirectory);
-        File::put($reviewDirectory.'/preview.mp4', 'preview');
+        File::put($reviewDirectory.'/manifest.json', '{}');
 
         CameraRecording::query()->create([
             'camera_id' => $camera->id,
@@ -483,7 +483,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertDatabaseMissing('camera_recordings', [
             'relative_path' => $relativePath,
         ]);
-        $this->assertFileDoesNotExist($reviewDirectory.'/preview.mp4');
+        $this->assertFileDoesNotExist($reviewDirectory.'/manifest.json');
     }
 
     public function test_it_purges_orphan_recording_files_and_review_assets_when_requested(): void
@@ -523,8 +523,8 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-        $orphanPreviewAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'preview.mp4', true);
-        File::put($orphanPreviewAbsolutePath, 'preview');
+    $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
+    File::put($orphanManifestAbsolutePath, '{}');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -537,7 +537,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertFalse($orphanPaths->contains($trackedRelativePath));
         $this->assertFileExists($trackedAbsolutePath);
         $this->assertFileDoesNotExist($orphanAbsolutePath);
-        $this->assertFileDoesNotExist($orphanPreviewAbsolutePath);
+        $this->assertFileDoesNotExist($orphanManifestAbsolutePath);
     }
 
     public function test_it_registers_the_recording_scheduler_commands(): void

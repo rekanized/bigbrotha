@@ -1103,7 +1103,7 @@ class RecordingBrowserTest extends TestCase
             ->assertDontSee(route('recordings.preview-sprite', ['recording' => $recording], false), false);
     }
 
-    public function test_timeline_preview_thumbnail_route_requeues_scrub_generation_when_the_preview_is_ready_but_the_sprite_failed(): void
+    public function test_timeline_preview_thumbnail_route_requeues_scrub_generation_when_the_playback_asset_is_ready_but_the_sprite_failed(): void
     {
         Queue::fake();
 
@@ -1135,10 +1135,11 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
-        $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
-        File::put($previewPath, 'preview-stream');
+        $playbackPath = app(RecordingReviewAssetService::class)->playbackAbsolutePath($recording, true);
+        File::put($playbackPath, 'playback-stream');
         $this->writeCurrentReviewManifest($recording, [
-            'preview_relative_path' => app(CameraStorageService::class)->recordingRelativePathFromAbsolute($previewPath),
+            'playback_relative_path' => app(CameraStorageService::class)->recordingRelativePathFromAbsolute($playbackPath),
+            'playback_status' => RecordingReviewAssetService::STATUS_READY,
             'scrub_status' => RecordingReviewAssetService::STATUS_FAILED,
             'scrub_error_message' => 'Unable to generate the scrub preview sprite.',
         ]);
@@ -1153,92 +1154,6 @@ class RecordingBrowserTest extends TestCase
         Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($recording): bool {
             return $job->recordingId === $recording->id;
         });
-    }
-
-    public function test_timeline_preview_stream_route_queues_asset_generation_when_the_preview_is_missing(): void
-    {
-        Queue::fake();
-
-        $operator = User::factory()->create();
-
-        $camera = Camera::query()->create([
-            'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
-            'rtsp_port' => 554,
-            'rtsp_path' => '/stream1',
-            'supports_onvif' => false,
-            'supports_rtsp' => true,
-            'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-            'recording_retention_days' => 1,
-        ]);
-
-        $recording = CameraRecording::query()->create([
-            'camera_id' => $camera->id,
-            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-            'status' => CameraRecording::STATUS_RECORDED,
-            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
-            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
-            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
-            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/receiving-bay-missing-preview.mkv',
-            'file_size_bytes' => 1024,
-            'message' => 'Clip saved.',
-        ]);
-
-        $this->writeRecordedSegment($recording);
-
-        $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.preview-stream', ['recording' => $recording]))
-            ->assertStatus(409)
-            ->assertHeader('X-Review-Asset-Status', 'pending');
-
-        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($recording): bool {
-            return $job->recordingId === $recording->id;
-        });
-    }
-
-    public function test_timeline_preview_stream_route_serves_the_generated_preview_asset(): void
-    {
-        $operator = User::factory()->create();
-
-        $camera = Camera::query()->create([
-            'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
-            'rtsp_port' => 554,
-            'rtsp_path' => '/stream1',
-            'supports_onvif' => false,
-            'supports_rtsp' => true,
-            'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-            'recording_retention_days' => 1,
-        ]);
-
-        $recording = CameraRecording::query()->create([
-            'camera_id' => $camera->id,
-            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
-            'status' => CameraRecording::STATUS_RECORDED,
-            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
-            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
-            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
-            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/receiving-bay.mkv',
-            'file_size_bytes' => 1024,
-            'message' => 'Clip saved.',
-        ]);
-
-        $this->writeRecordedSegment($recording);
-
-        $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
-        File::put($previewPath, 'preview-stream');
-        $this->writeCurrentReviewManifest($recording, [
-            'preview_relative_path' => app(CameraStorageService::class)->recordingRelativePathFromAbsolute($previewPath),
-        ]);
-
-        $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
-            ->get(route('recordings.preview-stream', ['recording' => $recording]))
-            ->assertOk()
-            ->assertHeader('content-type', 'video/mp4');
     }
 
     public function test_timeline_preview_sprite_route_serves_the_generated_scrub_sprite(): void
@@ -1403,12 +1318,6 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
-        $previewPath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
-        File::put($previewPath, 'preview-stream');
-        $this->writeCurrentReviewManifest($recording, [
-            'preview_relative_path' => app(CameraStorageService::class)->recordingRelativePathFromAbsolute($previewPath),
-        ]);
-
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('recordings.timeline', [
@@ -1420,7 +1329,6 @@ class RecordingBrowserTest extends TestCase
             ->assertOk()
             ->assertSee('Playback stream')
             ->assertDontSee('data-direct-stream-url=""', false)
-            ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
             ->assertDontSee(route('recordings.stream', ['recording' => $recording], false), false);
     }
 
@@ -1635,19 +1543,15 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
-        $storage = app(CameraStorageService::class);
-        $previewPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
         $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
 
-        File::put($previewPath, 'stale-preview-stream');
         File::put($manifestPath, json_encode([
             'status' => RecordingReviewAssetService::STATUS_READY,
             'version' => 'outdated-review-asset-version',
             'generated_at' => now()->utc()->toIso8601String(),
             'duration_seconds' => 60,
-            'preview_relative_path' => $storage->recordingRelativePathFromAbsolute($previewPath),
-            'thumbnail_offset_seconds' => 30,
-            'preview_width' => 640,
+            'playback_relative_path' => null,
+            'playback_status' => RecordingReviewAssetService::STATUS_MISSING,
             'scrub_status' => RecordingReviewAssetService::STATUS_MISSING,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
@@ -1663,7 +1567,6 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('data-recording-id="'.$recording->id.'"', false)
             ->assertSee('Playback stream')
             ->assertDontSee('data-direct-stream-url=""', false)
-            ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
             ->assertDontSee(route('recordings.stream', ['recording' => $recording], false), false);
     }
 
@@ -1697,13 +1600,9 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
-        $storage = app(CameraStorageService::class);
-        $previewPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
-
-        File::put($previewPath, 'pending-preview-stream');
         $this->writeCurrentReviewManifest($recording, [
             'status' => RecordingReviewAssetService::STATUS_PENDING,
-            'preview_relative_path' => $previewPath !== null ? $storage->recordingRelativePathFromAbsolute($previewPath) : null,
+            'playback_status' => RecordingReviewAssetService::STATUS_PENDING,
         ]);
 
         $this->actingAs($operator)
@@ -1717,7 +1616,6 @@ class RecordingBrowserTest extends TestCase
             ->assertOk()
             ->assertSee('Playback stream')
             ->assertDontSee('data-direct-stream-url=""', false)
-            ->assertDontSee(route('recordings.preview-stream', ['recording' => $recording], false), false)
             ->assertDontSee(route('recordings.stream', ['recording' => $recording], false), false);
     }
 
@@ -2228,7 +2126,7 @@ BASH));
         $storage = app(CameraStorageService::class);
         $reviewAssets = app(RecordingReviewAssetService::class);
         $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
-        $previewPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', true);
+        $playbackPath = $reviewAssets->playbackAbsolutePath($recording, true);
 
         $assetVersionMethod = new \ReflectionMethod($reviewAssets, 'assetVersion');
         $assetVersionMethod->setAccessible(true);
@@ -2239,11 +2137,8 @@ BASH));
             'version' => $currentVersion,
             'generated_at' => now()->utc()->toIso8601String(),
             'duration_seconds' => 60,
-            'playback_relative_path' => null,
+            'playback_relative_path' => $playbackPath !== null ? $storage->recordingRelativePathFromAbsolute($playbackPath) : null,
             'playback_status' => RecordingReviewAssetService::STATUS_MISSING,
-            'preview_relative_path' => $previewPath !== null ? $storage->recordingRelativePathFromAbsolute($previewPath) : null,
-            'thumbnail_offset_seconds' => 30,
-            'preview_width' => 640,
             'scrub_status' => RecordingReviewAssetService::STATUS_MISSING,
         ], $overrides), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }

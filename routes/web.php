@@ -58,7 +58,6 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/recordings/timeline/cameras/{camera}/segments', [RecordingController::class, 'timelineRailData'])->name('recordings.timeline.rail-data');
     Route::get('/recordings/timeline/cameras/{camera}/stage', [RecordingController::class, 'timelineStageData'])->name('recordings.timeline.stage-data');
     Route::get('/recordings/{recording}', [RecordingController::class, 'show'])->name('recordings.show');
-    Route::get('/recordings/{recording}/preview-stream', [RecordingController::class, 'previewStream'])->middleware('media-access')->name('recordings.preview-stream');
     Route::get('/recordings/{recording}/preview-thumbnail', [RecordingController::class, 'previewThumbnail'])->name('recordings.preview-thumbnail');
     Route::get('/recordings/{recording}/preview-sprite', [RecordingController::class, 'previewSprite'])->name('recordings.preview-sprite');
     Route::get('/recordings/{recording}/review-stream', [RecordingController::class, 'reviewStream'])->middleware('media-access')->name('recordings.review-stream');

@@ -20,7 +20,7 @@ class RecordingReviewAssetService
 {
     use ResolvesConfiguredBinaries;
 
-    private const ASSET_PIPELINE_VERSION = 8;
+    private const ASSET_PIPELINE_VERSION = 9;
 
     public const STATUS_READY = 'ready';
 
@@ -209,20 +209,16 @@ class RecordingReviewAssetService
     {
         $manifestRelativePath = $this->manifestRelativePath($recording);
         $playbackRelativePath = $this->playbackRelativePath($recording);
-        $previewRelativePath = $this->previewRelativePath($recording);
         $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
         $manifestAbsolutePath = $this->manifestAbsolutePath($recording, true);
         $playbackAbsolutePath = $this->playbackAbsolutePath($recording, true);
-        $previewAbsolutePath = $this->previewAbsolutePath($recording, true);
         $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording, true);
 
         if ($manifestRelativePath === null
             || $playbackRelativePath === null
-            || $previewRelativePath === null
             || $scrubSpriteRelativePath === null
             || $manifestAbsolutePath === null
             || $playbackAbsolutePath === null
-            || $previewAbsolutePath === null
             || $scrubSpriteAbsolutePath === null) {
             return;
         }
@@ -235,9 +231,6 @@ class RecordingReviewAssetService
             'duration_seconds' => $this->recordingDurationSeconds($recording),
             'playback_relative_path' => $playbackRelativePath,
             'playback_status' => self::STATUS_FAILED,
-            'preview_relative_path' => $previewRelativePath,
-            'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
-            'preview_width' => $this->previewWidth(),
             'scrub_status' => $scrubManifest === null ? self::STATUS_MISSING : self::STATUS_FAILED,
             'error_message' => Str::limit($message, 240),
         ];
@@ -304,12 +297,15 @@ class RecordingReviewAssetService
         $manifestStatus = $versionCurrent && is_string($manifest['status'] ?? null)
             ? $manifest['status']
             : self::STATUS_MISSING;
+        $playbackStatus = $versionCurrent && is_string($manifest['playback_status'] ?? null)
+            ? $manifest['playback_status']
+            : self::STATUS_MISSING;
         $scrubStatus = $versionCurrent && is_string($manifest['scrub_status'] ?? null)
             ? $manifest['scrub_status']
             : self::STATUS_MISSING;
-        $previewRelativePath = is_string($manifest['preview_relative_path'] ?? null)
-            ? $manifest['preview_relative_path']
-            : $this->previewRelativePath($recording);
+        $playbackRelativePath = is_string($manifest['playback_relative_path'] ?? null)
+            ? $manifest['playback_relative_path']
+            : $this->playbackRelativePath($recording);
         $scrubSpriteRelativePath = is_string($manifest['scrub_sprite_relative_path'] ?? null)
             ? $manifest['scrub_sprite_relative_path']
             : $this->scrubSpriteRelativePath($recording);
@@ -331,14 +327,21 @@ class RecordingReviewAssetService
         $scrubRows = is_numeric($manifest['scrub_rows'] ?? null)
             ? (int) $manifest['scrub_rows']
             : (int) ceil(max(1, $scrubFrameCount) / max(1, $scrubColumns));
-        $previewAvailable = $versionCurrent && $manifestStatus === self::STATUS_READY && $previewRelativePath !== null;
+        $playbackAvailable = $versionCurrent
+            && $playbackStatus === self::STATUS_READY
+            && $playbackRelativePath !== null
+            && $this->assetFileAvailableForRequest($playbackRelativePath);
         $scrubSpriteAvailable = $versionCurrent && $scrubStatus === self::STATUS_READY && $scrubSpriteRelativePath !== null;
         $thumbnailAvailable = $scrubSpriteAvailable;
+        $status = $playbackAvailable
+            ? self::STATUS_READY
+            : ($playbackStatus !== self::STATUS_MISSING
+                ? $playbackStatus
+                : ($manifestStatus === self::STATUS_PENDING ? self::STATUS_PENDING : self::STATUS_MISSING));
 
         return $this->timelinePlaybackMetadataCache[$cacheKey] = [
-            'status' => $previewAvailable ? self::STATUS_READY : $manifestStatus,
-            'ready' => $previewAvailable,
-            'preview_available' => $previewAvailable,
+            'status' => $status,
+            'ready' => $playbackAvailable,
             'thumbnail_available' => $thumbnailAvailable,
             'scrub_status' => $scrubStatus,
             'scrub_sprite_available' => $scrubSpriteAvailable,
@@ -377,7 +380,6 @@ class RecordingReviewAssetService
         return [
             'status' => self::STATUS_MISSING,
             'ready' => false,
-            'preview_available' => false,
             'thumbnail_available' => $scrubSpriteAvailable,
             'scrub_status' => $scrubSpriteAvailable ? self::STATUS_READY : self::STATUS_MISSING,
             'scrub_sprite_available' => $scrubSpriteAvailable,
@@ -413,7 +415,6 @@ class RecordingReviewAssetService
     {
         $manifest = $this->manifest($recording);
         $playbackRelativePath = $this->playbackRelativePath($recording);
-        $previewRelativePath = $this->previewRelativePath($recording);
         $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
         $queued = $this->isQueued($recording->getKey());
         $versionCurrent = is_array($manifest) && ($manifest['version'] ?? null) === $this->assetVersion($recording);
@@ -421,22 +422,22 @@ class RecordingReviewAssetService
         $playbackStatus = $versionCurrent && is_string($manifest['playback_status'] ?? null) ? $manifest['playback_status'] : self::STATUS_MISSING;
         $scrubStatus = $versionCurrent && is_string($manifest['scrub_status'] ?? null) ? $manifest['scrub_status'] : self::STATUS_MISSING;
         $playbackFileAvailable = $this->assetFileAvailableForRequest($playbackRelativePath);
-        $previewFileAvailable = $this->assetFileAvailableForRequest($previewRelativePath);
         $scrubSpriteFileAvailable = $this->assetFileAvailableForRequest($scrubSpriteRelativePath);
         $playbackAvailable = $versionCurrent && $playbackStatus === self::STATUS_READY && $playbackFileAvailable;
-        $previewAvailable = $versionCurrent && $manifestStatus === self::STATUS_READY && $previewFileAvailable;
         $scrubSpriteAvailable = $versionCurrent && $scrubStatus === self::STATUS_READY && $scrubSpriteFileAvailable;
         $thumbnailAvailable = $scrubSpriteAvailable;
-        $ready = $manifestStatus === self::STATUS_READY && $previewAvailable;
+        $ready = $manifestStatus === self::STATUS_READY && $playbackAvailable;
+        $status = $ready
+            ? self::STATUS_READY
+            : ($playbackStatus === self::STATUS_MISSING
+                ? ($queued || $manifestStatus === self::STATUS_PENDING ? self::STATUS_PENDING : self::STATUS_MISSING)
+                : $playbackStatus);
 
         return [
-            'status' => $ready
-                ? self::STATUS_READY
-                : ($manifestStatus === self::STATUS_MISSING && $queued ? self::STATUS_PENDING : $manifestStatus),
+            'status' => $status,
             'ready' => $ready,
             'playback_status' => $playbackStatus === self::STATUS_MISSING && $queued ? self::STATUS_PENDING : $playbackStatus,
             'playback_available' => $playbackAvailable,
-            'preview_available' => $previewAvailable,
             'thumbnail_available' => $thumbnailAvailable,
             'scrub_status' => $scrubStatus === self::STATUS_MISSING && $queued ? self::STATUS_PENDING : $scrubStatus,
             'scrub_sprite_available' => $scrubSpriteAvailable,
@@ -532,7 +533,6 @@ class RecordingReviewAssetService
         if ($sourceRelativePath === $targetRelativePath) {
             $existingManifest = $this->manifest($recording);
             $version = $this->assetVersion($recording);
-            $previewRelativePath = $this->previewRelativePath($recording);
             $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
             $expectedScrubStatus = $this->scrubFrameCount($recording) > 0 ? self::STATUS_READY : self::STATUS_MISSING;
 
@@ -542,8 +542,6 @@ class RecordingReviewAssetService
                 && ($existingManifest['playback_status'] ?? null) === self::STATUS_READY
                 && ($existingManifest['status'] ?? null) === self::STATUS_READY
                 && $this->storage->privateFileExists($targetRelativePath)
-                && $previewRelativePath !== null
-                && $this->storage->privateFileExists($previewRelativePath)
                 && (
                     (($existingManifest['scrub_status'] ?? null) === self::STATUS_READY && $scrubSpriteRelativePath !== null && $this->storage->privateFileExists($scrubSpriteRelativePath))
                     || (($existingManifest['scrub_status'] ?? null) === self::STATUS_MISSING && $expectedScrubStatus === self::STATUS_MISSING)
@@ -580,17 +578,13 @@ class RecordingReviewAssetService
         $version = $this->assetVersion($recording);
         $manifestRelativePath = $this->manifestRelativePath($recording);
         $playbackRelativePath = $this->playbackRelativePath($recording);
-        $previewRelativePath = $this->previewRelativePath($recording);
         $scrubSpriteRelativePath = $this->scrubSpriteRelativePath($recording);
-        $previewAbsolutePath = $this->previewAbsolutePath($recording, true);
         $scrubSpriteAbsolutePath = $this->scrubSpriteAbsolutePath($recording, true);
         $manifestAbsolutePath = $this->manifestAbsolutePath($recording, true);
 
         if ($manifestRelativePath === null
             || $playbackRelativePath === null
-            || $previewRelativePath === null
             || $scrubSpriteRelativePath === null
-            || $previewAbsolutePath === null
             || $scrubSpriteAbsolutePath === null
             || $manifestAbsolutePath === null) {
             $this->storage->deleteTemporaryFile($absoluteRecordingPath);
@@ -608,9 +602,6 @@ class RecordingReviewAssetService
             'duration_seconds' => $this->recordingDurationSeconds($recording),
             'playback_relative_path' => $playbackRelativePath,
             'playback_status' => self::STATUS_PENDING,
-            'preview_relative_path' => $previewRelativePath,
-            'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
-            'preview_width' => $this->previewWidth(),
         ];
 
         if ($scrubManifest !== null) {
@@ -624,14 +615,6 @@ class RecordingReviewAssetService
         file_put_contents($manifestAbsolutePath, json_encode($pendingManifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         try {
-            $previewProcess = new Process($this->buildPreviewCommand($targetPlaybackPath, $previewAbsolutePath));
-            $previewProcess->setTimeout(max(45, $this->recordingDurationSeconds($recording) + 45));
-            $previewProcess->run();
-
-            if (!$previewProcess->isSuccessful() || !is_file($previewAbsolutePath)) {
-                throw new RuntimeException($this->summarizeProcessFailure($previewProcess, 'Unable to generate the review preview video.'));
-            }
-
             $readyManifest = [
                 'status' => self::STATUS_READY,
                 'version' => $version,
@@ -639,9 +622,6 @@ class RecordingReviewAssetService
                 'duration_seconds' => $this->recordingDurationSeconds($recording),
                 'playback_relative_path' => $playbackRelativePath,
                 'playback_status' => self::STATUS_READY,
-                'preview_relative_path' => $previewRelativePath,
-                'thumbnail_offset_seconds' => $this->thumbnailOffsetSeconds($recording),
-                'preview_width' => $this->previewWidth(),
                 'scrub_status' => self::STATUS_MISSING,
             ];
 
@@ -670,7 +650,6 @@ class RecordingReviewAssetService
 
             file_put_contents($manifestAbsolutePath, json_encode($readyManifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             $this->storage->finalizeStagedWrite($playbackRelativePath, $targetPlaybackPath);
-            $this->storage->finalizeStagedWrite($previewRelativePath, $previewAbsolutePath);
 
             if (($readyManifest['scrub_status'] ?? null) === self::STATUS_READY) {
                 $this->storage->finalizeStagedWrite($scrubSpriteRelativePath, $scrubSpriteAbsolutePath);
@@ -684,10 +663,6 @@ class RecordingReviewAssetService
 
             return $readyManifest;
         } catch (\Throwable $exception) {
-            if (is_file($previewAbsolutePath)) {
-                @unlink($previewAbsolutePath);
-            }
-
             $failedManifest = $pendingManifest;
             $failedManifest['status'] = self::STATUS_FAILED;
             $failedManifest['playback_status'] = self::STATUS_FAILED;
@@ -706,7 +681,6 @@ class RecordingReviewAssetService
             $this->storage->deleteTemporaryFile($absoluteRecordingPath);
             $this->storage->deleteTemporaryFile($playbackWorkspacePath);
             $this->storage->deleteTemporaryFile($targetPlaybackPath);
-            $this->storage->deleteTemporaryFile($previewAbsolutePath);
             $this->storage->deleteTemporaryFile($scrubSpriteAbsolutePath);
             $this->storage->deleteTemporaryFile($manifestAbsolutePath);
         }
@@ -715,11 +689,6 @@ class RecordingReviewAssetService
     public function pruneForRecording(CameraRecording $recording): void
     {
         $this->storage->deleteRecordingReviewAssets($recording->relative_path);
-    }
-
-    public function previewAbsolutePath(CameraRecording $recording, bool $ensureDirectory = false): ?string
-    {
-        return $this->storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'preview.mp4', $ensureDirectory);
     }
 
     public function playbackAbsolutePath(CameraRecording $recording, bool $ensureDirectory = false): ?string
@@ -832,11 +801,6 @@ class RecordingReviewAssetService
                 : (int) $computedManifest['scrub_rows'],
             'available' => $available,
         ];
-    }
-
-    private function previewRelativePath(CameraRecording $recording): ?string
-    {
-        return $this->storage->recordingReviewAssetRelativePath($recording->relative_path, 'preview.mp4');
     }
 
     private function playbackRelativePath(CameraRecording $recording): ?string
@@ -1012,21 +976,6 @@ class RecordingReviewAssetService
         return $this->storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', $ensureDirectory);
     }
 
-    private function previewWidth(): int
-    {
-        return max(192, (int) config('recording.review_assets.preview_width', 640));
-    }
-
-    private function previewHeight(): int
-    {
-        return max(108, (int) ceil($this->previewWidth() * 9 / 16));
-    }
-
-    private function previewFps(): int
-    {
-        return max(2, (int) config('recording.review_assets.preview_fps', 8));
-    }
-
     private function scrubFrameIntervalSeconds(): int
     {
         return max(1, (int) config('recording.review_assets.scrub_frame_interval_seconds', 10));
@@ -1069,15 +1018,10 @@ class RecordingReviewAssetService
             'file_size' => $recording->file_size_bytes,
             'started_at' => $recording->started_at?->timestamp,
             'ended_at' => $recording->ended_at?->timestamp,
-            'preview_width' => $this->previewWidth(),
-            'preview_height' => $this->previewHeight(),
-            'preview_fps' => $this->previewFps(),
             'scrub_frame_interval_seconds' => $this->scrubFrameIntervalSeconds(),
             'scrub_frame_width' => $this->scrubFrameWidth(),
             'scrub_frame_height' => $this->scrubFrameHeight(),
             'scrub_columns' => $this->scrubColumns(),
-            'keyframe_interval_seconds' => (int) config('recording.review_assets.keyframe_interval_seconds', 1),
-            'video_crf' => (int) config('recording.review_assets.video_crf', 28),
             'playback_preset' => (string) config('recording.review_assets.playback_preset', 'medium'),
             'playback_video_crf' => (int) config('recording.review_assets.playback_video_crf', 26),
             'playback_video_max_bitrate' => (string) config('recording.review_assets.playback_video_max_bitrate', '1500k'),
@@ -1208,54 +1152,6 @@ class RecordingReviewAssetService
         $durationSeconds = $this->recordingDurationSeconds($recording);
 
         return max(1, (int) floor(max(0, $durationSeconds - 1) / $this->scrubFrameIntervalSeconds()) + 1);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function buildPreviewCommand(string $inputPath, string $outputPath): array
-    {
-        $ffmpegBinary = $this->ffmpegBinary();
-        $gop = max(1, $this->previewFps() * max(1, (int) config('recording.review_assets.keyframe_interval_seconds', 1)));
-        $previewWidth = $this->previewWidth();
-        $previewHeight = $this->previewHeight();
-
-        return [
-            $ffmpegBinary,
-            '-nostdin',
-            '-hide_banner',
-            '-loglevel',
-            'error',
-            '-y',
-            '-i',
-            $inputPath,
-            '-map',
-            '0:v:0',
-            '-an',
-            '-sn',
-            '-dn',
-            '-vf',
-            'fps='.$this->previewFps().',scale='.$previewWidth.':'.$previewHeight.':force_original_aspect_ratio=decrease,pad='.$previewWidth.':'.$previewHeight.':(ow-iw)/2:(oh-ih)/2:color=black,setsar=1',
-            '-c:v',
-            'libx264',
-            '-preset',
-            'fast',
-            '-profile:v',
-            'baseline',
-            '-pix_fmt',
-            'yuv420p',
-            '-crf',
-            (string) max(16, (int) config('recording.review_assets.video_crf', 24)),
-            '-g',
-            (string) $gop,
-            '-keyint_min',
-            (string) $gop,
-            '-sc_threshold',
-            '0',
-            '-movflags',
-            '+faststart',
-            $outputPath,
-        ];
     }
 
     /**
