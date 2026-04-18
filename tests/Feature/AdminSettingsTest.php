@@ -14,6 +14,7 @@ use App\Services\CameraStorageService;
 use Illuminate\Contracts\Filesystem\Filesystem as FilesystemContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
@@ -133,6 +134,10 @@ class AdminSettingsTest extends TestCase
     {
         config()->set('queue.default', 'database');
         config()->set('recording.worker.queue', 'recordings,default,review-assets');
+        config()->set('queue.failed.auto_retry.enabled', true);
+        config()->set('queue.failed.auto_retry.max_retries', 2);
+        config()->set('queue.failed.auto_retry.batch_size', 5);
+        config()->set('queue.failed.auto_retry.cooldown_seconds', 60);
 
         DB::table('jobs')->insert([
             [
@@ -163,8 +168,15 @@ class AdminSettingsTest extends TestCase
             'queue' => 'recordings',
             'payload' => json_encode([
                 'displayName' => 'App\\Jobs\\ProcessCameraRecordingJob',
+                'bigbrotha_failed_job_retry' => [
+                    'total_retries' => 1,
+                    'auto_retries' => 1,
+                    'manual_retries' => 0,
+                    'last_retry_type' => 'auto',
+                    'last_retry_at' => now()->subMinute()->toIso8601String(),
+                ],
             ], JSON_THROW_ON_ERROR),
-            'exception' => 'RuntimeException: test',
+            'exception' => "RuntimeException: queue test failed\n#0 /tmp/worker.php(10): test()",
             'failed_at' => now(),
         ]);
 
@@ -176,7 +188,140 @@ class AdminSettingsTest extends TestCase
             ->assertSee('GenerateRecordingReviewAssetsJob')
             ->assertSee('RefreshCameraPreviewJob')
             ->assertSee('ProcessCameraRecordingJob')
-            ->assertSee('Failed');
+            ->assertSee('RuntimeException: queue test failed')
+            ->assertSee('Pending retry')
+            ->assertSee('Requeued 1 time')
+            ->assertSee('Auto retry 2 times');
+    }
+
+    public function test_failed_job_auto_retry_command_requeues_eligible_jobs_and_respects_the_limit(): void
+    {
+        config()->set('queue.default', 'database');
+        config()->set('queue.failed.auto_retry.enabled', true);
+        config()->set('queue.failed.auto_retry.max_retries', 2);
+        config()->set('queue.failed.auto_retry.batch_size', 5);
+        config()->set('queue.failed.auto_retry.cooldown_seconds', 60);
+
+        $retryableFailedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '9f0a48aa-3fa1-47f7-b39d-1f8a3a5b4401',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+                'data' => [
+                    'commandName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                    'command' => 'serialized-command-placeholder',
+                ],
+                'bigbrotha_failed_job_retry' => [
+                    'total_retries' => 1,
+                    'auto_retries' => 1,
+                    'manual_retries' => 0,
+                    'last_retry_type' => 'auto',
+                    'last_retry_at' => now()->subMinutes(2)->toIso8601String(),
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: retry me',
+            'failed_at' => now()->subMinutes(2),
+        ]);
+
+        $limitReachedFailedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '41b6ec57-8e69-4331-8651-2b67d5294501',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                'bigbrotha_failed_job_retry' => [
+                    'total_retries' => 2,
+                    'auto_retries' => 2,
+                    'manual_retries' => 0,
+                    'last_retry_type' => 'auto',
+                    'last_retry_at' => now()->subMinutes(3)->toIso8601String(),
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: stop retrying',
+            'failed_at' => now()->subMinutes(3),
+        ]);
+
+        $exitCode = Artisan::call('queue:retry-failed-auto');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseMissing('failed_jobs', [
+            'id' => $retryableFailedJobId,
+        ]);
+        $this->assertDatabaseHas('failed_jobs', [
+            'id' => $limitReachedFailedJobId,
+        ]);
+        $this->assertDatabaseHas('jobs', [
+            'queue' => 'default',
+        ]);
+
+        $queuedPayload = DB::table('jobs')->where('queue', 'default')->value('payload');
+        $decodedPayload = json_decode((string) $queuedPayload, true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertSame(2, data_get($decodedPayload, 'bigbrotha_failed_job_retry.total_retries'));
+        $this->assertSame(2, data_get($decodedPayload, 'bigbrotha_failed_job_retry.auto_retries'));
+    }
+
+    public function test_failed_job_auto_retry_command_does_not_let_limit_reached_rows_block_newer_eligible_retries(): void
+    {
+        config()->set('queue.default', 'database');
+        config()->set('queue.failed.auto_retry.enabled', true);
+        config()->set('queue.failed.auto_retry.max_retries', 2);
+        config()->set('queue.failed.auto_retry.batch_size', 1);
+        config()->set('queue.failed.auto_retry.cooldown_seconds', 60);
+
+        DB::table('failed_jobs')->insert([
+            'uuid' => 'd0b66e8b-ae0b-4c6a-b5da-f5c96f86ba01',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                'bigbrotha_failed_job_retry' => [
+                    'total_retries' => 2,
+                    'auto_retries' => 2,
+                    'manual_retries' => 0,
+                    'last_retry_type' => 'auto',
+                    'last_retry_at' => now()->subMinutes(5)->toIso8601String(),
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: already exhausted',
+            'failed_at' => now()->subMinutes(5),
+        ]);
+
+        $retryableFailedJobId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '892e49a1-ec8e-4a64-9db9-f7fd13e6c112',
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => json_encode([
+                'displayName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
+                'data' => [
+                    'commandName' => 'App\\Jobs\\RefreshCameraPreviewJob',
+                    'command' => 'serialized-command-placeholder',
+                ],
+                'bigbrotha_failed_job_retry' => [
+                    'total_retries' => 0,
+                    'auto_retries' => 0,
+                    'manual_retries' => 0,
+                    'last_retry_type' => null,
+                    'last_retry_at' => null,
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'exception' => 'RuntimeException: retry the newer row',
+            'failed_at' => now()->subMinutes(4),
+        ]);
+
+        $exitCode = Artisan::call('queue:retry-failed-auto');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseHas('failed_jobs', [
+            'uuid' => 'd0b66e8b-ae0b-4c6a-b5da-f5c96f86ba01',
+        ]);
+        $this->assertDatabaseMissing('failed_jobs', [
+            'id' => $retryableFailedJobId,
+        ]);
+        $this->assertDatabaseCount('jobs', 1);
     }
 
     public function test_admin_job_queue_component_can_retry_a_failed_job(): void

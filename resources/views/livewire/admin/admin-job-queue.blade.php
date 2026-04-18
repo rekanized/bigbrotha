@@ -48,6 +48,18 @@
             <strong>{{ implode(', ', $worker['queue_names'] ?? []) ?: 'No queue names configured' }}</strong>
             <span class="queue-monitor__detail-copy">{{ $worker['enabled_recording_cameras'] ?? 0 }} recording cameras, {{ $worker['jobs_per_process'] ?? 0 }} jobs per worker target.</span>
         </article>
+
+        <article class="detail-card">
+            <span class="detail-card__label">Failed-job policy</span>
+            <strong>{{ $autoRetryEnabled && $autoRetryMaxRetries > 0 ? 'Auto retry '.$autoRetryMaxRetries.' time'.($autoRetryMaxRetries === 1 ? '' : 's') : 'Manual retry only' }}</strong>
+            <span class="queue-monitor__detail-copy">
+                @if ($autoRetryEnabled && $autoRetryMaxRetries > 0)
+                    Scheduler retries up to {{ $autoRetryBatchSize }} failed job{{ $autoRetryBatchSize === 1 ? '' : 's' }} per minute after {{ $autoRetryCooldownSeconds }} second{{ $autoRetryCooldownSeconds === 1 ? '' : 's' }}.
+                @else
+                    Failed jobs stay in the failed jobs table until an operator retries or deletes them.
+                @endif
+            </span>
+        </article>
     </div>
 
     <div class="queue-monitor__panel-grid">
@@ -198,7 +210,8 @@
                     <div class="data-table__head queue-monitor__failed-head">
                         <span>Queue</span>
                         <span>Job</span>
-                        <span>Failed at</span>
+                        <span>Failure</span>
+                        <span>Retry state</span>
                         <span>Actions</span>
                     </div>
 
@@ -210,8 +223,27 @@
                             <div>
                                 <strong>{{ $job['job_label'] }}</strong>
                                 <p>{{ $job['job_class'] }}</p>
+                                <p class="queue-monitor__muted">Connection: {{ $job['connection'] }}</p>
                             </div>
-                            <div>{{ $job['failed_at_label'] }}</div>
+                            <div>
+                                <strong>{{ $job['exception_excerpt'] }}</strong>
+                                <p class="queue-monitor__muted">Failed at {{ $job['failed_at_label'] }}</p>
+
+                                @if ($job['exception_trace'] !== '')
+                                    <details class="queue-monitor__failure-details">
+                                        <summary>Trace preview</summary>
+                                        <pre>{{ $job['exception_trace'] }}</pre>
+                                    </details>
+                                @endif
+                            </div>
+                            <div>
+                                <span class="status-pill status-pill--{{ $job['retry_status_tone'] }}">{{ $job['retry_status_label'] }}</span>
+                                <p>{{ $job['retry_summary'] }}</p>
+
+                                @if ($job['next_retry_label'])
+                                    <p class="queue-monitor__muted">Next automatic retry after {{ $job['next_retry_label'] }}</p>
+                                @endif
+                            </div>
                             <div>
                                 <div class="queue-monitor__action-stack">
                                     <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">

@@ -164,7 +164,8 @@ Current behavior:
 3. motion mode now captures one buffered motion-only clip that includes the per-camera pre-roll context and the monitored span that follows it, then saves the whole clip when motion crosses the threshold during that monitored span.
 4. motion events ignore new motion triggers while an existing motion clip is still being compiled so overlapping motion files are not generated for the same camera.
 5. motion capture and review-asset work stay queue-backed and guarded by a per-camera lock so duplicate overlapping jobs are avoided, while continuous mode is watchdog-managed by the persistent segmenter service.
-6. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
+6. the minute scheduler also sweeps the `failed_jobs` table and requeues eligible failed jobs up to the configured automatic retry limit, so recurring queue failures do not accumulate indefinitely before an operator can inspect them.
+7. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
 
 Continuous timestamp behavior:
 

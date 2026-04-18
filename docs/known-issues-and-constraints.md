@@ -126,6 +126,7 @@ Current expectations:
 - the repository Docker stack satisfies those requirements with dedicated `worker` and `scheduler` containers.
 - if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and start the stack through `./docker/compose-up.sh` so Compose scales the `worker` service to the same replica count.
 - the scheduler remains a scheduling loop only; it is not a fallback worker supervisor.
+- the scheduler now also runs a bounded failed-job retry sweep, so entries in `failed_jobs` are automatically requeued after the configured cooldown until `QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES` is reached; the Admin settings queue panel shows the recorded exception excerpt and current retry state for each failed row.
 - recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
 - continuous recording no longer trusts the minute scheduler as the clip boundary. Once the scheduler boots a camera's segmenter, ffmpeg keeps rotating segment-muxer files on its own so scheduler jitter does not create minute-aligned gaps.
 - continuous recording timestamps are now anchored to the imported segment filename timestamp and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.

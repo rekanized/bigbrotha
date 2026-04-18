@@ -386,7 +386,7 @@
 
 .queue-monitor__failed-head,
 .queue-monitor__failed-row {
-    grid-template-columns: minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(216px, 1fr);
+    grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr) minmax(240px, 1.5fr) minmax(180px, 1fr) minmax(216px, 1fr);
 }
 
 .queue-monitor__summary-row,
@@ -404,6 +404,30 @@
 .queue-monitor__action-button {
     justify-self: start;
     min-width: 96px;
+}
+
+.queue-monitor__failure-details {
+    margin-top: 10px;
+}
+
+.queue-monitor__failure-details summary {
+    cursor: pointer;
+    color: var(--text-soft);
+    font-size: 0.85rem;
+}
+
+.queue-monitor__failure-details pre {
+    margin: 8px 0 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: hsla(220 20% 97% / 0.95);
+    color: var(--text);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .key-value-list {

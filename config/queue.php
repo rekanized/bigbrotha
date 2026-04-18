@@ -130,6 +130,12 @@ return [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
         'database' => env('DB_CONNECTION', 'pgsql'),
         'table' => 'failed_jobs',
+        'auto_retry' => [
+            'enabled' => filter_var(env('QUEUE_FAILED_AUTO_RETRY_ENABLED', true), FILTER_VALIDATE_BOOL),
+            'max_retries' => max(0, (int) env('QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES', 2)),
+            'batch_size' => max(1, (int) env('QUEUE_FAILED_AUTO_RETRY_BATCH_SIZE', 5)),
+            'cooldown_seconds' => max(0, (int) env('QUEUE_FAILED_AUTO_RETRY_COOLDOWN_SECONDS', 60)),
+        ],
     ],
 
 ];

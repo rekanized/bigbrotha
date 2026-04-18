@@ -11,6 +11,7 @@ use App\Services\RecordingContainerHealthService;
 use App\Services\RuntimeHeartbeatService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
+use App\Services\FailedJobRetryService;
 use App\Services\MotionRecordingSegmenterService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Inspiring;
@@ -701,9 +702,42 @@ Artisan::command('camera-recordings:reconcile-review-asset-queue {--dry-run}', f
     return 0;
 })->purpose('Deduplicate queued review-asset jobs and move pending legacy jobs onto the review-assets queue');
 
+Artisan::command('queue:retry-failed-auto {--limit=}', function (): int {
+    $limitOption = $this->option('limit');
+    $limit = is_numeric($limitOption) ? max(1, (int) $limitOption) : null;
+    $result = app(FailedJobRetryService::class)->retryBatch($limit);
+
+    if (!$result['enabled']) {
+        $this->components->info('Automatic failed-job retries are disabled or unavailable on this environment.');
+
+        return 0;
+    }
+
+    $message = 'Scanned '.$result['scanned'].' eligible failed job record'.($result['scanned'] === 1 ? '' : 's').'. '
+        .'Retried '.$result['retried'].' job'.($result['retried'] === 1 ? '' : 's').'.';
+
+    if ($result['limit_reached'] > 0) {
+        $message .= ' Left '.$result['limit_reached'].' job'.($result['limit_reached'] === 1 ? '' : 's').' at the configured retry limit.';
+    }
+
+    if ($result['errors'] > 0) {
+        $message .= ' '.$result['errors'].' job'.($result['errors'] === 1 ? '' : 's').' could not be retried.';
+    }
+
+    $this->components->info($message);
+
+    return $result['errors'] > 0 ? 1 : 0;
+})->purpose('Requeue eligible failed jobs until the configured automatic retry limit is reached');
+
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
     ->withoutOverlapping(45);
+
+if ((bool) config('queue.failed.auto_retry.enabled', true) && (int) config('queue.failed.auto_retry.max_retries', 2) > 0) {
+    Schedule::command('queue:retry-failed-auto --limit='.(string) config('queue.failed.auto_retry.batch_size', 5))
+        ->everyMinute()
+        ->withoutOverlapping(5);
+}
 
 if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
     Schedule::command('camera-recordings:build-review-assets --missing --limit='.(string) config('recording.review_assets.scheduler_limit', 4))

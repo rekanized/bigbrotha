@@ -2,11 +2,11 @@
 
 namespace App\Livewire\Admin;
 
+use App\Services\FailedJobRetryService;
 use App\Services\RecordingWorkerService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -32,6 +32,14 @@ class AdminJobQueue extends Component
 
     public int $failedJobTotal = 0;
 
+    public bool $autoRetryEnabled = false;
+
+    public int $autoRetryMaxRetries = 0;
+
+    public int $autoRetryBatchSize = 0;
+
+    public int $autoRetryCooldownSeconds = 0;
+
     /**
      * @var array<int, array{queue: string, pending_count: int, failed_count: int, next_job_label: string|null, next_available_label: string|null, status_label: string, status_tone: string}>
      */
@@ -43,7 +51,7 @@ class AdminJobQueue extends Component
     public array $upcomingJobs = [];
 
     /**
-     * @var array<int, array{id: int, uuid: string, queue: string, job_label: string, job_class: string, failed_at_label: string}>
+    * @var array<int, array{id: int, uuid: string, queue: string, connection: string, job_label: string, job_class: string, failed_at_label: string, exception_excerpt: string, exception_trace: string, retry_status_label: string, retry_status_tone: string, retry_summary: string, next_retry_label: string|null}>
      */
     public array $failedJobs = [];
 
@@ -81,9 +89,9 @@ class AdminJobQueue extends Component
             return;
         }
 
-        $failedJob = DB::table('failed_jobs')->where('id', $failedJobId)->first();
+        $retryResult = app(FailedJobRetryService::class)->retryFailedJobById($failedJobId, automatic: false, force: true);
 
-        if ($failedJob === null) {
+        if ($retryResult['status'] === 'missing') {
             $this->statusTone = 'warn';
             $this->statusMessage = 'That failed job no longer exists. The panel has been refreshed.';
             $this->loadSnapshot(app(RecordingWorkerService::class));
@@ -91,20 +99,12 @@ class AdminJobQueue extends Component
             return;
         }
 
-        try {
-            $connection = trim((string) $failedJob->connection) !== ''
-                ? (string) $failedJob->connection
-                : (string) config('queue.default');
-
-            Queue::connection($connection)->pushRaw((string) $failedJob->payload, (string) $failedJob->queue);
-
-            DB::table('failed_jobs')->where('id', $failedJobId)->delete();
-
+        if ($retryResult['status'] === 'retried') {
             $this->statusTone = 'good';
             $this->statusMessage = 'Queued the failed job for another attempt.';
-        } catch (Throwable $exception) {
+        } else {
             $this->statusTone = 'alert';
-            $this->statusMessage = 'Unable to retry the selected failed job: '.$exception->getMessage();
+            $this->statusMessage = 'Unable to retry the selected failed job: '.($retryResult['message'] ?? 'The retry attempt failed.');
         }
 
         $this->loadSnapshot(app(RecordingWorkerService::class));
@@ -181,11 +181,17 @@ class AdminJobQueue extends Component
 
     private function loadSnapshot(RecordingWorkerService $workerService): void
     {
+        $retryService = app(FailedJobRetryService::class);
+
         $this->queueConnection = (string) config('queue.default', '');
         $this->queueDriver = (string) config('queue.connections.'.$this->queueConnection.'.driver', '');
         $this->usesDatabaseQueue = $this->queueDriver === 'database';
         $this->jobsTableAvailable = Schema::hasTable('jobs');
         $this->failedJobsTableAvailable = Schema::hasTable('failed_jobs');
+        $this->autoRetryEnabled = $retryService->autoRetryEnabled();
+        $this->autoRetryMaxRetries = $retryService->maxAutoRetries();
+        $this->autoRetryBatchSize = $retryService->autoRetryBatchSize();
+        $this->autoRetryCooldownSeconds = $retryService->autoRetryCooldownSeconds();
 
         $workerSnapshot = $workerService->snapshot();
         $this->worker = $workerSnapshot + [
@@ -199,7 +205,7 @@ class AdminJobQueue extends Component
             $this->failedJobTotal = $this->failedJobsTableAvailable ? (int) DB::table('failed_jobs')->count() : 0;
             $this->queueSummary = [];
             $this->upcomingJobs = [];
-            $this->failedJobs = $this->failedJobsTableAvailable ? $this->loadFailedJobs() : [];
+            $this->failedJobs = $this->failedJobsTableAvailable ? $this->loadFailedJobs($retryService) : [];
 
             return;
         }
@@ -224,7 +230,7 @@ class AdminJobQueue extends Component
         $this->failedJobTotal = array_sum($failedCounts);
         $this->queueSummary = $this->buildQueueSummary($pendingCounts, $failedCounts, $this->worker['queue_names'] ?? []);
         $this->upcomingJobs = $this->loadUpcomingJobs();
-        $this->failedJobs = $this->loadFailedJobs();
+        $this->failedJobs = $this->loadFailedJobs($retryService);
     }
 
     /**
@@ -327,29 +333,39 @@ class AdminJobQueue extends Component
     }
 
     /**
-     * @return array<int, array{id: int, uuid: string, queue: string, job_label: string, job_class: string, failed_at_label: string}>
+     * @return array<int, array{id: int, uuid: string, queue: string, connection: string, job_label: string, job_class: string, failed_at_label: string, exception_excerpt: string, exception_trace: string, retry_status_label: string, retry_status_tone: string, retry_summary: string, next_retry_label: string|null}>
      */
-    private function loadFailedJobs(): array
+    private function loadFailedJobs(FailedJobRetryService $retryService): array
     {
         if (!$this->failedJobsTableAvailable) {
             return [];
         }
 
         return DB::table('failed_jobs')
-            ->select(['id', 'uuid', 'queue', 'payload', 'failed_at'])
+            ->select(['id', 'uuid', 'connection', 'queue', 'payload', 'exception', 'failed_at'])
             ->orderByDesc('failed_at')
             ->limit($this->failedJobLimit)
             ->get()
-            ->map(function (object $job): array {
+            ->map(function (object $job) use ($retryService): array {
                 $jobClass = $this->jobClassFromPayload((string) $job->payload);
+                $retryMeta = $retryService->retryMetadataFromPayload((string) $job->payload);
+                $failedAt = Carbon::parse((string) $job->failed_at);
+                $retryState = $this->failedJobRetryState($retryMeta, $failedAt);
 
                 return [
                     'id' => (int) $job->id,
                     'uuid' => (string) $job->uuid,
+                    'connection' => trim((string) $job->connection) !== '' ? (string) $job->connection : (string) config('queue.default', 'unknown'),
                     'queue' => (string) $job->queue,
                     'job_label' => class_basename($jobClass),
                     'job_class' => $jobClass,
-                    'failed_at_label' => $this->formatDateTime((string) $job->failed_at),
+                    'failed_at_label' => $failedAt->format('Y-m-d H:i:s'),
+                    'exception_excerpt' => $this->failedJobExceptionExcerpt((string) $job->exception),
+                    'exception_trace' => $this->failedJobTracePreview((string) $job->exception),
+                    'retry_status_label' => $retryState['label'],
+                    'retry_status_tone' => $retryState['tone'],
+                    'retry_summary' => $this->failedJobRetrySummary($retryMeta),
+                    'next_retry_label' => $retryState['next_retry_label'],
                 ];
             })
             ->values()
@@ -467,5 +483,75 @@ class AdminJobQueue extends Component
     private function formatDateTime(string $timestamp): string
     {
         return Carbon::parse($timestamp)->format('Y-m-d H:i:s');
+    }
+
+    private function failedJobExceptionExcerpt(string $exception): string
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim($exception)) ?: [];
+        $firstLine = trim((string) ($lines[0] ?? ''));
+
+        if ($firstLine === '') {
+            return 'No exception details were recorded for this failed job.';
+        }
+
+        return Str::limit((string) preg_replace('/\s+/', ' ', $firstLine), 220);
+    }
+
+    private function failedJobTracePreview(string $exception): string
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim($exception)) ?: [];
+        $lines = array_values(array_filter(
+            array_map(static fn (string $line): string => rtrim($line), $lines),
+            static fn (string $line): bool => $line !== ''
+        ));
+
+        return implode(PHP_EOL, array_slice($lines, 0, 6));
+    }
+
+    /**
+     * @param  array{total_retries: int, auto_retries: int, manual_retries: int, last_retry_type: string|null, last_retry_at: string|null}  $retryMeta
+     */
+    private function failedJobRetrySummary(array $retryMeta): string
+    {
+        $summary = $retryMeta['total_retries'] === 0
+            ? 'No requeue attempts have been made yet.'
+            : 'Requeued '.$retryMeta['total_retries'].' time'.($retryMeta['total_retries'] === 1 ? '' : 's').': auto '.$retryMeta['auto_retries'].', manual '.$retryMeta['manual_retries'].'.';
+
+        if ($retryMeta['last_retry_type'] !== null && $retryMeta['last_retry_at'] !== null) {
+            $summary .= ' Last '.($retryMeta['last_retry_type'] === 'auto' ? 'automatic' : 'manual').' retry at '.$this->formatDateTime($retryMeta['last_retry_at']).'.';
+        }
+
+        return $summary;
+    }
+
+    /**
+     * @param  array{total_retries: int, auto_retries: int, manual_retries: int, last_retry_type: string|null, last_retry_at: string|null}  $retryMeta
+     * @return array{label: string, tone: string, next_retry_label: string|null}
+     */
+    private function failedJobRetryState(array $retryMeta, Carbon $failedAt): array
+    {
+        if (!$this->autoRetryEnabled || $this->autoRetryMaxRetries === 0) {
+            return [
+                'label' => 'Manual only',
+                'tone' => 'neutral',
+                'next_retry_label' => null,
+            ];
+        }
+
+        if ($retryMeta['total_retries'] >= $this->autoRetryMaxRetries) {
+            return [
+                'label' => 'Limit reached',
+                'tone' => 'alert',
+                'next_retry_label' => null,
+            ];
+        }
+
+        $nextRetryAt = $failedAt->copy()->addSeconds($this->autoRetryCooldownSeconds);
+
+        return [
+            'label' => $nextRetryAt->isFuture() ? 'Pending retry' : 'Eligible now',
+            'tone' => $nextRetryAt->isFuture() ? 'warn' : 'neutral',
+            'next_retry_label' => $nextRetryAt->format('Y-m-d H:i:s'),
+        ];
     }
 }
