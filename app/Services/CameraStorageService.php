@@ -52,10 +52,6 @@ class CameraStorageService
         $cameraDirectory = (string) $cameraId;
 
         if ($this->usingNetworkStorage()) {
-            foreach ([$cameraDirectory, $cameraDirectory.'/recordings'] as $directory) {
-                $this->cameraDisk()->makeDirectory($directory);
-            }
-
             $localCameraRoot = $this->privateAbsolutePath('cameras/'.$cameraDirectory);
 
             foreach ([$localCameraRoot, $localCameraRoot.'/previews', $localCameraRoot.'/recordings'] as $path) {
@@ -858,9 +854,9 @@ class CameraStorageService
             return null;
         }
 
-        $targetPath = $this->cameraDiskSmbTargetPath($diskPath);
+        $targetPaths = $this->cameraDiskReadSmbTargetPaths($diskPath);
 
-        if (!is_string($targetPath) || $targetPath === '') {
+        if ($targetPaths === []) {
             return false;
         }
 
@@ -873,33 +869,35 @@ class CameraStorageService
             @unlink($readPath);
         }
 
-        $command = [
-            $binary,
-            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-            '-U',
-            $networkConfig['username'].'%'.$networkConfig['password'],
-            '-c',
-            'get "'.$targetPath.'" "'.$readPath.'"',
-        ];
+        foreach ($targetPaths as $targetPath) {
+            $command = [
+                $binary,
+                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+                '-U',
+                $networkConfig['username'].'%'.$networkConfig['password'],
+                '-c',
+                'get "'.$targetPath.'" "'.$readPath.'"',
+            ];
 
-        $process = new Process($command);
-        $process->setTimeout(max(15, $transferTimeoutSeconds ?? 20));
+            $process = new Process($command);
+            $process->setTimeout(max(15, $transferTimeoutSeconds ?? 20));
 
-        try {
-            $process->run();
-        } catch (Throwable) {
+            try {
+                $process->run();
+            } catch (Throwable) {
+                @unlink($readPath);
+
+                continue;
+            }
+
+            if ($process->isSuccessful() && is_file($readPath)) {
+                return $readPath;
+            }
+
             @unlink($readPath);
-
-            return false;
         }
 
-        if (!$process->isSuccessful() || !is_file($readPath)) {
-            @unlink($readPath);
-
-            return false;
-        }
-
-        return $readPath;
+        return false;
     }
 
     private function writeCameraDiskPathWithSmbClient(string $diskPath, string $localPath, ?int $transferTimeoutSeconds = null): bool
@@ -1241,6 +1239,40 @@ class CameraStorageService
         return trim(($networkConfig['root'] !== '' ? $networkConfig['root'].'/' : '').ltrim($diskPath, '/'), '/');
     }
 
+    /**
+     * @return array<int, string>
+     */
+    private function cameraDiskReadSmbTargetPaths(string $diskPath): array
+    {
+        $targets = [];
+        $primaryTarget = $this->cameraDiskSmbTargetPath($diskPath);
+
+        if (is_string($primaryTarget) && $primaryTarget !== '') {
+            $targets[] = $primaryTarget;
+        }
+
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+
+        if (!is_array($networkConfig)) {
+            return $targets;
+        }
+
+        $root = trim(str_replace('\\', '/', (string) ($networkConfig['root'] ?? '')), '/');
+
+        if ($root === '' || preg_match('#(?:^|/)cameras$#i', $root) !== 1) {
+            return $targets;
+        }
+
+        $legacyRoot = trim((string) preg_replace('#(?:^|/)cameras$#i', '', $root), '/');
+        $legacyTarget = trim(($legacyRoot !== '' ? $legacyRoot.'/' : '').ltrim($diskPath, '/'), '/');
+
+        if ($legacyTarget !== '') {
+            $targets[] = $legacyTarget;
+        }
+
+        return array_values(array_unique($targets));
+    }
+
     protected function verifyCameraDiskWrite(string $diskPath, string $localPath): void
     {
         try {
@@ -1484,6 +1516,12 @@ class CameraStorageService
                 if (!$this->createCameraDiskDirectoryWithSmbClient($path)) {
                     throw $exception;
                 }
+
+                continue;
+            }
+
+            if (!$this->cameraDiskDirectoryExists($disk, $path) && !$this->createCameraDiskDirectoryWithSmbClient($path)) {
+                throw new RuntimeException('Unable to create the camera storage directory on the active network share: '.$path);
             }
         }
     }
@@ -1515,33 +1553,72 @@ class CameraStorageService
             return false;
         }
 
-        $targetPath = trim(($networkConfig['root'] !== '' ? $networkConfig['root'].'/' : '').ltrim($path, '/'), '/');
+        $targetPaths = $this->cameraDiskSmbDirectoryTargetPaths($path);
 
-        if ($targetPath === '') {
+        if ($targetPaths === []) {
             return false;
         }
 
-        $command = [
-            $binary,
-            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-            '-U',
-            $networkConfig['username'].'%'.$networkConfig['password'],
-            '-c',
-            'mkdir "'.$targetPath.'"',
-        ];
+        foreach ($targetPaths as $targetPath) {
+            $command = [
+                $binary,
+                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+                '-U',
+                $networkConfig['username'].'%'.$networkConfig['password'],
+                '-c',
+                'mkdir "'.$targetPath.'"',
+            ];
 
-        $process = new Process($command);
-        $process->setTimeout(30);
-        $process->run();
+            $process = new Process($command);
+            $process->setTimeout(30);
+            $process->run();
 
-        if ($process->isSuccessful()) {
-            return true;
+            if ($process->isSuccessful()) {
+                continue;
+            }
+
+            $errorOutput = trim($process->getErrorOutput().' '.$process->getOutput());
+
+            if (
+                str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_COLLISION')
+                || str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_EXISTS')
+            ) {
+                continue;
+            }
+
+            return false;
         }
 
-        $errorOutput = trim($process->getErrorOutput().' '.$process->getOutput());
+        return true;
+    }
 
-        return str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_COLLISION')
-            || str_contains($errorOutput, 'NT_STATUS_OBJECT_NAME_EXISTS');
+    /**
+     * @return array<int, string>
+     */
+    private function cameraDiskSmbDirectoryTargetPaths(string $path): array
+    {
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+
+        if (!is_array($networkConfig)) {
+            return [];
+        }
+
+        $segments = array_filter(explode('/', trim(str_replace('\\', '/', (string) ($networkConfig['root'] ?? '')), '/')));
+        $segments = array_merge($segments, array_filter(explode('/', trim(str_replace('\\', '/', $path), '/'))));
+
+        $targets = [];
+        $current = '';
+
+        foreach ($segments as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+
+            $current = $current === '' ? $segment : $current.'/'.$segment;
+            $targets[] = $current;
+        }
+
+        return array_values(array_unique($targets));
     }
 
     protected function cameraDiskFileAvailabilityWithSmbClient(string $diskPath): ?string
@@ -1582,45 +1659,55 @@ class CameraStorageService
             return null;
         }
 
-        $targetPath = $this->cameraDiskSmbTargetPath($diskPath);
+        $targetPaths = $this->cameraDiskReadSmbTargetPaths($diskPath);
 
-        if (!is_string($targetPath) || $targetPath === '') {
+        if ($targetPaths === []) {
             return null;
         }
 
-        $command = [
-            $binary,
-            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-            '-U',
-            $networkConfig['username'].'%'.$networkConfig['password'],
-            '-c',
-            'allinfo "'.$targetPath.'"',
-        ];
+        $encounteredMissing = false;
 
-        $process = new Process($command);
-        $process->setTimeout(self::SMB_METADATA_TIMEOUT_SECONDS);
-        $process->run();
+        foreach ($targetPaths as $targetPath) {
+            $command = [
+                $binary,
+                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+                '-U',
+                $networkConfig['username'].'%'.$networkConfig['password'],
+                '-c',
+                'allinfo "'.$targetPath.'"',
+            ];
 
-        $combinedOutput = trim($process->getErrorOutput().' '.$process->getOutput());
-        $errorOutput = strtolower($combinedOutput);
+            $process = new Process($command);
+            $process->setTimeout(self::SMB_METADATA_TIMEOUT_SECONDS);
+            $process->run();
 
-        foreach (['nt_status_object_name_not_found', 'nt_status_no_such_file', 'not found'] as $needle) {
-            if (str_contains($errorOutput, $needle)) {
+            $combinedOutput = trim($process->getErrorOutput().' '.$process->getOutput());
+            $errorOutput = strtolower($combinedOutput);
+
+            foreach (['nt_status_object_name_not_found', 'nt_status_no_such_file', 'nt_status_object_path_not_found', 'not found'] as $needle) {
+                if (str_contains($errorOutput, $needle)) {
+                    $encounteredMissing = true;
+
+                    continue 2;
+                }
+            }
+
+            if ($process->isSuccessful()) {
                 return [
-                    'availability' => self::RECORDING_AVAILABILITY_MISSING,
-                    'size' => null,
+                    'availability' => self::RECORDING_AVAILABILITY_PRESENT,
+                    'size' => $this->parseSmbClientAllInfoSize($combinedOutput),
                 ];
             }
+
+            return null;
         }
 
-        if ($process->isSuccessful()) {
-            return [
-                'availability' => self::RECORDING_AVAILABILITY_PRESENT,
-                'size' => $this->parseSmbClientAllInfoSize($combinedOutput),
-            ];
-        }
-
-        return null;
+        return $encounteredMissing
+            ? [
+                'availability' => self::RECORDING_AVAILABILITY_MISSING,
+                'size' => null,
+            ]
+            : null;
     }
 
     private function parseSmbClientAllInfoSize(string $output): ?int

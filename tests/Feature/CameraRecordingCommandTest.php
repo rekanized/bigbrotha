@@ -453,6 +453,101 @@ class CameraRecordingCommandTest extends TestCase
         }
     }
 
+    public function test_review_asset_job_marks_missing_recordings_as_failed_without_throwing(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.171',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream171',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 12, 30, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 12, 30, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 12, 31, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/missing-review-assets-job.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Clip saved.',
+        ]);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+
+        $this->assertTrue($reviewAssets->markQueued($recording->getKey()));
+
+        (new GenerateRecordingReviewAssetsJob($recording->getKey()))->handle($reviewAssets);
+
+        $this->assertFalse($reviewAssets->isQueued($recording->getKey()));
+        $this->assertSame(RecordingReviewAssetService::STATUS_FAILED, $reviewAssets->assetState($recording)['status']);
+        $this->assertStringContainsString(
+            'saved recording segment is no longer available on disk',
+            (string) ($reviewAssets->manifest($recording)['error_message'] ?? ''),
+        );
+    }
+
+    public function test_review_asset_job_keeps_retrying_when_the_recording_is_temporarily_unreachable(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Atrium',
+            'local_ip' => '192.168.1.173',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream173',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => Carbon::create(2026, 4, 7, 12, 35, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 7, 12, 35, 0, 'UTC'),
+            'ended_at' => Carbon::create(2026, 4, 7, 12, 36, 0, 'UTC'),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/07/unreachable-review-assets-job.mkv',
+            'file_size_bytes' => 4096,
+            'message' => 'Clip saved.',
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $storage->shouldReceive('resolveRecordingAbsolutePath')
+            ->once()
+            ->with($recording->relative_path, \Mockery::on(static fn (mixed $timeout): bool => is_int($timeout) && $timeout >= 30))
+            ->andReturn(null);
+        $storage->shouldReceive('missingRecordingSegmentMessage')
+            ->once()
+            ->with($recording->relative_path)
+            ->andReturn('The saved recording segment is not available on disk. storage_mode=network');
+        $storage->shouldReceive('recordingAvailability')
+            ->once()
+            ->with($recording->relative_path)
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE);
+        $this->app->instance(CameraStorageService::class, $storage);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+
+        $this->assertTrue($reviewAssets->markQueued($recording->getKey()));
+
+        try {
+            (new GenerateRecordingReviewAssetsJob($recording->getKey()))->handle($reviewAssets);
+            $this->fail('Expected a transiently unreachable recording to remain retryable.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('The saved recording segment is not available on disk.', $exception->getMessage());
+        }
+
+        $this->assertTrue($reviewAssets->isQueued($recording->getKey()));
+    }
+
     public function test_review_asset_generation_requests_a_bounded_storage_read(): void
     {
         $camera = Camera::query()->create([

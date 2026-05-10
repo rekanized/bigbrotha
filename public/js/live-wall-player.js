@@ -294,7 +294,7 @@
 
         async connect() {
             this.destroyConnection();
-            this.setMessage(`Loading secure ${this.expectedStreamLabel()} stream…`);
+            this.setMessage('Loading camera feed...');
 
             const bootstrapSession = this.readBootstrapSession();
             const hintedReaderUrl = bootstrapSession?.reader_url || this.bootstrapReaderUrl;
@@ -652,10 +652,6 @@
                 : 'Interact once with the page to continue playback.';
 
             return `${displayCodecName(this.expectedVideoCodec)} video is ready. ${audioHint}`;
-        }
-
-        expectedStreamLabel() {
-            return `${displayCodecName(this.expectedVideoCodec)}/${displayCodecName(this.expectedAudioCodec)} ${this.expectedAudioSampleRate / 1000} kHz ${this.expectedAudioChannels}ch`;
         }
 
         applyStreamHints(stream) {

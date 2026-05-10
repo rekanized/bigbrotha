@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\CameraRecording;
+use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -70,6 +71,16 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
             $reviewAssets->generateForRecording($recording);
             $reviewAssets->clearQueued($recording->getKey());
         } catch (Throwable $exception) {
+            if ($this->isMissingRecordingFailure($recording, $exception)) {
+                $reviewAssets->recordJobFailure(
+                    $recording,
+                    'Review asset generation skipped because the saved recording segment is no longer available on disk.',
+                );
+                $reviewAssets->clearQueued($recording->getKey());
+
+                return;
+            }
+
             if ($this->attempts() >= $this->tries) {
                 $reviewAssets->recordJobFailure($recording, 'Final review asset attempt failed: '.$this->summarizeThrowable($exception).'.');
                 $reviewAssets->clearQueued($recording->getKey());
@@ -120,5 +131,15 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
         }
 
         return str($message)->squish()->limit(240)->value();
+    }
+
+    private function isMissingRecordingFailure(CameraRecording $recording, Throwable $exception): bool
+    {
+        if (!str_starts_with(trim($exception->getMessage()), 'The saved recording segment is not available on disk.')) {
+            return false;
+        }
+
+        return app(CameraStorageService::class)->recordingAvailability($recording->relative_path)
+            === CameraStorageService::RECORDING_AVAILABILITY_MISSING;
     }
 }

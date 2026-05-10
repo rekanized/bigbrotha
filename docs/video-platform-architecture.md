@@ -237,6 +237,7 @@ Relevant behavior:
 - `App\Http\Middleware\RestrictWebsiteIp` evaluates the client IP after proxy normalization and is driven by `WEBSITE_ALLOWED_IPS`.
 - MediaMTX player traffic defaults to a proxied path such as `/__webrtc/` derived from `APP_URL`, and `MEDIAMTX_WEBRTC_PUBLIC_URL` remains available as an override for non-default relay publishing.
 - the reverse proxy must preserve the `/__webrtc` prefix on WHEP session URLs, typically with `X-Forwarded-Prefix` and `proxy_redirect` rules that rewrite upstream `Location` headers back under `/__webrtc/`.
+- the containerized Nginx proxy should resolve the `relay` upstream through Docker DNS instead of pinning a single container IP, otherwise recreating the relay container can leave `/__webrtc/` traffic pointed at a stale address until web is reloaded.
 - Media traffic still requires direct ICE reachability on the configured WebRTC transport ports, typically `8189/udp` and optionally `8189/tcp`.
 
 ## Storage Layout
@@ -261,7 +262,7 @@ Camera storage routing notes:
 
 - the logical `cameras/...` tree still uses the relative paths above inside database rows and review-asset manifests.
 - when admin settings leave network storage disabled, `filesystems.camera_private` points at the local `storage/app/private/cameras` directory.
-- when admin settings enable a valid SMB path, that SMB path should already resolve to the dedicated `cameras` directory on the NAS, and `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter so camera-tree reads or writes are routed there instead.
+- when admin settings enable a valid SMB path, `App\Services\ApplicationSettingsService` normalizes the configured SMB root onto the dedicated `cameras` directory on the NAS, and `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter so camera-tree reads or writes are routed there instead.
 - ffmpeg capture, continuous segment muxing, and review-asset generation still use local filesystem paths while processing, then `App\Services\CameraStorageService` finalizes those staged files onto the active camera storage disk and keeps the local staged copy if post-upload verification cannot confirm the remote file.
 - streamed previews, downloads, and playback build temporary local cache files on demand when the active camera storage disk is remote.
 

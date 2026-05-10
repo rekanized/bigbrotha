@@ -677,7 +677,223 @@ class AdminSettingsTest extends TestCase
         $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
 
         $this->assertNotNull($diskConfig);
-        $this->assertSame('Applications/bigbrotha', $diskConfig['root']);
+        $this->assertSame('Applications/bigbrotha/cameras', $diskConfig['root']);
+    }
+
+    public function test_network_storage_disk_config_appends_cameras_for_legacy_parent_paths(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
+
+        $this->assertNotNull($diskConfig);
+        $this->assertSame('Applications/bigbrotha/cameras', $diskConfig['root']);
+    }
+
+    public function test_network_storage_disk_config_keeps_share_root_when_the_share_itself_is_cameras(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/cameras',
+            'administrator',
+            'secret-pass',
+        );
+
+        $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
+
+        $this->assertNotNull($diskConfig);
+        $this->assertSame('192.168.1.199', $diskConfig['host']);
+        $this->assertSame('cameras', $diskConfig['share']);
+        $this->assertSame('', $diskConfig['root']);
+    }
+
+    public function test_camera_storage_reads_legacy_parent_root_targets_for_network_recordings(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha/cameras',
+            'administrator',
+            'secret-pass',
+        );
+
+        $storage = app(CameraStorageService::class);
+        $method = new \ReflectionMethod($storage, 'cameraDiskReadSmbTargetPaths');
+        $method->setAccessible(true);
+
+        $targets = $method->invoke($storage, '8/recordings/2026/05/09/20260509_151144-motion.mp4');
+
+        $this->assertSame([
+            'Applications/bigbrotha/cameras/8/recordings/2026/05/09/20260509_151144-motion.mp4',
+            'Applications/bigbrotha/8/recordings/2026/05/09/20260509_151144-motion.mp4',
+        ], $targets);
+    }
+
+    public function test_camera_storage_builds_the_full_smb_directory_chain_for_normalized_roots(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $storage = app(CameraStorageService::class);
+        $method = new \ReflectionMethod($storage, 'cameraDiskSmbDirectoryTargetPaths');
+        $method->setAccessible(true);
+
+        $targets = $method->invoke($storage, '3/recordings/2026/05/10');
+
+        $this->assertSame([
+            'Applications',
+            'Applications/bigbrotha',
+            'Applications/bigbrotha/cameras',
+            'Applications/bigbrotha/cameras/3',
+            'Applications/bigbrotha/cameras/3/recordings',
+            'Applications/bigbrotha/cameras/3/recordings/2026',
+            'Applications/bigbrotha/cameras/3/recordings/2026/05',
+            'Applications/bigbrotha/cameras/3/recordings/2026/05/10',
+        ], $targets);
+    }
+
+    public function test_camera_storage_keeps_network_camera_setup_local_until_publish_time(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $camera = Camera::query()->create([
+            'name' => 'Network Staging Lane',
+            'local_ip' => '192.168.1.213',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream4',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->never();
+
+        $stagingRoot = $storage->ensureCameraDirectories($camera);
+
+        $this->assertSame(
+            storage_path('app/private/ffmpeg-temp/camera-network-staging/cameras/'.$camera->id),
+            $stagingRoot,
+        );
+        $this->assertDirectoryExists($stagingRoot.'/recordings');
+        $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id.'/previews'));
+    }
+
+    public function test_authentication_settings_seeder_preserves_existing_auth_channels_without_explicit_seed_inputs(): void
+    {
+        $admin = User::factory()->admin()->create([
+            'email' => 'admin@example.com',
+            'local_auth_enabled' => true,
+        ]);
+
+        $service = app(\App\Services\AuthenticationSettingsService::class);
+        $configuration = [
+            'client_id' => 'google-client',
+            'client_secret' => 'google-secret',
+            'redirect_uri' => 'https://example.test/auth/google/callback',
+        ];
+        $verification = [
+            'fingerprint' => $service->googleConfigurationFingerprint(
+                $configuration['client_id'],
+                $configuration['client_secret'],
+                $configuration['redirect_uri'],
+            ),
+            'tested_at' => now()->utc()->toIso8601String(),
+            'tested_email' => $admin->email,
+        ];
+        $service->saveConfiguration(true, true, $configuration, $verification);
+
+        $this->withTemporaryEnv([
+            'SEED_ADMIN_EMAIL' => null,
+            'SEED_ADMIN_PASSWORD' => null,
+            'SEED_ADMIN_NAME' => null,
+            'SEED_GOOGLE_AUTH_ENABLED' => null,
+            'SEED_GOOGLE_CLIENT_ID' => null,
+            'SEED_GOOGLE_CLIENT_SECRET' => null,
+            'SEED_GOOGLE_REDIRECT_URI' => null,
+            'SEED_GOOGLE_TESTED_EMAIL' => null,
+        ], function (): void {
+            (new \Database\Seeders\AuthenticationSettingsSeeder())->run();
+        });
+
+        $freshService = app(\App\Services\AuthenticationSettingsService::class);
+
+        $this->assertTrue($freshService->manualAuthEnabled());
+        $this->assertTrue($freshService->googleAuthEnabled());
+    }
+
+    public function test_network_storage_settings_seeder_preserves_existing_settings_without_explicit_seed_inputs(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $this->withTemporaryEnv([
+            'SEED_SMB_ENABLED' => null,
+            'SEED_SMB_PATH' => null,
+            'SEED_SMB_USERNAME' => null,
+            'SEED_SMB_PASSWORD' => null,
+        ], function (): void {
+            (new \Database\Seeders\NetworkStorageSettingsSeeder())->run();
+        });
+
+        $settings = app(ApplicationSettingsService::class)->networkStorageSettings();
+
+        $this->assertTrue($settings['enabled']);
+        $this->assertSame('//192.168.1.199/fileshare/Applications/bigbrotha', $settings['path']);
+        $this->assertSame('administrator', $settings['username']);
+        $this->assertTrue($settings['has_password']);
+    }
+
+    public function test_camera_fleet_seeder_does_not_overwrite_existing_cameras(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Existing Front Gate',
+            'local_ip' => '192.168.1.210',
+            'hostname' => 'existing-front-gate.local',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/existing-stream',
+            'recording_rtsp_path' => '/existing-stream',
+            'password' => 'existing-secret',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $this->withTemporaryEnv([
+            'SEED_CAMERA_FLEET' => 'true',
+        ], function (): void {
+            (new \Database\Seeders\CameraFleetSeeder())->run();
+        });
+
+        $camera->refresh();
+
+        $this->assertSame('Existing Front Gate', $camera->name);
+        $this->assertSame('existing-front-gate.local', $camera->hostname);
+        $this->assertSame('/existing-stream', $camera->rtsp_path);
+        $this->assertSame('existing-secret', $camera->password);
     }
 
     public function test_timeline_review_allows_zooming_beyond_eight_times(): void
@@ -693,6 +909,47 @@ class AdminSettingsTest extends TestCase
         ])
             ->assertSet('timelineZoomScale', 12.0)
             ->assertSet('timelineZoomMaxScale', 16.0);
+    }
+
+    /**
+     * @param  array<string, string|null>  $overrides
+     */
+    private function withTemporaryEnv(array $overrides, callable $callback): mixed
+    {
+        $originals = [];
+
+        foreach ($overrides as $key => $value) {
+            $original = getenv($key);
+            $originals[$key] = $original === false ? null : $original;
+
+            if ($value === null) {
+                putenv($key);
+                unset($_ENV[$key], $_SERVER[$key]);
+
+                continue;
+            }
+
+            putenv($key.'='.$value);
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+        }
+
+        try {
+            return $callback();
+        } finally {
+            foreach ($originals as $key => $value) {
+                if ($value === null) {
+                    putenv($key);
+                    unset($_ENV[$key], $_SERVER[$key]);
+
+                    continue;
+                }
+
+                putenv($key.'='.$value);
+                $_ENV[$key] = $value;
+                $_SERVER[$key] = $value;
+            }
+        }
     }
 
     public function test_camera_storage_normalizes_staging_prefixed_recording_paths(): void

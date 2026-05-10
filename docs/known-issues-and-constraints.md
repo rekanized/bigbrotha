@@ -87,7 +87,9 @@ Current constraints:
 
 - only durable saved recording clip files under `storage/app/private/cameras/{id}/recordings/YYYY/MM/DD/*` are rerouted; previews, review assets, manifests, sprites, and other private-storage paths remain local.
 - the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrotha/cameras`.
-- do not point the admin SMB path at the parent directory above `cameras`; the logical `cameras/...` tree is expected to live entirely under that dedicated NAS directory.
+- if an older saved path points at the parent directory above `cameras`, the application now normalizes it onto that directory's `cameras` child for compatibility. New operator-facing values should still use the explicit `.../cameras` path.
+- older recordings that were already uploaded before that normalization fix can still exist under the legacy parent-root layout such as `Applications/bigbrotha/{camera}/recordings/...`; SMB-backed reads now fall back to that legacy layout so timeline playback and downloads continue to work while the share is cleaned up or migrated.
+- active FFmpeg work files stay local under `storage/app/private/ffmpeg-temp`, including network-backed camera staging files. The SMB share is only contacted when a finished clip or asset is published, and the publish step now creates the full normalized remote directory chain when needed.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
 - when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads only the finished recording clip to the active SMB disk after the local write completes, verifies the remote copy, and only then deletes the local staged clip.

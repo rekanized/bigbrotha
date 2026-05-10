@@ -294,11 +294,15 @@ class ApplicationSettingsService
     {
         $normalizedRoot = trim(str_replace('\\', '/', $root), '/');
 
-        if ($normalizedRoot === '' || !preg_match('#(?:^|/)cameras$#i', $normalizedRoot)) {
+        if ($normalizedRoot === '') {
+            return '';
+        }
+
+        if (preg_match('#(?:^|/)cameras$#i', $normalizedRoot) === 1) {
             return $normalizedRoot;
         }
 
-        return trim((string) preg_replace('#(?:^|/)cameras$#i', '', $normalizedRoot), '/');
+        return $normalizedRoot.'/cameras';
     }
 
     private function setting(string $key): ?string
