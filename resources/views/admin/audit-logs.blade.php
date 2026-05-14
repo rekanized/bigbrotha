@@ -197,20 +197,50 @@
                 </div>
 
                 @if ($auditLogs->hasPages())
+                    @php($currentPage = $auditLogs->currentPage())
+                    @php($lastPage = $auditLogs->lastPage())
+                    @php($windowStart = max(1, $currentPage - 2))
+                    @php($windowEnd = min($lastPage, $currentPage + 2))
                     <div class="recording-browser__pager">
-                        @if ($auditLogs->onFirstPage())
-                            <span class="button button--soft button--disabled" aria-disabled="true">Previous</span>
-                        @else
-                            <a class="button button--soft" href="{{ $auditLogs->previousPageUrl() }}" wire:navigate>Previous</a>
-                        @endif
-
                         <span class="recording-browser__pager-copy">Page {{ $auditLogs->currentPage() }} of {{ $auditLogs->lastPage() }}</span>
 
-                        @if ($auditLogs->hasMorePages())
-                            <a class="button button--soft" href="{{ $auditLogs->nextPageUrl() }}" wire:navigate>Next</a>
-                        @else
-                            <span class="button button--soft button--disabled" aria-disabled="true">Next</span>
-                        @endif
+                        <nav class="recording-browser__pager-links" aria-label="Audit log pages">
+                            @if ($auditLogs->onFirstPage())
+                                <span class="button button--soft button--disabled" aria-disabled="true">Previous</span>
+                            @else
+                                <a class="button button--soft" href="{{ $auditLogs->previousPageUrl() }}" wire:navigate rel="prev">Previous</a>
+                            @endif
+
+                            @if ($windowStart > 1)
+                                <a class="button button--soft" href="{{ $auditLogs->url(1) }}" wire:navigate>1</a>
+
+                                @if ($windowStart > 2)
+                                    <span class="recording-browser__pager-ellipsis" aria-hidden="true">…</span>
+                                @endif
+                            @endif
+
+                            @for ($page = $windowStart; $page <= $windowEnd; $page++)
+                                @if ($page === $currentPage)
+                                    <span class="button button--primary button--disabled" aria-current="page" aria-disabled="true">{{ $page }}</span>
+                                @else
+                                    <a class="button button--soft" href="{{ $auditLogs->url($page) }}" wire:navigate>{{ $page }}</a>
+                                @endif
+                            @endfor
+
+                            @if ($windowEnd < $lastPage)
+                                @if ($windowEnd < $lastPage - 1)
+                                    <span class="recording-browser__pager-ellipsis" aria-hidden="true">…</span>
+                                @endif
+
+                                <a class="button button--soft" href="{{ $auditLogs->url($lastPage) }}" wire:navigate>{{ $lastPage }}</a>
+                            @endif
+
+                            @if ($auditLogs->hasMorePages())
+                                <a class="button button--soft" href="{{ $auditLogs->nextPageUrl() }}" wire:navigate rel="next">Next</a>
+                            @else
+                                <span class="button button--soft button--disabled" aria-disabled="true">Next</span>
+                            @endif
+                        </nav>
                     </div>
                 @endif
             @endif

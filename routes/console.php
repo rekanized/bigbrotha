@@ -2,6 +2,7 @@
 
 use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Jobs\RefreshCameraPreviewJob;
+use App\Models\AuditLog;
 use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
@@ -751,4 +752,8 @@ Schedule::command('camera-recordings:tick')
 
 Schedule::command('camera-recordings:prune')
     ->hourly()
+    ->withoutOverlapping(180);
+
+Schedule::command('model:prune', ['--model' => [AuditLog::class]])
+    ->daily()
     ->withoutOverlapping(180);

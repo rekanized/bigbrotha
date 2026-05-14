@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -9,6 +11,8 @@ use Illuminate\Support\Str;
 
 class AuditLog extends Model
 {
+    use MassPrunable;
+
     public const ACTOR_TYPE_USER = 'user';
 
     public const ACTOR_TYPE_SYSTEM = 'system';
@@ -46,6 +50,12 @@ class AuditLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function prunable(): Builder
+    {
+        return static::query()
+            ->where('created_at', '<=', now()->utc()->subDays(30));
     }
 
     /**
