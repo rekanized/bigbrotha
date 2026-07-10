@@ -5,6 +5,7 @@ APP_ROOT="${APP_ROOT:-/app}"
 APP_KEY_FILE="${APP_KEY_FILE:-$APP_ROOT/storage/app/private/app.key}"
 APP_BOOTSTRAP_MARKER="${APP_BOOTSTRAP_MARKER:-$APP_ROOT/storage/app/private/bootstrap/app.ready}"
 APP_DATABASE_INITIALIZED_MARKER="${APP_DATABASE_INITIALIZED_MARKER:-$APP_ROOT/storage/app/private/bootstrap/database.initialized}"
+start_command="${1:-php-fpm}"
 
 cd "$APP_ROOT"
 
@@ -13,15 +14,41 @@ mkdir -p \
     storage/app/private/bootstrap \
     storage/app/private/ffmpeg-temp \
     storage/app/private/mediamtx \
-    storage/framework/cache \
+    storage/framework/cache/data \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs
 
 mkdir -p "$(dirname "$APP_KEY_FILE")"
-chmod 755 "$(dirname "$APP_KEY_FILE")" 2>/dev/null || true
+chmod 700 "$(dirname "$APP_KEY_FILE")" 2>/dev/null || true
 
-chown -R www-data:www-data bootstrap/cache storage
+case "$(basename "$start_command")" in
+    php-fpm|php-fpm*)
+        chown -R www-data:www-data \
+            bootstrap/cache \
+            storage/app/private/bootstrap \
+            storage/app/private/ffmpeg-temp \
+            storage/app/private/mediamtx \
+            storage/framework \
+            storage/logs
+        ;;
+    *)
+        chown www-data:www-data \
+            bootstrap/cache \
+            storage \
+            storage/app \
+            storage/app/private \
+            storage/app/private/bootstrap \
+            storage/app/private/ffmpeg-temp \
+            storage/app/private/mediamtx \
+            storage/framework \
+            storage/framework/cache \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/logs
+        ;;
+esac
 
 normalize_app_key_permissions() {
     if [ -e "$APP_KEY_FILE" ]; then
@@ -72,6 +99,7 @@ ensure_app_key() {
     fi
 
     lock_dir="${APP_KEY_FILE}.lock"
+    lock_deadline=$(( $(date +%s) + ${APP_KEY_LOCK_WAIT_TIMEOUT:-30} ))
 
     while ! mkdir "$lock_dir" 2>/dev/null; do
         if [ -s "$APP_KEY_FILE" ]; then
@@ -79,6 +107,11 @@ ensure_app_key() {
             export APP_KEY
 
             return
+        fi
+
+        if [ "$(date +%s)" -ge "$lock_deadline" ]; then
+            echo "Timed out waiting for application-key lock at $lock_dir. Remove the stale lock directory after confirming no other app container is initializing the key." >&2
+            exit 1
         fi
 
         sleep 1
@@ -219,8 +252,6 @@ fwrite(STDERR, sprintf("Database %s:%d was not reachable within %d seconds.\n", 
 exit(1);
 PHP
 }
-
-start_command="${1:-php-fpm}"
 
 wait_for_database
 

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Services\Relay\MediaMtxProcessService;
 use App\Models\User;
+use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
@@ -50,5 +50,14 @@ class ExampleTest extends TestCase
             ->get('/');
 
         $response->assertForbidden();
+    }
+
+    public function test_container_health_endpoint_bypasses_the_operator_ip_allowlist(): void
+    {
+        config()->set('network.website_allowed_ips', ['192.168.1.1']);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->get('/up')
+            ->assertOk();
     }
 }

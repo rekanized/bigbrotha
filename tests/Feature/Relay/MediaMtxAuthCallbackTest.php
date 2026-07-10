@@ -108,11 +108,9 @@ class MediaMtxAuthCallbackTest extends TestCase
         ])->assertUnauthorized();
     }
 
-    public function test_media_tokens_require_a_google_authenticated_user(): void
+    public function test_media_tokens_require_a_stored_operator(): void
     {
-        $user = User::factory()->create([
-            'google_id' => null,
-        ]);
+        $user = User::factory()->make();
 
         $this->expectException(InvalidArgumentException::class);
 

@@ -1324,7 +1324,7 @@ class AdminSettingsTest extends TestCase
             $this->assertStringContainsString('The uploaded file is not visible on the active camera storage disk yet.', $message);
             $this->assertStringContainsString('relative_path=cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
             $this->assertStringContainsString('disk_path=7/recordings/2026/04/10/retry-check.mkv', $message);
-            $this->assertStringContainsString('smb_target_path=Applications/bigbrotha/7/recordings/2026/04/10/retry-check.mkv', $message);
+            $this->assertStringContainsString('smb_target_path=Applications/bigbrotha/cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
             $this->assertStringContainsString('local_path='.str_replace('\\', '/', $localPath), $message);
             $this->assertStringContainsString('availability=missing', $message);
         }

@@ -15,6 +15,10 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
 - MediaMTX as the shared WebRTC relay managed from Laravel and bundled directly into the Docker app image.
 - Docker Compose deployments are image-first by default through published `rekanized/bigbrotha-app` and `rekanized/bigbrotha-web` images, while repository-local builds use `docker-compose.build.yml` as an override.
+- The Dockerfile downloads MediaMTX 1.19.2 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
+- The Compose worker service derives its default replica count directly from `CAMERA_RECORDING_WORKER_PROCESSES`, so published-image and local-build deployments use the same capacity setting.
+- PostgreSQL 18 persists its version-specific `PGDATA` beneath a named volume mounted at `/var/lib/postgresql`.
+- The Nginx container runs read-only as its unprivileged `nginx` user on container port 8080; its health probe traverses Nginx and PHP-FPM through Laravel's `/up` endpoint, while an unhealthy relay does not prevent the operator UI from starting.
 
 ## Route Map
 

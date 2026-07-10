@@ -27,7 +27,7 @@ class MotionRecordingSegmenterService
      */
     public function syncCamera(Camera $camera, array $source): array
     {
-        if (!$this->enabled()) {
+        if (! $this->enabled()) {
             return [
                 'started' => false,
                 'running' => false,
@@ -37,7 +37,7 @@ class MotionRecordingSegmenterService
 
         $lock = Cache::lock($this->syncLockKey($camera), $this->syncLockSeconds());
 
-        if (!$lock->get()) {
+        if (! $lock->get()) {
             return [
                 'started' => false,
                 'running' => $this->isRunning($camera, $source),
@@ -50,7 +50,7 @@ class MotionRecordingSegmenterService
 
             $started = false;
 
-            if (!$this->isRunning($camera, $source)) {
+            if (! $this->isRunning($camera, $source)) {
                 $this->stop($camera);
                 $this->start($camera, $source);
                 $started = true;
@@ -74,13 +74,13 @@ class MotionRecordingSegmenterService
 
     public function stopUnmanagedRecorders(): int
     {
-        if (!$this->enabled()) {
+        if (! $this->enabled()) {
             return 0;
         }
 
         $runtimeDirectory = $this->runtimeDirectory();
 
-        if (!is_dir($runtimeDirectory)) {
+        if (! is_dir($runtimeDirectory)) {
             return 0;
         }
 
@@ -106,7 +106,7 @@ class MotionRecordingSegmenterService
                 continue;
             }
 
-            $legacyCamera = new Camera();
+            $legacyCamera = new Camera;
             $legacyCamera->id = $cameraId;
             $legacyCamera->exists = true;
 
@@ -158,7 +158,7 @@ class MotionRecordingSegmenterService
             return false;
         }
 
-        if (!$this->processMatchesExpectedInstance($camera, $pid)) {
+        if (! $this->processMatchesExpectedInstance($camera, $pid)) {
             File::delete($this->pidPath($camera));
 
             return false;
@@ -181,7 +181,7 @@ class MotionRecordingSegmenterService
     {
         $segments = $this->segmentRows($camera, $recorderRunning);
 
-        if (!$after instanceof Carbon) {
+        if (! $after instanceof Carbon) {
             return $segments;
         }
 
@@ -343,7 +343,7 @@ class MotionRecordingSegmenterService
         $process->setTimeout(15);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             throw new RuntimeException('Unable to start the motion recording segmenter: '.trim($process->getErrorOutput() ?: $process->getOutput()));
         }
 
@@ -393,13 +393,13 @@ class MotionRecordingSegmenterService
     {
         $metaPath = $this->metaPath($camera);
 
-        if (!is_file($metaPath)) {
+        if (! is_file($metaPath)) {
             return null;
         }
 
         $contents = file_get_contents($metaPath);
 
-        if (!is_string($contents) || trim($contents) === '') {
+        if (! is_string($contents) || trim($contents) === '') {
             return null;
         }
 
@@ -416,9 +416,14 @@ class MotionRecordingSegmenterService
             return false;
         }
 
-        return str_contains($args, (string) ($this->ffmpegBinary() ?? 'ffmpeg'))
-            && str_contains($args, $this->outputPattern($camera))
+        return $this->processArgsMatchExpectedInstance($camera, $args)
             && $this->processIsRunning($pid);
+    }
+
+    private function processArgsMatchExpectedInstance(Camera $camera, string $args): bool
+    {
+        return str_contains($args, (string) ($this->ffmpegBinary() ?? 'ffmpeg'))
+            && str_contains($args, $this->outputPattern($camera));
     }
 
     /**
@@ -430,25 +435,26 @@ class MotionRecordingSegmenterService
         $process->setTimeout(3);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return [];
         }
 
         $pids = [];
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $line) {
-            if (!is_string($line) || trim($line) === '') {
+            if (! is_string($line) || trim($line) === '') {
                 continue;
             }
 
             [$pid, $args] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
             $resolvedPid = (int) ($pid ?? 0);
 
-            if ($resolvedPid < 1 || !is_string($args)) {
+            if ($resolvedPid < 1 || ! is_string($args)) {
                 continue;
             }
 
-            if (!$this->processMatchesExpectedInstance($camera, $resolvedPid)) {
+            if (! $this->processArgsMatchExpectedInstance($camera, $args)
+                || ! $this->processIsRunning($resolvedPid)) {
                 continue;
             }
 
@@ -508,18 +514,18 @@ class MotionRecordingSegmenterService
         $process->setTimeout(3);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return [];
         }
 
         $cameraIds = [];
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $args) {
-            if (!is_string($args) || trim($args) === '') {
+            if (! is_string($args) || trim($args) === '') {
                 continue;
             }
 
-            if (!preg_match('#/motion-recorders/camera-(\d+)/segments/%Y%m%d_%H%M%S-buffer\.[^\s]+#', $args, $matches)) {
+            if (! preg_match('#/motion-recorders/camera-(\d+)/segments/%Y%m%d_%H%M%S-buffer\.[^\s]+#', $args, $matches)) {
                 continue;
             }
 
@@ -582,7 +588,7 @@ class MotionRecordingSegmenterService
         $process->setTimeout(2);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return null;
         }
 
@@ -611,7 +617,7 @@ class MotionRecordingSegmenterService
     {
         $directory = $this->segmentDirectory($camera);
 
-        if (!is_dir($directory)) {
+        if (! is_dir($directory)) {
             return [];
         }
 
@@ -643,7 +649,7 @@ class MotionRecordingSegmenterService
 
             $startedAt = $this->timestampFromSegmentPath($path);
 
-            if (!$startedAt instanceof Carbon) {
+            if (! $startedAt instanceof Carbon) {
                 continue;
             }
 
@@ -664,7 +670,7 @@ class MotionRecordingSegmenterService
 
     private function timestampFromSegmentPath(string $path): ?Carbon
     {
-        if (!preg_match('/(\d{8}_\d{6})-buffer\.[^.]+$/', basename($path), $matches)) {
+        if (! preg_match('/(\d{8}_\d{6})-buffer\.[^.]+$/', basename($path), $matches)) {
             return null;
         }
 
@@ -713,5 +719,4 @@ class MotionRecordingSegmenterService
     {
         return $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
     }
-
 }

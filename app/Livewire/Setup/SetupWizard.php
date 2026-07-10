@@ -50,9 +50,15 @@ class SetupWizard extends Component
 
         $this->googleRedirectUri = route('auth.google.callback');
 
-        $this->fillFromDraft(request()->session()->get(self::SESSION_DRAFT_KEY));
+        $request = request();
 
-        $draft = $tester->draft(request(), GoogleOAuthTestService::CONTEXT_SETUP);
+        if (! $request->hasSession()) {
+            return;
+        }
+
+        $this->fillFromDraft($request->session()->get(self::SESSION_DRAFT_KEY));
+
+        $draft = $tester->draft($request, GoogleOAuthTestService::CONTEXT_SETUP);
 
         if (is_array($draft)) {
             $this->googleClientId = $draft['client_id'];
@@ -60,7 +66,7 @@ class SetupWizard extends Component
             $this->googleRedirectUri = $draft['redirect_uri'];
         }
 
-        $result = $tester->consumeResult(request(), GoogleOAuthTestService::CONTEXT_SETUP);
+        $result = $tester->consumeResult($request, GoogleOAuthTestService::CONTEXT_SETUP);
 
         if (is_array($result)) {
             $this->statusMessage = $result['message'] ?? null;
@@ -123,7 +129,7 @@ class SetupWizard extends Component
         $manualEnabled = $validated['manualAuthEnabled'] === '1';
         $googleEnabled = $validated['googleAuthEnabled'] === '1';
 
-        if (!$manualEnabled && !$googleEnabled) {
+        if (! $manualEnabled && ! $googleEnabled) {
             $this->addError('manualAuthEnabled', 'Enable at least one authentication method before finishing setup.');
         }
 
@@ -158,7 +164,7 @@ class SetupWizard extends Component
                 $this->addError('googleRedirectUri', 'Enter the Google OAuth redirect URI before enabling Google sign-in.');
             }
 
-            if (!$this->googleVerificationIsCurrent) {
+            if (! $this->googleVerificationIsCurrent) {
                 $this->addError('googleClientId', 'Run a successful Google OAuth validation before enabling Google sign-in.');
             }
         }
@@ -201,18 +207,29 @@ class SetupWizard extends Component
             markSetupComplete: true,
         );
 
-        request()->session()->forget(self::SESSION_DRAFT_KEY);
+        $request = request();
+
+        if ($request->hasSession()) {
+            $request->session()->forget(self::SESSION_DRAFT_KEY);
+        }
 
         if ($user !== null) {
             auth()->login($user, true);
-            request()->session()->regenerate();
-            session()->flash('status', 'Setup complete. The initial administrator account is signed in.');
+
+            if ($request->hasSession()) {
+                $request->session()->regenerate();
+                $request->session()->flash('status', 'Setup complete. The initial administrator account is signed in.');
+            }
+
             $this->redirectRoute('camera-fleet.index', navigate: true);
 
             return null;
         }
 
-        session()->flash('status', 'Setup complete. Sign in with the enabled authentication method.');
+        if ($request->hasSession()) {
+            $request->session()->flash('status', 'Setup complete. Sign in with the enabled authentication method.');
+        }
+
         $this->redirectRoute('login', navigate: true);
 
         return null;
@@ -234,6 +251,10 @@ class SetupWizard extends Component
 
     private function rememberDraft(): void
     {
+        if (! request()->hasSession()) {
+            return;
+        }
+
         request()->session()->put(self::SESSION_DRAFT_KEY, [
             'manualAuthEnabled' => $this->manualAuthEnabled,
             'googleAuthEnabled' => $this->googleAuthEnabled,
@@ -250,7 +271,7 @@ class SetupWizard extends Component
 
     private function fillFromDraft(mixed $draft): void
     {
-        if (!is_array($draft)) {
+        if (! is_array($draft)) {
             return;
         }
 

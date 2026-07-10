@@ -14,7 +14,11 @@ BigBrotha's fastest supported startup path is Docker Compose with the published 
 
 ```bash
 cp .env.docker.example .env.docker
+chmod 600 .env.docker
+openssl rand -base64 32
 ```
+
+Put the generated random value in `DB_PASSWORD`; startup intentionally fails when `APP_URL` or `DB_PASSWORD` is empty.
 
 Minimum values to review in `.env.docker` before first startup:
 
@@ -70,7 +74,7 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 ## Docker Configuration
 
 - Always use `./docker/compose.sh` or `docker compose --env-file .env.docker ...`.
-- Plain `docker compose up -d` without `--env-file .env.docker` falls back to the defaults baked into [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) for `COMPOSE_PROJECT_NAME`, host ports, and optional image overrides.
+- Plain `docker compose up -d` without `--env-file .env.docker` is unsupported and fails closed because production `APP_URL` and `DB_PASSWORD` are required.
 - `APP_URL` must match the public origin exactly.
 - If Google sign-in is enabled later in `/setup` or the admin settings page, use `${APP_URL}/auth/google/callback` as the normal callback target unless you intentionally publish a different callback URL.
 - `WEB_PORT` and `MEDIAMTX_ICE_PORT` must be free on the host.
@@ -78,6 +82,8 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 - The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
 - Keep `./.docker-state/app.key` with the deployment; if that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The default published images are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest` unless overridden in `.env.docker`.
+- `CAMERA_RECORDING_WORKER_PROCESSES` is applied as the Compose service scale, so image-only and source-build deployments start the same requested worker count.
+- PostgreSQL 18 data is mounted at `/var/lib/postgresql`, the parent of its version-specific `PGDATA`; do not change this back to the pre-18 `/var/lib/postgresql/data` target.
 
 ## Stack
 
@@ -162,7 +168,7 @@ docker compose --env-file .env.docker up -d
 Why `--env-file .env.docker` matters:
 
 - `docker-compose.yml` injects `.env.docker` into the containers with `env_file`, but Compose does not use that file for top-level interpolation unless you pass `--env-file` or rename it to `.env`.
-- If you run plain `docker compose up -d` without `--env-file .env.docker`, host port publishing, `COMPOSE_PROJECT_NAME`, and optional image overrides fall back to the defaults baked into [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml).
+- If you run plain `docker compose up -d` without `--env-file .env.docker`, Compose does not receive the required production URL and database credential and exits instead of silently starting with insecure defaults.
 - The `relay` service publishes the host ICE port using `MEDIAMTX_ICE_PORT`, so that value must stay aligned with `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS` and `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS` in `.env.docker`.
 
 Equivalent wrapper commands:
@@ -217,13 +223,26 @@ Container notes:
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.
 - the `web` container serves Nginx for the operator UI and proxies `/__webrtc/` traffic to `relay`.
 - `./docker/compose.sh` wraps the default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.
-- `./docker/compose-up.sh` reads `.env.docker`, uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml), and scales the `worker` service to match `CAMERA_RECORDING_WORKER_PROCESSES`.
+- `./docker/compose-up.sh` uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml); the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the worker-service scale for both build and image deployments.
 - the `worker` and `scheduler` containers wait for the app bootstrap marker and rely on Docker healthchecks and restart policies instead of cron or systemd.
 - internal service traffic uses Docker DNS names: `database`, `app`, `relay`, and `web`.
 - the bundled PostgreSQL service stays internal to the Compose network by default.
 - MediaMTX signaling and API traffic stay internal to the Compose network; only the web port and WebRTC ICE port need to be unique on the host.
 - the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
-- app services can also load `DB_PASSWORD_FILE` when you want to move the database password out of `.env.docker`.
+- Compose log rotation is bounded, containers use Docker's init process where appropriate, and the relay runs as `www-data` with all Linux capabilities dropped.
+- PostgreSQL 18 uses the named `db-data` volume at `/var/lib/postgresql`, which preserves its version-specific data directory.
+
+Deployments created with the older `/var/lib/postgresql/data` mount must migrate before recreating the database container. The guarded migration creates a logical backup, copies the stopped PostgreSQL 18 cluster into the named volume, retains the old anonymous volume, and restarts the stack:
+
+```bash
+sudo BIGBROTHA_DEPLOY_DIR=/path/to/deployment ./docker/migrate-postgres-18-volume.sh
+```
+
+Rotate an existing deployment database password with:
+
+```bash
+sudo BIGBROTHA_DEPLOY_DIR=/path/to/deployment ./docker/rotate-db-password.sh
+```
 
 Verification:
 
@@ -256,6 +275,16 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 - [docs/camera-fleet-workflow.md](docs/camera-fleet-workflow.md)
 - [docs/known-issues-and-constraints.md](docs/known-issues-and-constraints.md)
 - [docs/startup-from-scratch.md](docs/startup-from-scratch.md)
+
+## Publishing Images
+
+`publish.sh` builds a dedicated test image, runs the full application suite, validates the production app and Nginx images, publishes an immutable timestamp-and-commit tag, updates `latest`, and verifies each remote manifest.
+
+```bash
+./publish.sh
+```
+
+Docker daemon access and an existing Docker Hub login are required. Set `IMAGE_TAG` to choose an explicit immutable tag or `PUBLISH_LATEST=false` when `latest` must not move.
 
 ## Useful Commands
 

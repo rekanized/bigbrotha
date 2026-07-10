@@ -22,8 +22,7 @@ class ContinuousRecordingSegmenterService
     public function __construct(
         private readonly CameraStorageService $storage,
         private readonly RecordingReviewAssetService $reviewAssets,
-    ) {
-    }
+    ) {}
 
     public function enabled(): bool
     {
@@ -36,7 +35,7 @@ class ContinuousRecordingSegmenterService
      */
     public function syncCamera(Camera $camera, array $source): array
     {
-        if (!$this->enabled()) {
+        if (! $this->enabled()) {
             return [
                 'started' => false,
                 'running' => false,
@@ -47,7 +46,7 @@ class ContinuousRecordingSegmenterService
 
         $lock = Cache::lock($this->syncLockKey($camera), $this->syncLockSeconds());
 
-        if (!$lock->get()) {
+        if (! $lock->get()) {
             return [
                 'started' => false,
                 'running' => $this->isRunning($camera, $source),
@@ -61,7 +60,7 @@ class ContinuousRecordingSegmenterService
 
             $started = false;
 
-            if (!$this->isRunning($camera, $source)) {
+            if (! $this->isRunning($camera, $source)) {
                 $this->stop($camera);
                 $this->start($camera, $source);
                 $started = true;
@@ -89,13 +88,13 @@ class ContinuousRecordingSegmenterService
 
     public function stopUnmanagedRecorders(): int
     {
-        if (!$this->enabled()) {
+        if (! $this->enabled()) {
             return 0;
         }
 
         $runtimeDirectory = $this->runtimeDirectory();
 
-        if (!is_dir($runtimeDirectory)) {
+        if (! is_dir($runtimeDirectory)) {
             return 0;
         }
 
@@ -121,7 +120,7 @@ class ContinuousRecordingSegmenterService
                 continue;
             }
 
-            $legacyCamera = new Camera();
+            $legacyCamera = new Camera;
             $legacyCamera->id = $cameraId;
             $legacyCamera->exists = true;
 
@@ -175,7 +174,7 @@ class ContinuousRecordingSegmenterService
             return false;
         }
 
-        if (!$this->processMatchesExpectedInstance($camera, $pid)) {
+        if (! $this->processMatchesExpectedInstance($camera, $pid)) {
             File::delete($this->pidPath($camera));
 
             return false;
@@ -328,7 +327,7 @@ class ContinuousRecordingSegmenterService
         $process->setTimeout(15);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             throw new RuntimeException('Unable to start the continuous recording segmenter: '.trim($process->getErrorOutput() ?: $process->getOutput()));
         }
 
@@ -378,13 +377,13 @@ class ContinuousRecordingSegmenterService
     {
         $metaPath = $this->metaPath($camera);
 
-        if (!is_file($metaPath)) {
+        if (! is_file($metaPath)) {
             return null;
         }
 
         $contents = file_get_contents($metaPath);
 
-        if (!is_string($contents) || trim($contents) === '') {
+        if (! is_string($contents) || trim($contents) === '') {
             return null;
         }
 
@@ -401,9 +400,14 @@ class ContinuousRecordingSegmenterService
             return false;
         }
 
-        return str_contains($args, (string) ($this->ffmpegBinary() ?? 'ffmpeg'))
-            && str_contains($args, $this->outputPattern($camera))
+        return $this->processArgsMatchExpectedInstance($camera, $args)
             && $this->processIsRunning($pid);
+    }
+
+    private function processArgsMatchExpectedInstance(Camera $camera, string $args): bool
+    {
+        return str_contains($args, (string) ($this->ffmpegBinary() ?? 'ffmpeg'))
+            && str_contains($args, $this->outputPattern($camera));
     }
 
     /**
@@ -415,25 +419,26 @@ class ContinuousRecordingSegmenterService
         $process->setTimeout(3);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return [];
         }
 
         $pids = [];
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $line) {
-            if (!is_string($line) || trim($line) === '') {
+            if (! is_string($line) || trim($line) === '') {
                 continue;
             }
 
             [$pid, $args] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
             $resolvedPid = (int) ($pid ?? 0);
 
-            if ($resolvedPid < 1 || !is_string($args)) {
+            if ($resolvedPid < 1 || ! is_string($args)) {
                 continue;
             }
 
-            if (!$this->processMatchesExpectedInstance($camera, $resolvedPid)) {
+            if (! $this->processArgsMatchExpectedInstance($camera, $args)
+                || ! $this->processIsRunning($resolvedPid)) {
                 continue;
             }
 
@@ -493,18 +498,18 @@ class ContinuousRecordingSegmenterService
         $process->setTimeout(3);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return [];
         }
 
         $cameraIds = [];
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $args) {
-            if (!is_string($args) || trim($args) === '') {
+            if (! is_string($args) || trim($args) === '') {
                 continue;
             }
 
-            if (!preg_match('#/cameras/(\d+)/recordings/%Y%m%d_%H%M%S-[^\s]+\.[^\s]+#', $args, $matches)) {
+            if (! preg_match('#/cameras/(\d+)/recordings/%Y%m%d_%H%M%S-[^\s]+\.[^\s]+#', $args, $matches)) {
                 continue;
             }
 
@@ -567,7 +572,7 @@ class ContinuousRecordingSegmenterService
         $process->setTimeout(2);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return null;
         }
 
@@ -645,7 +650,7 @@ class ContinuousRecordingSegmenterService
 
             $scheduledFor = $this->timestampFromSegmentPath($file['path']);
 
-            if (!$scheduledFor instanceof Carbon) {
+            if (! $scheduledFor instanceof Carbon) {
                 continue;
             }
 
@@ -688,7 +693,7 @@ class ContinuousRecordingSegmenterService
                 'source_profile_index' => $sourceProfileIndex,
             ])->save();
 
-            if (!$wasRecorded) {
+            if (! $wasRecorded) {
                 $this->dispatchReviewAssets($recording);
                 $imported++;
             }
@@ -718,13 +723,13 @@ class ContinuousRecordingSegmenterService
         $files = [];
 
         foreach (File::glob($pattern) as $path) {
-            if (!is_file($path)) {
+            if (! is_file($path)) {
                 continue;
             }
 
             $timestamp = $this->timestampFromSegmentPath($path);
 
-            if (!$timestamp instanceof Carbon) {
+            if (! $timestamp instanceof Carbon) {
                 continue;
             }
 
@@ -745,7 +750,7 @@ class ContinuousRecordingSegmenterService
         $suffix = preg_quote(trim((string) config('recording.continuous.file_suffix', 'continuous')) ?: 'continuous', '/');
         $extension = preg_quote(trim((string) config('recording.extension', 'mkv')), '/');
 
-        if (!preg_match('/(\d{8}_\d{6})-'.$suffix.'\.'.$extension.'$/', basename($path), $matches)) {
+        if (! preg_match('/(\d{8}_\d{6})-'.$suffix.'\.'.$extension.'$/', basename($path), $matches)) {
             return null;
         }
 

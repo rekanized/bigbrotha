@@ -4,20 +4,20 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\IpUtils;
+use Symfony\Component\HttpFoundation\Response;
 
 class RestrictWebsiteIp
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->is('relay/auth/mediamtx')) {
+        if ($request->is('up', 'relay/auth/mediamtx')) {
             return $next($request);
         }
 
         $allowedIps = config('network.website_allowed_ips', []);
 
-        if ($allowedIps !== [] && !$this->ipIsAllowed((string) $request->ip(), $allowedIps)) {
+        if ($allowedIps !== [] && ! $this->ipIsAllowed((string) $request->ip(), $allowedIps)) {
             abort(Response::HTTP_FORBIDDEN);
         }
 

@@ -1,15 +1,5 @@
 # Startup From Scratch
 
-Use this when you are bringing up a new BigBrotha host from nothing.
-
-## Preferred Docker Path
-
-If the host has Docker with Compose support, the repository now includes a deployment path that avoids host-installed PHP, Composer, cron, systemd, ffmpeg, ffprobe, and MediaMTX binaries.
-
-Container services in [docker-compose.yml](../docker-compose.yml):
-
-# Startup From Scratch
-
 Use this when you are bringing up a new BigBrotha deployment from nothing.
 
 ## Supported Runtime
@@ -20,7 +10,7 @@ The default stack in [docker-compose.yml](../docker-compose.yml) runs from publi
 
 Use `./docker/compose.sh` for routine Compose commands so the selected `.env.docker` file and `COMPOSE_PROJECT_NAME` stay aligned across the deployment lifecycle.
 
-Plain `docker compose up -d` does not read `.env.docker` for Compose-level interpolation. If you skip `--env-file .env.docker` or the wrapper, published host ports and `COMPOSE_PROJECT_NAME` fall back to the defaults baked into [docker-compose.yml](../docker-compose.yml).
+Plain `docker compose up -d` does not read `.env.docker` for Compose-level interpolation. If you skip `--env-file .env.docker` or the wrapper, Compose fails because `APP_URL` and `DB_PASSWORD` are intentionally required.
 
 The stack runs these services:
 
@@ -40,6 +30,7 @@ The stack runs these services:
 Before startup, review these values in [docker-compose.yml](../docker-compose.yml):
 
 - copy `.env.docker.example` to `.env.docker`
+- restrict `.env.docker` to its owner with `chmod 600 .env.docker`
 - `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
 - `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you need to pin specific published tags
 - `APP_URL`
@@ -54,7 +45,7 @@ For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082
 
 For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `APP_URL`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`. MediaMTX signaling and API traffic stay internal to the Compose network, so they do not need separate host ports per stack.
 
-If you want file-backed secrets instead of environment values, the app containers also accept `DB_PASSWORD_FILE`.
+Generate a unique database password before startup, for example with `openssl rand -base64 32`, and place it in `DB_PASSWORD`. The example file intentionally leaves that value empty.
 
 The Docker Compose stack now clears legacy `GOOGLE_*` container variables explicitly, so custom `.env.docker` files should remove any old Google client ID, client secret, or redirect URI entries and let the setup flow persist those values in the database instead.
 
@@ -130,7 +121,9 @@ What you should see:
 - The worker pool is Docker-managed. Do not install host cron jobs or systemd units for queue work.
 - The default [docker-compose.yml](../docker-compose.yml) is image-first so a deployment can run from Docker Hub without local Docker builds.
 - `./docker/compose.sh` keeps routine Compose commands pinned to the same `.env.docker` file and `COMPOSE_PROJECT_NAME`.
-- `./docker/compose-up.sh` explicitly uses the repo-root compose files, builds from source, and scales the `worker` service to the same value as `CAMERA_RECORDING_WORKER_PROCESSES`.
+- `./docker/compose-up.sh` explicitly uses the repo-root Compose files and builds the application images from source.
+- the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the worker service's default scale, including image-only deployments.
 - Keep `./.docker-state/app.key` with the deployment. If that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The bundled PostgreSQL service stays internal to the Compose network by default.
 - The relay, database, and Laravel services communicate through Docker DNS names such as `app`, `web`, and `database`.
+- PostgreSQL 18's named volume is mounted at `/var/lib/postgresql`, above its version-specific `PGDATA`. Deployments that previously mounted `/var/lib/postgresql/data` must run `docker/migrate-postgres-18-volume.sh` before the database container is recreated.

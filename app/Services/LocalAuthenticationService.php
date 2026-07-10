@@ -15,7 +15,7 @@ class LocalAuthenticationService
             ->where('email', $this->normalizeEmail($email))
             ->first();
 
-        if (!$user instanceof User || !$user->hasLocalAuth() || !Hash::check($password, $user->password)) {
+        if (! $user instanceof User || ! $user->hasLocalAuth() || ! Hash::check($password, $user->password)) {
             return null;
         }
 
@@ -27,7 +27,10 @@ class LocalAuthenticationService
         }
 
         Auth::login($user, $remember);
-        request()->session()->regenerate();
+
+        if (request()->hasSession()) {
+            request()->session()->regenerate();
+        }
 
         return $user;
     }
@@ -42,7 +45,7 @@ class LocalAuthenticationService
         $normalizedEmail = $this->normalizeEmail($email);
         $user = $user instanceof User
             ? $user
-            : (User::query()->where('email', $normalizedEmail)->first() ?? new User());
+            : (User::query()->where('email', $normalizedEmail)->first() ?? new User);
 
         $user->forceFill([
             'name' => trim($name),

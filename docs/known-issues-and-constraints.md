@@ -116,6 +116,17 @@ If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are
 - Every Laravel container reads that same mounted file through `APP_KEY_FILE`, so container recreation does not rotate the encryption key.
 - Do not delete `./.docker-state/app.key` during rebuilds, cleanups, or host migrations if the database still contains encrypted values.
 
+## Docker Deployment Security And PostgreSQL 18
+
+- `.env.docker` contains the database credential and must be mode `0600`; `docker/compose.sh` enforces that permission when it manages the deployment.
+- `APP_URL` and `DB_PASSWORD` are required Compose values. The stack no longer starts with the public `bigbrotha` database-password default.
+- `CAMERA_RECORDING_WORKER_PROCESSES` is the worker service's Compose `scale`, so `docker compose up -d` through the supported wrapper honors the requested replica count without a separate `--scale` flag.
+- Docker JSON logs are rotated, the relay runs as `www-data` with all capabilities dropped, and `no-new-privileges` is enabled for the stack services.
+- PostgreSQL 18 changed its official-image `PGDATA` to a version-specific directory below `/var/lib/postgresql`. The Compose volume must therefore target `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
+- An existing PostgreSQL 18 deployment started with the old child mount stores its real cluster in an anonymous parent volume. Do not recreate that database container until `docker/migrate-postgres-18-volume.sh` has created a logical backup and copied the stopped cluster into the named `db-data` volume.
+- The migration script deliberately retains both the logical backup and the original anonymous source volume. Remove the old volume only after application-level verification and an appropriate retention period.
+- Use `docker/rotate-db-password.sh` to replace an inherited default database password and recreate all dependent services with the new credential.
+
 ## Recording Worker Requirements
 
 Per-camera recording is scheduler-orchestrated, with queue-backed motion work and a persistent ffmpeg segmenter for continuous mode.

@@ -1543,6 +1543,7 @@ class RecordingBrowserTest extends TestCase
 
         $this->writeRecordedSegment($recording);
 
+        $storage = app(CameraStorageService::class);
         $manifestPath = $storage->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
 
         File::put($manifestPath, json_encode([
