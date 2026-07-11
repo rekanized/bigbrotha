@@ -9,11 +9,12 @@
 
         @php
             $assetBase = rtrim(request()->getBaseUrl(), '/');
+            $stylesheetVersion = filemtime(public_path('css/pages/simplified-theme.css'));
         @endphp
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
         <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
-        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css">
+        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css?v={{ $stylesheetVersion }}">
         @livewireStyles
     </head>
     <body class="auth-page auth-page--setup">

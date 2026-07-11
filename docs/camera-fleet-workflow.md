@@ -175,6 +175,18 @@ Continuous timestamp behavior:
 
 Production deployments should run both the minute scheduler and a queue worker that polls `recordings,default,review-assets` in that order so the continuous watchdog, motion clips, and delayed review assets all keep flowing without preview work blocking capture first.
 
+## Camera Editor Workflow
+
+The Camera Fleet editor keeps the full camera configuration in one modal while making the long form navigable for operators.
+
+Current behavior:
+
+1. the modal title identifies the selected camera and states that edits are not applied until they are saved.
+2. a persistent section navigator jumps directly to identity, stream access, live relay, recording, availability, diagnostics, and recent activity.
+3. the primary save and cancel actions remain visible at the bottom of the modal while its configuration sections scroll.
+4. keyboard focus moves into the dialog when it opens, stays inside the modal while tabbing, returns to the launching control after close, and Escape cancels the editor.
+5. narrow layouts retain the same sections and actions without horizontal page overflow; the section navigator itself scrolls horizontally.
+
 ## Live Wall Playback
 
 Use `/wall-tiles` to choose what the wall should show, then open `/live-wall` to monitor the configured result.
@@ -191,10 +203,12 @@ Current behavior:
 4. the review screen auto-loads available recorded cameras into the bottom strip instead of starting with a separate camera-selection step or a saved wall layout.
 5. the review timeline now defaults to the previous display day plus the current display day, and operators can submit a custom `From` / `To` date span when they need a narrower or older range.
 6. the active stage loads the saved clip that overlaps the selected timeline focus time for the currently active camera, while cameras without a clip at that time stay visibly empty until the operator switches feeds or moves the focus.
-7. the timeline supports dragging the focus line, clicking thumbnail rail events, hour-jump labels, scrub sprite hover previews in the stage, and synchronized autoplay within the active preview stage.
-8. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.
-9. recorded entries still open a dedicated playback screen for focused review, and that screen still provides original-file download.
-10. if a saved file is missing or the segment was skipped or failed, the detailed review page still exposes the recorder status and metadata without pretending playback is available.
+7. the timeline supports dragging the focus line, clicking thumbnail rail events, hour-jump labels, scrub sprite previews, explicit zoom controls, keyboard focus movement, and synchronized autoplay within the active preview stage.
+8. timeline scrolling remains native: wheel and touch gestures scroll the rail, Ctrl/Command + wheel zooms around the pointer, and touch scrubbing starts only from the blue focus handle so the mobile rail does not trap page or timeline scrolling.
+9. on narrow screens, the camera strip becomes a horizontal touch scroller, the timeline keeps a bounded viewport, and the rail exposes loading or retry feedback instead of silently failing while more segment windows are requested.
+10. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.
+11. recorded entries still open a dedicated playback screen for focused review, and that screen still provides original-file download.
+12. if a saved file is missing or the segment was skipped or failed, the detailed review page still exposes the recorder status and metadata without pretending playback is available.
 
 ## Wall Tiles Builder
 

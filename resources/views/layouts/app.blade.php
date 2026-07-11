@@ -3,41 +3,13 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#f3f4f7" data-theme-color-light="#f3f4f7" data-theme-color-dark="#0f141b">
-
-        <script>
-            (() => {
-                const storageKey = 'bigbrotha-theme';
-                const root = document.documentElement;
-                const media = window.matchMedia('(prefers-color-scheme: dark)');
-                let storedTheme = null;
-
-                try {
-                    storedTheme = window.localStorage.getItem(storageKey);
-                } catch (error) {
-                    storedTheme = null;
-                }
-
-                const theme = storedTheme === 'dark' || storedTheme === 'light'
-                    ? storedTheme
-                    : (media.matches ? 'dark' : 'light');
-                const themeColor = theme === 'dark' ? '#0f141b' : '#f3f4f7';
-
-                root.dataset.theme = theme;
-                root.style.colorScheme = theme;
-
-                const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-
-                if (themeColorMeta) {
-                    themeColorMeta.content = themeColor;
-                }
-            })();
-        </script>
+        <meta name="theme-color" content="#f3f4f7">
 
         <title>@yield('title', config('app.name', 'Bigbrotha'))</title>
 
         @php
             $assetBase = rtrim(request()->getBaseUrl(), '/');
+            $stylesheetVersion = filemtime(public_path('css/pages/simplified-theme.css'));
         @endphp
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
@@ -46,7 +18,7 @@
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded">
-        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css">
+        <link rel="stylesheet" href="{{ $assetBase }}/css/app.css?v={{ $stylesheetVersion }}">
         <script>
             (() => {
                 if (!('fonts' in document)) {
@@ -116,20 +88,6 @@
                             @include('layouts.partials.sidebar-navigation')
                         </section>
 
-                        <section class="rail-section rail-section--theme">
-                            <p class="rail-kicker">Appearance</p>
-                            <button class="theme-toggle theme-toggle--rail" type="button" data-theme-toggle aria-pressed="false" aria-label="Switch theme">
-                                <span class="theme-toggle__meta">
-                                    <span class="theme-toggle__label">Theme</span>
-                                    <strong class="theme-toggle__value" data-theme-toggle-value>Light</strong>
-                                </span>
-                                <span class="theme-toggle__switch" aria-hidden="true">
-                                    <span class="theme-toggle__switch-state theme-toggle__switch-state--light">Light</span>
-                                    <span class="theme-toggle__switch-state theme-toggle__switch-state--dark">Dark</span>
-                                    <span class="theme-toggle__indicator"></span>
-                                </span>
-                            </button>
-                        </section>
                     </div>
                 </aside>
             @endif
@@ -177,96 +135,5 @@
 
         @livewireScripts
         @stack('scripts')
-        <script>
-            (() => {
-                const storageKey = 'bigbrotha-theme';
-                const root = document.documentElement;
-                const media = window.matchMedia('(prefers-color-scheme: dark)');
-                const themeColorMeta = document.querySelector('meta[name="theme-color"]');
-
-                const readStoredTheme = () => {
-                    try {
-                        const storedTheme = window.localStorage.getItem(storageKey);
-
-                        return storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : null;
-                    } catch (error) {
-                        return null;
-                    }
-                };
-
-                const resolvedTheme = () => readStoredTheme() ?? (media.matches ? 'dark' : 'light');
-
-                const syncThemeControls = () => {
-                    const isDarkTheme = root.dataset.theme === 'dark';
-                    const nextThemeLabel = isDarkTheme ? 'Light' : 'Dark';
-
-                    document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
-                        if (!(button instanceof HTMLButtonElement)) {
-                            return;
-                        }
-
-                        button.setAttribute('aria-pressed', isDarkTheme ? 'true' : 'false');
-                        button.setAttribute('aria-label', `Switch to ${nextThemeLabel.toLowerCase()} mode`);
-                        button.title = `Switch to ${nextThemeLabel.toLowerCase()} mode`;
-                    });
-
-                    document.querySelectorAll('[data-theme-toggle-value]').forEach((element) => {
-                        if (element instanceof HTMLElement) {
-                            element.textContent = isDarkTheme ? 'Dark' : 'Light';
-                        }
-                    });
-                };
-
-                const applyTheme = (theme, persist = false) => {
-                    root.dataset.theme = theme;
-                    root.style.colorScheme = theme;
-
-                    if (themeColorMeta) {
-                        themeColorMeta.content = theme === 'dark'
-                            ? (themeColorMeta.dataset.themeColorDark || '#0f141b')
-                            : (themeColorMeta.dataset.themeColorLight || '#f3f4f7');
-                    }
-
-                    if (persist) {
-                        try {
-                            window.localStorage.setItem(storageKey, theme);
-                        } catch (error) {
-                        }
-                    }
-
-                    syncThemeControls();
-                };
-
-                document.addEventListener('click', (event) => {
-                    const button = event.target instanceof Element ? event.target.closest('[data-theme-toggle]') : null;
-
-                    if (!(button instanceof HTMLButtonElement)) {
-                        return;
-                    }
-
-                    event.preventDefault();
-
-                    applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark', true);
-                });
-
-                const handleSystemThemeChange = () => {
-                    if (readStoredTheme() !== null) {
-                        return;
-                    }
-
-                    applyTheme(resolvedTheme(), false);
-                };
-
-                if (typeof media.addEventListener === 'function') {
-                    media.addEventListener('change', handleSystemThemeChange);
-                } else if (typeof media.addListener === 'function') {
-                    media.addListener(handleSystemThemeChange);
-                }
-
-                document.addEventListener('livewire:navigated', syncThemeControls);
-
-                applyTheme(resolvedTheme(), false);
-            })();
-        </script>
     </body>
 </html>

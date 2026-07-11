@@ -196,6 +196,7 @@
                         'initialWindowEndMs' => $initialRailWindowEndMs,
                         'focusAtMs' => $focusAtMs,
                         'focusLabel' => $focusLabel,
+                        'reviewRangeLabel' => $reviewRangeLabel,
                         'dayStartMs' => $dayStartMs,
                         'dayEndMs' => $dayEndMs,
                         'timelineZoomScale' => $timelineZoomScale,

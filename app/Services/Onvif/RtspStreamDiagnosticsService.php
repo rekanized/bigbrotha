@@ -281,6 +281,8 @@ class RtspStreamDiagnosticsService
             'error',
             '-rtsp_transport',
             $transport,
+            '-timeout',
+            (string) config('ffmpeg.streaming.rw_timeout', 10000000),
             '-select_streams',
             'v:0',
             '-show_entries',
@@ -386,6 +388,8 @@ class RtspStreamDiagnosticsService
         if ($transport !== null) {
             $command[] = '-rtsp_transport';
             $command[] = $transport;
+            $command[] = '-timeout';
+            $command[] = (string) config('ffmpeg.streaming.rw_timeout', 10000000);
         }
 
         array_push(

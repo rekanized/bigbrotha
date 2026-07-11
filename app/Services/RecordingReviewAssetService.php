@@ -20,7 +20,7 @@ class RecordingReviewAssetService
 {
     use ResolvesConfiguredBinaries;
 
-    private const ASSET_PIPELINE_VERSION = 9;
+    private const ASSET_PIPELINE_VERSION = 10;
 
     public const STATUS_READY = 'ready';
 
@@ -42,8 +42,7 @@ class RecordingReviewAssetService
 
     public function __construct(
         private readonly CameraStorageService $storage,
-    ) {
-    }
+    ) {}
 
     public function queueName(): string
     {
@@ -87,7 +86,7 @@ class RecordingReviewAssetService
      */
     public function reconcileQueuedJobs(bool $dryRun = false): array
     {
-        if (!$this->usesDatabaseQueue()) {
+        if (! $this->usesDatabaseQueue()) {
             return [
                 'ok' => false,
                 'jobs_scanned' => 0,
@@ -143,7 +142,7 @@ class RecordingReviewAssetService
                 if ($deleteIds !== []) {
                     $jobsDeleted += count($deleteIds);
 
-                    if (!$dryRun) {
+                    if (! $dryRun) {
                         DB::table('jobs')->whereIn('id', $deleteIds)->delete();
                     }
                 }
@@ -168,7 +167,7 @@ class RecordingReviewAssetService
             if ($deleteIds !== []) {
                 $jobsDeleted += count($deleteIds);
 
-                if (!$dryRun) {
+                if (! $dryRun) {
                     DB::table('jobs')->whereIn('id', $deleteIds)->delete();
                 }
             }
@@ -176,14 +175,14 @@ class RecordingReviewAssetService
             if ($keptJob !== null && (string) $keptJob->queue !== $targetQueue) {
                 $jobsRequeued++;
 
-                if (!$dryRun) {
+                if (! $dryRun) {
                     DB::table('jobs')
                         ->where('id', (int) $keptJob->id)
                         ->update(['queue' => $targetQueue]);
                 }
             }
 
-            if (!$dryRun && $keptJob !== null) {
+            if (! $dryRun && $keptJob !== null) {
                 Cache::put(
                     $this->queuedCacheKey((int) $recordingId),
                     now()->utc()->toIso8601String(),
@@ -264,7 +263,7 @@ class RecordingReviewAssetService
 
         $manifestAbsolutePath = $this->storage->resolveReviewAssetAbsolutePath($manifestRelativePath);
 
-        if ($manifestAbsolutePath === null || !is_file($manifestAbsolutePath)) {
+        if ($manifestAbsolutePath === null || ! is_file($manifestAbsolutePath)) {
             return $this->manifestCache[$cacheKey] = null;
         }
 
@@ -375,7 +374,7 @@ class RecordingReviewAssetService
         $scrubRows = (int) ceil(max(1, $scrubFrameCount) / max(1, $scrubColumns));
         $scrubSpriteAvailable = $scrubSpriteRelativePath !== null
             && $scrubFrameCount > 0
-            && (!$this->storage->reviewSpritesStoredLocally() || $this->storage->privateFileExists($scrubSpriteRelativePath));
+            && (! $this->storage->reviewSpritesStoredLocally() || $this->storage->privateFileExists($scrubSpriteRelativePath));
 
         return [
             'status' => self::STATUS_MISSING,
@@ -484,7 +483,7 @@ class RecordingReviewAssetService
             return false;
         }
 
-        if (!$this->markQueued($recording->getKey())) {
+        if (! $this->markQueued($recording->getKey())) {
             return false;
         }
 
@@ -557,7 +556,7 @@ class RecordingReviewAssetService
         $playbackProcess->setTimeout(max(60, $this->recordingDurationSeconds($recording) + 90));
         $playbackProcess->run();
 
-        if (!$playbackProcess->isSuccessful() || !is_file($playbackWorkspacePath)) {
+        if (! $playbackProcess->isSuccessful() || ! is_file($playbackWorkspacePath)) {
             $this->storage->deleteTemporaryFile($absoluteRecordingPath);
             $this->storage->deleteTemporaryFile($playbackWorkspacePath);
 
@@ -631,14 +630,14 @@ class RecordingReviewAssetService
                     $scrubProcess->setTimeout(45);
                     $scrubProcess->run();
 
-                    if (!$scrubProcess->isSuccessful() || !is_file($scrubSpriteAbsolutePath)) {
+                    if (! $scrubProcess->isSuccessful() || ! is_file($scrubSpriteAbsolutePath)) {
                         throw new RuntimeException($this->summarizeProcessFailure($scrubProcess, 'Unable to generate the scrub preview sprite.'));
                     }
 
                     $readyManifest = array_merge($readyManifest, $scrubManifest, [
                         'scrub_status' => self::STATUS_READY,
                     ]);
-                } catch (\Throwable $exception) {
+                } catch (Throwable $exception) {
                     if (is_file($scrubSpriteAbsolutePath)) {
                         @unlink($scrubSpriteAbsolutePath);
                     }
@@ -662,7 +661,7 @@ class RecordingReviewAssetService
             }
 
             return $readyManifest;
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             $failedManifest = $pendingManifest;
             $failedManifest['status'] = self::STATUS_FAILED;
             $failedManifest['playback_status'] = self::STATUS_FAILED;
@@ -706,7 +705,7 @@ class RecordingReviewAssetService
 
     public function resolvedPlaybackAbsolutePath(CameraRecording $recording): ?string
     {
-        if (!$this->hasReadyPlaybackAsset($recording)) {
+        if (! $this->hasReadyPlaybackAsset($recording)) {
             return null;
         }
 
@@ -748,7 +747,7 @@ class RecordingReviewAssetService
     {
         $svg = $this->thumbnailSvg($recording);
 
-        if (!is_string($svg) || trim($svg) === '') {
+        if (! is_string($svg) || trim($svg) === '') {
             return null;
         }
 
@@ -769,7 +768,7 @@ class RecordingReviewAssetService
 
         $computedManifest = $this->defaultScrubManifest($recording, $scrubSpriteRelativePath);
 
-        if (!is_array($computedManifest)) {
+        if (! is_array($computedManifest)) {
             return null;
         }
 
@@ -841,7 +840,7 @@ class RecordingReviewAssetService
 
         $sourceCandidate = preg_replace('/\.mp4$/i', '.'.$sourceExtension, $normalizedPath);
 
-        if (!is_string($sourceCandidate) || $sourceCandidate === '') {
+        if (! is_string($sourceCandidate) || $sourceCandidate === '') {
             return $normalizedPath;
         }
 
@@ -883,8 +882,8 @@ class RecordingReviewAssetService
             @unlink($targetPath);
         }
 
-        if (!@rename($workspacePath, $targetPath)) {
-            if (!@copy($workspacePath, $targetPath)) {
+        if (! @rename($workspacePath, $targetPath)) {
+            if (! @copy($workspacePath, $targetPath)) {
                 throw new RuntimeException('Unable to move the normalized recording into the target recordings path.');
             }
 
@@ -913,7 +912,7 @@ class RecordingReviewAssetService
 
     private function reviewAssetRecordingIdFromPayload(string $payload): ?int
     {
-        if (!str_contains($payload, class_basename(GenerateRecordingReviewAssetsJob::class))) {
+        if (! str_contains($payload, class_basename(GenerateRecordingReviewAssetsJob::class))) {
             return null;
         }
 
@@ -938,11 +937,11 @@ class RecordingReviewAssetService
      */
     private function assetStateSatisfiesRequirement(array $assetState, CameraRecording $recording, bool $requireScrubSprite): bool
     {
-        if (!(bool) ($assetState['ready'] ?? false)) {
+        if (! (bool) ($assetState['ready'] ?? false)) {
             return false;
         }
 
-        if (!$requireScrubSprite || $this->scrubFrameCount($recording) < 1) {
+        if (! $requireScrubSprite || $this->scrubFrameCount($recording) < 1) {
             return true;
         }
 
@@ -1054,7 +1053,7 @@ class RecordingReviewAssetService
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-avoid_negative_ts',
@@ -1134,13 +1133,13 @@ class RecordingReviewAssetService
 
     private function shouldSkipRemoteAssetProbe(?string $relativePath): bool
     {
-        if (!is_string($relativePath) || trim($relativePath) === '') {
+        if (! is_string($relativePath) || trim($relativePath) === '') {
             return false;
         }
 
         $normalizedPath = $this->storage->normalizePrivateStorageRelativePath($relativePath);
 
-        if (!is_string($normalizedPath) || $normalizedPath === '') {
+        if (! is_string($normalizedPath) || $normalizedPath === '') {
             return false;
         }
 
@@ -1208,7 +1207,62 @@ class RecordingReviewAssetService
             return false;
         }
 
-        return in_array($this->recordingVideoCodec($inputPath), ['h264', 'h.264'], true);
+        return in_array($this->recordingVideoCodec($inputPath), ['h264', 'h.264'], true)
+            && $this->recordingVideoDtsAreStrictlyIncreasing($inputPath);
+    }
+
+    private function recordingVideoDtsAreStrictlyIncreasing(string $absolutePath): bool
+    {
+        $ffprobeBinary = $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
+
+        if ($ffprobeBinary === null || ! is_file($absolutePath)) {
+            return false;
+        }
+
+        try {
+            $process = new Process([
+                $ffprobeBinary,
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'packet=dts',
+                '-of',
+                'csv=p=0',
+                $absolutePath,
+            ]);
+            $process->setTimeout(10);
+            $process->run();
+
+            if (! $process->isSuccessful()) {
+                return false;
+            }
+
+            $previousDts = null;
+            $packetCount = 0;
+
+            foreach (preg_split('/\R/', trim($process->getOutput())) ?: [] as $value) {
+                $value = trim($value);
+
+                if ($value === '' || preg_match('/^-?\d+$/', $value) !== 1) {
+                    return false;
+                }
+
+                $dts = (int) $value;
+
+                if ($previousDts !== null && $dts <= $previousDts) {
+                    return false;
+                }
+
+                $previousDts = $dts;
+                $packetCount++;
+            }
+
+            return $packetCount >= 2;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -1256,7 +1310,7 @@ class RecordingReviewAssetService
     {
         $ffprobeBinary = $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
 
-        if ($ffprobeBinary === null || !is_file($absolutePath)) {
+        if ($ffprobeBinary === null || ! is_file($absolutePath)) {
             return null;
         }
 
@@ -1276,7 +1330,7 @@ class RecordingReviewAssetService
             $process->setTimeout(5);
             $process->run();
 
-            if (!$process->isSuccessful()) {
+            if (! $process->isSuccessful()) {
                 return null;
             }
 
@@ -1295,7 +1349,7 @@ class RecordingReviewAssetService
     {
         $scrubSprite = $this->scrubSpriteMetadata($recording);
 
-        if (!is_array($scrubSprite) || empty($scrubSprite['available'])) {
+        if (! is_array($scrubSprite) || empty($scrubSprite['available'])) {
             return null;
         }
 

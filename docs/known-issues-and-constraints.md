@@ -91,8 +91,10 @@ Current constraints:
 - older recordings that were already uploaded before that normalization fix can still exist under the legacy parent-root layout such as `Applications/bigbrotha/{camera}/recordings/...`; SMB-backed reads now fall back to that legacy layout so timeline playback and downloads continue to work while the share is cleaned up or migrated.
 - active FFmpeg work files stay local under `storage/app/private/ffmpeg-temp`, including network-backed camera staging files. The SMB share is only contacted when a finished clip or asset is published, and the publish step now creates the full normalized remote directory chain when needed.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
+- SMB paths reject embedded URI credentials, control characters, query/fragment suffixes, and `.` / `..` traversal segments. Credentials reject line breaks so they cannot alter Samba authentication-file fields.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
-- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads only the finished recording clip to the active SMB disk after the local write completes, verifies the remote copy, and only then deletes the local staged clip.
+- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads the finished clip under a temporary remote name, promotes that complete upload onto the final path, verifies the remote size, and only then deletes the local staged clip. Retry uploads reuse an already-complete matching remote file.
+- direct `smbclient` fallbacks use a per-operation mode-0600 authentication file that is deleted immediately after the command; the SMB password is not placed in the process argument list.
 - temporary motion buffers, continuous segmenter work files, previews, and review-asset outputs stay on container-local private storage even when clip storage is network-backed.
 - previews, review assets, playback downloads, and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage.
 
@@ -185,6 +187,9 @@ Implications:
 - the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
 - ffmpeg runtime settings are now split by workload: recording, motion, and relay ingest prefer RTSP over TCP, larger demux queues and realtime buffers, wallclock-backed timestamp generation, and passthrough frame timing so unstable camera timecodes do not propagate into saved clips or relayed playback.
 - finalized MP4 review assets should keep `+faststart`, and the Timeline Review fallback route now also materializes a short-lived finalized MP4 with `+faststart` before serving it so browser seeks and audio playback do not depend on fragmented stdout remuxing.
+- H.264 is copied into a review MP4 only when ffprobe confirms strictly increasing video DTS values. Cameras that repeat or omit DTS values are normalized through the CFR H.264 path instead; this safety gate now applies to both durable review generation and emergency request-time playback.
+- recording and review commands map only the first optional audio stream (`0:a:0?`) so multi-audio cameras do not unexpectedly expand a clip or produce an ambiguous browser playback asset.
+- WebRTC relay audio uses asynchronous resampling with a bounded hard-compensation threshold before Opus encoding, which absorbs camera clock drift while keeping the browser-facing audio timeline anchored at zero.
 
 ## Recording Playback Tradeoff
 
@@ -219,6 +224,8 @@ Current behavior:
 - the minute scheduler now also runs a bounded synchronous safety-net backfill through `camera-recordings:build-review-assets --missing --limit=...`, ordered newest-first, so recent clips still pick up playback normalization and scrub-sprite assets even when the async review queue is delayed; tune it with `CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED` and `CAMERA_REVIEW_ASSET_SCHEDULER_LIMIT`.
 - recordings worker capacity is fixed to the Docker replica count. Set `CAMERA_RECORDING_WORKER_PROCESSES` to the exact number of worker replicas you want and start the stack through `./docker/compose-up.sh` so the running container pool matches the expected worker count.
 - the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
+- scrub sprite requests are deduplicated, loaded only when a thumbnail approaches the viewport or an operator actively scrubs, validated against the manifest's expected sprite-grid dimensions, kept in a bounded recent-success cache, and placed on a short failure cooldown so a missing or placeholder sprite cannot be requested repeatedly during fast scrolling.
+- native timeline scrolling takes precedence over scrubbing on touch devices; operators drag the explicit blue focus handle to scrub, while ordinary rail swipes retain inertial scrolling. Unmodified mouse-wheel input scrolls and Ctrl/Command + wheel zooms.
 - timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
 
 ## Live Wall Delivery Tradeoff
@@ -324,7 +331,8 @@ If the player stays on `Loading secure stream…`, check these in order:
 6. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
 7. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
 8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
-9. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
+9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://web:8080/relay/auth/mediamtx`; the nginx container listens on port `8080`, not port `80`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
+10. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
 
 ## Nginx Reverse Proxy Requirements
 

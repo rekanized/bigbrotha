@@ -712,6 +712,90 @@ class RecordingBrowserTest extends TestCase
         $this->assertStringNotContainsString('-copyinkf', $arguments);
     }
 
+    public function test_review_asset_generation_transcodes_h264_when_packet_dts_are_not_strictly_increasing(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Timestamp Audit Camera',
+            'local_ip' => '192.168.1.92',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        app(CameraStorageService::class)->ensureCameraDirectories($camera);
+
+        $absolutePath = storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/timestamp-audit.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recorded-segment');
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'started_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 10),
+            'ended_at' => now()->utc()->setDate(2026, 4, 3)->setTime(15, 11),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/2026/04/03/timestamp-audit.mkv',
+            'file_size_bytes' => filesize($absolutePath) ?: null,
+            'message' => 'Recorded successfully.',
+        ]);
+
+        $argumentLog = storage_path('app/private/test-binaries/review-asset-unsafe-dts-args.log');
+        File::delete($argumentLog);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary($argumentLog)]);
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264', 'pcm_alaw', [0, 0, 1])]);
+
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        $arguments = (string) file_get_contents($argumentLog);
+
+        $this->assertStringContainsString('0:a:0?', $arguments);
+        $this->assertStringContainsString('fps=20,setsar=1', $arguments);
+        $this->assertStringContainsString('libx264', $arguments);
+        $this->assertStringNotContainsString('-copyinkf', $arguments);
+    }
+
+    public function test_review_asset_generation_keeps_the_h264_copy_fast_path_for_strictly_increasing_dts(): void
+    {
+        $absolutePath = storage_path('app/private/test-binaries/monotonic-h264.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recorded-segment');
+
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264', 'aac', [0, 3000, 6000])]);
+
+        $reviewAssets = app(RecordingReviewAssetService::class);
+        $canCopyPlaybackVideo = new \ReflectionMethod($reviewAssets, 'canCopyPlaybackVideo');
+        $canCopyPlaybackVideo->setAccessible(true);
+
+        $this->assertTrue($canCopyPlaybackVideo->invoke($reviewAssets, $absolutePath));
+
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264', 'aac', [0, 0, 3000])]);
+
+        $this->assertFalse($canCopyPlaybackVideo->invoke($reviewAssets, $absolutePath));
+    }
+
+    public function test_request_time_playback_uses_the_same_h264_timestamp_safety_gate_as_review_assets(): void
+    {
+        $absolutePath = storage_path('app/private/test-binaries/request-playback-h264.mkv');
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'recorded-segment');
+
+        $recordings = app(\App\Services\CameraRecordingService::class);
+        $canCopyPlaybackVideo = new \ReflectionMethod($recordings, 'canCopyPlaybackVideo');
+        $canCopyPlaybackVideo->setAccessible(true);
+
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264', 'aac', [0, 3000, 6000])]);
+        $this->assertTrue($canCopyPlaybackVideo->invoke($recordings, $absolutePath));
+
+        config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('h264', 'aac', [0, 0, 3000])]);
+        $this->assertFalse($canCopyPlaybackVideo->invoke($recordings, $absolutePath));
+    }
+
     public function test_review_asset_generation_replaces_network_backed_recordings_with_playable_mp4_files(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
@@ -1653,9 +1737,9 @@ class RecordingBrowserTest extends TestCase
             'updated_at' => now()->utc()->subDays(2)->startOfMinute(),
         ]);
 
-        \Illuminate\Support\Facades\Artisan::call('camera-recordings:prune-audit');
+        Artisan::call('camera-recordings:prune-audit');
 
-        $output = \Illuminate\Support\Facades\Artisan::output();
+        $output = Artisan::output();
 
         $this->assertStringContainsString('audit-expired.mkv', $output);
         $this->assertStringContainsString('Audit Lane', $output);
@@ -1709,7 +1793,7 @@ class RecordingBrowserTest extends TestCase
 
     public function test_network_storage_playback_and_download_use_the_original_recording_extension(): void
     {
-        app(\App\Services\ApplicationSettingsService::class)->saveNetworkStorageSettings(
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
             '//192.168.1.199/fileshare/Applications/bigbrotha',
             'administrator',
@@ -2064,33 +2148,48 @@ BASH));
         return $binaryPath;
     }
 
-    private function fakePlaybackFfprobeBinary(string $videoCodecName, ?string $audioCodecName = null): string
+    /**
+     * @param  array<int, int>|null  $videoDts
+     */
+    private function fakePlaybackFfprobeBinary(string $videoCodecName, ?string $audioCodecName = null, ?array $videoDts = null): string
     {
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
 
-        $binaryPath = $binaryDirectory.'/ffprobe-recording-playback-'.md5($videoCodecName.'|'.($audioCodecName ?? '')).'.sh';
+        $videoDts ??= [0, 1, 2];
+        $binaryPath = $binaryDirectory.'/ffprobe-recording-playback-'.md5($videoCodecName.'|'.($audioCodecName ?? '').'|'.json_encode($videoDts)).'.sh';
 
         File::put($binaryPath, str_replace([
             '__VIDEO_CODEC_NAME__',
             '__AUDIO_CODEC_NAME__',
+            '__VIDEO_DTS__',
         ], [
             $videoCodecName,
             $audioCodecName ?? $videoCodecName,
+            implode('\\n', $videoDts),
         ], <<<'BASH'
 #!/usr/bin/env bash
 set -e
 selector=""
+show_entries=""
 previous=""
 
 for argument in "$@"; do
     if [[ "$previous" == "-select_streams" ]]; then
         selector="$argument"
-        break
+    fi
+
+    if [[ "$previous" == "-show_entries" ]]; then
+        show_entries="$argument"
     fi
 
     previous="$argument"
 done
+
+if [[ "$show_entries" == "packet=dts" ]]; then
+    printf '%b\n' '__VIDEO_DTS__'
+    exit 0
+fi
 
 if [[ "$selector" == "a:0" ]]; then
     printf '%s\n' '__AUDIO_CODEC_NAME__'
@@ -2106,7 +2205,7 @@ BASH));
 
     private function writeRecordedSegment(CameraRecording $recording, string $contents = 'recorded-segment'): void
     {
-        if (!is_string($recording->relative_path) || trim($recording->relative_path) === '') {
+        if (! is_string($recording->relative_path) || trim($recording->relative_path) === '') {
             return;
         }
 

@@ -133,6 +133,12 @@ class ApplicationSettingsService
 
     public function saveNetworkStorageSettings(bool $enabled, ?string $path, ?string $username, ?string $password, bool $preserveExistingPassword = false): void
     {
+        foreach (['username' => $username, 'password' => $password] as $field => $credential) {
+            if (is_string($credential) && preg_match('/[\r\n\0]/', $credential) === 1) {
+                throw new InvalidArgumentException('The SMB '.$field.' cannot contain line breaks or null bytes.');
+            }
+        }
+
         $setting = AppSetting::query()->firstOrNew(['key' => self::SETTING_NETWORK_STORAGE]);
         $normalizedPassword = $this->nullableString($password);
 
@@ -266,7 +272,7 @@ class ApplicationSettingsService
     {
         $normalizedPath = $this->nullableString($path);
 
-        if ($normalizedPath === null) {
+        if ($normalizedPath === null || preg_match('/[\x00-\x1F\x7F?#]/', $normalizedPath) === 1) {
             return null;
         }
 
@@ -277,9 +283,14 @@ class ApplicationSettingsService
         }
 
         $normalizedPath = ltrim($normalizedPath, '/');
-        $segments = array_values(array_filter(explode('/', $normalizedPath), static fn (string $segment): bool => trim($segment) !== ''));
+        $segments = array_values(array_filter(array_map(
+            static fn (string $segment): string => trim($segment),
+            explode('/', $normalizedPath),
+        ), static fn (string $segment): bool => $segment !== ''));
 
-        if (count($segments) < 2) {
+        if (count($segments) < 2
+            || preg_match('/[@:]/', $segments[0]) === 1
+            || collect($segments)->contains(static fn (string $segment): bool => in_array(trim($segment), ['.', '..'], true))) {
             return null;
         }
 

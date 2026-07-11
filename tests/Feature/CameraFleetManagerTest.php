@@ -1312,6 +1312,32 @@ XML, 200),
             ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
     }
 
+    public function test_the_camera_editor_exposes_clear_navigation_and_persistent_actions(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Front Door',
+            'local_ip' => '192.168.1.67',
+            'http_port' => 80,
+            'onvif_port' => 80,
+            'rtsp_port' => 554,
+            'onvif_path' => '/onvif/device_service',
+            'supports_onvif' => true,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->assertSee('Camera settings')
+            ->assertSee('Front Door')
+            ->assertSeeHtml('role="dialog"')
+            ->assertSeeHtml('aria-describedby="camera-editor-description"')
+            ->assertSeeHtml('href="#camera-editor-recording"')
+            ->assertSeeHtml('id="camera-editor-streams"')
+            ->assertSee('Ready to apply your camera changes?')
+            ->assertSee('Save changes');
+    }
+
     public function test_it_preserves_saved_preview_metadata_when_rtsp_profiles_are_refreshed(): void
     {
         $camera = Camera::query()->create([

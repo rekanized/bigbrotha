@@ -1624,7 +1624,7 @@ class CameraRecordingService
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-fps_mode',
@@ -1683,7 +1683,7 @@ class CameraRecordingService
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-t',
@@ -1765,6 +1765,7 @@ class CameraRecordingService
         $ffmpegBinary = $this->ffmpegBinary();
         $fpsMode = trim((string) config('ffmpeg.playback.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.playback.avoid_negative_ts', 'make_zero'));
+        $inputFlags = trim((string) config('ffmpeg.playback.input_fflags', '+genpts+discardcorrupt'));
 
         if ($ffmpegBinary === null) {
             throw new RuntimeException('ffmpeg is not available on this host. Check the recorder stack configuration first.');
@@ -1776,12 +1777,13 @@ class CameraRecordingService
             '-hide_banner',
             '-loglevel',
             'error',
+            ...($inputFlags !== '' ? ['-fflags', $inputFlags] : []),
             '-i',
             $absolutePath,
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-fps_mode',
@@ -1815,6 +1817,7 @@ class CameraRecordingService
         $ffmpegBinary = $this->ffmpegBinary();
         $fpsMode = trim((string) config('ffmpeg.playback.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.playback.avoid_negative_ts', 'make_zero'));
+        $inputFlags = trim((string) config('ffmpeg.playback.input_fflags', '+genpts+discardcorrupt'));
 
         if ($ffmpegBinary === null) {
             throw new RuntimeException('ffmpeg is not available on this host. Check the recorder stack configuration first.');
@@ -1827,12 +1830,13 @@ class CameraRecordingService
             '-loglevel',
             'error',
             '-y',
+            ...($inputFlags !== '' ? ['-fflags', $inputFlags] : []),
             '-i',
             $absolutePath,
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-fps_mode',
@@ -1874,19 +1878,32 @@ class CameraRecordingService
             ];
         }
 
-        $gop = max(24, (int) config('mediamtx.transcode.gop', 30));
+        $outputFps = max(10, (int) config('recording.review_assets.playback_fps', 20));
+        $gop = max((int) config('mediamtx.transcode.gop', 30), $outputFps * 2);
 
         return [
+            '-vf',
+            'fps='.$outputFps.',setsar=1',
+            '-fps_mode',
+            'cfr',
             '-c:v',
             'libx264',
             '-preset',
-            'veryfast',
+            (string) config('recording.review_assets.playback_preset', 'medium'),
             '-profile:v',
-            'baseline',
+            'main',
+            '-level:v',
+            '4.0',
             '-pix_fmt',
             'yuv420p',
             '-crf',
-            (string) max(16, (int) config('recording.review_assets.video_crf', 24)),
+            (string) max(18, (int) config('recording.review_assets.playback_video_crf', 26)),
+            '-maxrate',
+            (string) config('recording.review_assets.playback_video_max_bitrate', '1500k'),
+            '-bufsize',
+            (string) config('recording.review_assets.playback_video_buffer_size', '3000k'),
+            '-x264-params',
+            'nal-hrd=vbr:force-cfr=1',
             '-g',
             (string) $gop,
             '-keyint_min',
@@ -1898,7 +1915,62 @@ class CameraRecordingService
 
     private function canCopyPlaybackVideo(string $absolutePath): bool
     {
-        return in_array($this->recordingVideoCodec($absolutePath), ['h264', 'h.264'], true);
+        return in_array($this->recordingVideoCodec($absolutePath), ['h264', 'h.264'], true)
+            && $this->recordingVideoDtsAreStrictlyIncreasing($absolutePath);
+    }
+
+    private function recordingVideoDtsAreStrictlyIncreasing(string $absolutePath): bool
+    {
+        $ffprobeBinary = $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
+
+        if ($ffprobeBinary === null || ! is_file($absolutePath)) {
+            return false;
+        }
+
+        try {
+            $process = new Process([
+                $ffprobeBinary,
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'packet=dts',
+                '-of',
+                'csv=p=0',
+                $absolutePath,
+            ]);
+            $process->setTimeout(10);
+            $process->run();
+
+            if (! $process->isSuccessful()) {
+                return false;
+            }
+
+            $previousDts = null;
+            $packetCount = 0;
+
+            foreach (preg_split('/\R/', trim($process->getOutput())) ?: [] as $value) {
+                $value = trim($value);
+
+                if ($value === '' || preg_match('/^-?\d+$/', $value) !== 1) {
+                    return false;
+                }
+
+                $dts = (int) $value;
+
+                if ($previousDts !== null && $dts <= $previousDts) {
+                    return false;
+                }
+
+                $previousDts = $dts;
+                $packetCount++;
+            }
+
+            return $packetCount >= 2;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function shouldServeRecordingDirectly(?string $relativePath): bool

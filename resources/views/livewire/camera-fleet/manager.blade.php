@@ -76,7 +76,7 @@
             </div>
 
             <div class="probe-actions">
-                <button class="button button--primary" type="button" wire:click="newCamera">
+                <button class="button button--primary" type="button" wire:click="newCamera" data-camera-editor-trigger="new-camera">
                     <span class="button__content">
                         <span class="button__icon-slot" aria-hidden="true">
                             <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -117,7 +117,7 @@
                 <strong>No cameras are in the fleet yet.</strong>
                 <p>Start with a direct ONVIF probe, let Camera Fleet hydrate the draft, then save the verified camera here.</p>
                 <div class="probe-actions">
-                    <button class="button button--primary" type="button" wire:click="newCamera">
+                    <button class="button button--primary" type="button" wire:click="newCamera" data-camera-editor-trigger="new-camera">
                         <span class="button__content">
                             <span class="button__icon-slot" aria-hidden="true">
                                 <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -228,7 +228,7 @@
 
                         <div class="camera-row__footer">
                             <div class="camera-row__actions">
-                                <button class="button button--primary" type="button" wire:click="editCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="editCamera({{ $camera->id }})">
+                                <button class="button button--primary" type="button" wire:click="editCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="editCamera({{ $camera->id }})" data-camera-editor-trigger="camera-{{ $camera->id }}">
                                     <span class="button__content">
                                         <span class="button__icon-slot" aria-hidden="true">
                                             <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -321,14 +321,16 @@
     </section>
 
     @if ($isEditorModalOpen)
-        <div class="fleet-modal" role="dialog" aria-modal="true" aria-labelledby="camera-editor-title">
-            <button class="fleet-modal__backdrop" type="button" wire:click="closeEditorModal" aria-label="Close camera editor"></button>
+        <div class="fleet-modal" data-camera-editor-modal>
+            <button class="fleet-modal__backdrop" type="button" tabindex="-1" wire:click="closeEditorModal" aria-label="Close camera editor"></button>
 
-            <section class="fleet-modal__panel" wire:click.stop>
-                <div class="panel-heading">
+            <section class="fleet-modal__panel" role="dialog" aria-modal="true" aria-labelledby="camera-editor-title" aria-describedby="camera-editor-description" tabindex="-1" wire:click.stop>
+                <header class="camera-editor__masthead">
+                <div class="panel-heading camera-editor__heading">
                     <div>
-                        <h2 id="camera-editor-title" class="panel-title">{{ $editingCameraId ? 'Edit camera' : 'Add camera' }}</h2>
-                        <p class="panel-copy">{{ $editingCameraId ? 'Maintain network identity, ONVIF endpoint, credentials, RTSP defaults, and recording policy for the selected camera record.' : 'Begin with a direct ONVIF probe for ONVIF-capable devices, or switch to RTSP-only mode when the camera exposes only a raw stream URL.' }}</p>
+                        <span class="eyebrow">{{ $editingCameraId ? 'Camera settings' : 'New camera' }}</span>
+                        <h2 id="camera-editor-title" class="panel-title">{{ $editingCameraId ? ($form['name'] ?: 'Unnamed camera') : 'Add a camera' }}</h2>
+                        <p id="camera-editor-description" class="panel-copy">{{ $editingCameraId ? 'Update connection, live view, and recording settings. Changes take effect after you save.' : 'Verify an ONVIF camera first, or choose RTSP-only setup for a direct stream.' }}</p>
                     </div>
 
                     <div class="probe-actions">
@@ -352,7 +354,7 @@
                             </button>
                         @endif
 
-                        <button class="button button--soft" type="button" wire:click="closeEditorModal">
+                        <button class="button button--soft camera-editor__close" type="button" wire:click="closeEditorModal" data-camera-editor-close aria-label="Close without saving">
                             <span class="button__content">
                                 <span class="button__icon-slot" aria-hidden="true">
                                     <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -364,11 +366,29 @@
                                         <path d="M20 12a8 8 0 0 0-8-8"></path>
                                     </svg>
                                 </span>
-                                <span>Close</span>
+                                <span>Cancel</span>
                             </span>
                         </button>
                     </div>
                 </div>
+
+                <nav class="camera-editor__nav" aria-label="Camera settings sections">
+                    @if (!$editingCameraId)
+                        <a href="#camera-editor-intake">Setup</a>
+                    @endif
+                    @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
+                        <a href="#camera-editor-identity">Identity</a>
+                        <a href="#camera-editor-stream-access">Stream access</a>
+                        <a href="#camera-editor-live-relay">Live relay</a>
+                        <a href="#camera-editor-recording">Recording</a>
+                        <a href="#camera-editor-state">Availability</a>
+                        <a href="#camera-editor-streams">Diagnostics</a>
+                        @if ($editingCameraId)
+                            <a href="#camera-editor-activity">Activity</a>
+                        @endif
+                    @endif
+                </nav>
+                </header>
 
                 <div class="notice-stack" aria-live="polite">
                     @if ($statusMessage)
@@ -401,7 +421,7 @@
                 </div>
 
                 @if (!$editingCameraId)
-                    <section class="form-section">
+                    <section class="form-section" id="camera-editor-intake">
                         <div class="form-section__header">
                             <div>
                                 <h3 class="panel-title">Camera intake</h3>
@@ -574,7 +594,7 @@
                         </div>
                     @endif
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-identity">
                     <div class="form-section__header">
                         <div>
                             <h3 class="panel-title">Identity and network</h3>
@@ -665,7 +685,7 @@
                     </div>
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-stream-access">
                     <div class="form-section__header">
                         <div>
                             <h3 class="panel-title">Stream defaults and access</h3>
@@ -735,12 +755,11 @@
                             @error('form.password')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
+                            @if ($editingCameraId && $hasStoredPassword)
+                                <small class="probe-note">The saved password is loaded here. Use Show to inspect it, edit it directly, or clear it before saving.</small>
+                            @endif
                         </div>
                     </div>
-
-                    @if ($editingCameraId && $hasStoredPassword)
-                        <p class="probe-note">The saved password is loaded into this field. Use Show password to inspect it, edit it directly, or clear it before saving.</p>
-                    @endif
 
                     <datalist id="camera-live-path-options">
                         @foreach ($rtspProfiles as $profile)
@@ -759,7 +778,7 @@
                     </datalist>
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-live-relay">
                     <div class="form-section__header">
                         <div>
                             <h3 class="panel-title">Live relay transcoding</h3>
@@ -806,7 +825,7 @@
                     <p class="probe-note">These settings affect only the live-wall relay. Recordings and the raw RTSP source path stay untouched.</p>
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-recording">
                     <div class="form-section__header">
                         <div>
                             <h3 class="panel-title">Recording policy</h3>
@@ -988,7 +1007,7 @@
                     @endif
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-state">
                     <div class="form-section__header">
                         <div>
                             <h3 class="panel-title">Camera state</h3>
@@ -1013,54 +1032,9 @@
                         </label>
                     </div>
 
-                    @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
-
-                    <div class="probe-actions">
-                        <button
-                            class="button button--primary"
-                            type="button"
-                            @unless($usesMotionEditorSave)
-                                wire:click="saveCamera"
-                                wire:loading.attr="disabled"
-                                wire:target="saveCamera"
-                            @endunless
-                            data-role="camera-save-button"
-                        >
-                            <span class="button__content">
-                                <span class="button__icon-slot" aria-hidden="true">
-                                    <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M5 5h11l3 3v11H5z"></path>
-                                        <path d="M9 5v6h6"></path>
-                                        <path d="M9 19v-5h6v5"></path>
-                                    </svg>
-                                    <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
-                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
-                                    </svg>
-                                </span>
-                                <span>{{ $editingCameraId ? 'Save changes' : 'Create camera' }}</span>
-                            </span>
-                        </button>
-
-                        <button class="button button--soft" type="button" wire:click="newCamera">
-                            <span class="button__content">
-                                <span class="button__icon-slot" aria-hidden="true">
-                                    <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"></path>
-                                        <path d="M21 3v5h-5"></path>
-                                    </svg>
-                                    <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                        <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
-                                        <path d="M20 12a8 8 0 0 0-8-8"></path>
-                                    </svg>
-                                </span>
-                                <span>Reset</span>
-                            </span>
-                        </button>
-                    </div>
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-streams">
                     <div class="panel-heading">
                         <div>
                             <h3 class="panel-title">RTSP stream URLs</h3>
@@ -1187,7 +1161,7 @@
                     @endif
                 </section>
 
-                <section class="form-section">
+                <section class="form-section" id="camera-editor-activity">
                     <div class="panel-heading">
                         <div>
                             <h3 class="panel-title">Recent recording activity</h3>
@@ -1230,6 +1204,45 @@
                         <strong>Probe a reachable ONVIF endpoint or switch to RTSP-only mode.</strong>
                         <p>ONVIF-capable devices should be verified first so Camera Fleet can prefill identity, network, and stream values before the record is inserted.</p>
                     </div>
+                @endif
+
+                @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
+                    @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
+                    <footer class="camera-editor__actions">
+                        <p>
+                            <strong>{{ $editingCameraId ? 'Ready to apply your camera changes?' : 'Ready to add this camera?' }}</strong>
+                            <span>{{ $usesMotionEditorSave ? 'The current motion mask and all settings will be saved together.' : 'Review the highlighted validation messages if saving fails.' }}</span>
+                        </p>
+
+                        <div class="probe-actions">
+                            <button class="button button--soft" type="button" wire:click="closeEditorModal" data-camera-editor-close>Cancel</button>
+                            <button
+                                class="button button--primary"
+                                type="button"
+                                @unless($usesMotionEditorSave)
+                                    wire:click="saveCamera"
+                                    wire:loading.attr="disabled"
+                                    wire:target="saveCamera"
+                                @endunless
+                                data-role="camera-save-button"
+                            >
+                                <span class="button__content">
+                                    <span class="button__icon-slot" aria-hidden="true">
+                                        <svg class="button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M5 5h11l3 3v11H5z"></path>
+                                            <path d="M9 5v6h6"></path>
+                                            <path d="M9 19v-5h6v5"></path>
+                                        </svg>
+                                        <svg class="button__spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="8" opacity="0.28"></circle>
+                                            <path d="M20 12a8 8 0 0 0-8-8"></path>
+                                        </svg>
+                                    </span>
+                                    <span>{{ $editingCameraId ? 'Save changes' : 'Create camera' }}</span>
+                                </span>
+                            </button>
+                        </div>
+                    </footer>
                 @endif
             </section>
         </div>

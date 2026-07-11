@@ -495,6 +495,7 @@ class MediaMtxConfigService
         $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
         $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
         $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
+        $audioResample = trim((string) config('ffmpeg.live.audio_resample', 'aresample=async=1000:min_hard_comp=0.100:first_pts=0'));
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
@@ -552,7 +553,7 @@ class MediaMtxConfigService
 
         array_push($command,
             '-af',
-            escapeshellarg('aresample=async=1:first_pts=0'),
+            escapeshellarg($audioResample !== '' ? $audioResample : 'aresample=async=1000:min_hard_comp=0.100:first_pts=0'),
             '-c:a',
             escapeshellarg((string) config('mediamtx.transcode.audio_codec', 'libopus')),
             '-ac',

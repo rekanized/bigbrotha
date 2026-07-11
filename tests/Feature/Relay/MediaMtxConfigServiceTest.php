@@ -71,7 +71,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString("-fps_mode 'passthrough'", $liveBlock);
         $this->assertStringContainsString("-avoid_negative_ts 'make_zero'", $liveBlock);
         $this->assertStringContainsString('-c:a', $liveBlock);
-        $this->assertStringContainsString("-af 'aresample=async=1:first_pts=0'", $liveBlock);
+        $this->assertStringContainsString("-af 'aresample=async=1000:min_hard_comp=0.100:first_pts=0'", $liveBlock);
         $this->assertStringContainsString("'libopus'", $liveBlock);
         $this->assertStringContainsString("-ac '2'", $liveBlock);
         $this->assertStringContainsString("-ar '48000'", $liveBlock);

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Livewire\Recordings\TimelineReview;
 use App\Livewire\Recordings\TimelineRail;
+use App\Livewire\Recordings\TimelineReview;
 use App\Livewire\Recordings\TimelineStage;
 use App\Models\Camera;
 use App\Models\CameraRecording;
@@ -13,6 +13,7 @@ use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -253,8 +254,8 @@ class TimelineReviewTest extends TestCase
         ]);
 
         $previewPath = app(CameraStorageService::class)->writableAbsolutePath('cameras/'.$camera->id.'/previews/north-gate.png');
-        \Illuminate\Support\Facades\File::ensureDirectoryExists(dirname($previewPath));
-        \Illuminate\Support\Facades\File::put($previewPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII='));
+        File::ensureDirectoryExists(dirname($previewPath));
+        File::put($previewPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xc6kAAAAASUVORK5CYII='));
 
         $camera->forceFill([
             'metadata' => [
@@ -463,8 +464,8 @@ class TimelineReviewTest extends TestCase
         );
 
         $this->assertSame(asset('img/recording-preview-missing.svg'), $payload['thumbnailUrl'] ?? null);
-    $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['thumbnailSpriteUrl'] ?? null);
-    $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['scrubSpriteUrl'] ?? null);
+        $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['thumbnailSpriteUrl'] ?? null);
+        $this->assertSame(route('recordings.preview-sprite', ['recording' => $recording]), $payload['scrubSpriteUrl'] ?? null);
     }
 
     public function test_timeline_review_initial_stage_falls_back_to_the_latest_clip_before_focus(): void
@@ -560,7 +561,7 @@ class TimelineReviewTest extends TestCase
         $this->writeRecordedSegment($previousRecording);
         $this->writeRecordedSegment($nextRecording);
 
-        $selectedRecording = app(\App\Services\RecordingTimelineReviewService::class)->selectRecordingForStage(
+        $selectedRecording = app(RecordingTimelineReviewService::class)->selectRecordingForStage(
             collect([$previousRecording, $nextRecording]),
             now()->utc()->setDate(2026, 4, 3)->setTime(12, 5, 0),
         );
@@ -677,7 +678,20 @@ class TimelineReviewTest extends TestCase
             ->assertSeeHtml('data-tick-kind="secondary"')
             ->assertSeeHtml('recording-review-focus__rail-tick--secondary')
             ->assertSeeHtml('data-role="rail-tick-label"')
-                ->assertSeeHtml('data-role="rail-segments-json"')
+            ->assertSeeHtml('data-role="rail-segments-json"')
+            ->assertSeeHtml('data-role="rail-viewport"')
+            ->assertSeeHtml('aria-busy="false"')
+            ->assertSeeHtml('data-role="visible-range-label"')
+            ->assertSeeHtml('data-role="rail-status"')
+            ->assertSeeHtml('data-role="zoom-out"')
+            ->assertSeeHtml('data-role="zoom-reset"')
+            ->assertSeeHtml('data-role="zoom-in"')
+            ->assertSeeHtml('data-role="focus-cursor"')
+            ->assertSeeHtml('role="slider"')
+            ->assertSeeHtml('aria-orientation="vertical"')
+            ->assertSeeHtml('aria-valuemin="0"')
+            ->assertSeeHtml('aria-valuemax="3599000"')
+            ->assertSeeHtml('aria-valuenow="5000"')
             ->assertDontSeeHtml('wire:click="$dispatch(\'timeline-focus-selected\'');
     }
 
@@ -736,13 +750,13 @@ class TimelineReviewTest extends TestCase
 
     private function writeRecordedSegment(CameraRecording $recording, string $contents = 'recorded-segment'): void
     {
-        if (!is_string($recording->relative_path) || trim($recording->relative_path) === '') {
+        if (! is_string($recording->relative_path) || trim($recording->relative_path) === '') {
             return;
         }
 
-        $absolutePath = app(\App\Services\CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
-        \Illuminate\Support\Facades\File::ensureDirectoryExists(dirname($absolutePath));
-        \Illuminate\Support\Facades\File::put($absolutePath, $contents);
+        $absolutePath = app(CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, $contents);
 
         $recording->forceFill([
             'file_size_bytes' => filesize($absolutePath) ?: null,

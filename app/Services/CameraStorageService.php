@@ -29,6 +29,8 @@ class CameraStorageService
 
     private const SMB_METADATA_TIMEOUT_SECONDS = 3;
 
+    private const SMB_AUTH_DIRECTORY = 'smb-runtime';
+
     private const REVIEW_ASSET_READ_TIMEOUT_SECONDS = 3;
 
     public function __construct(
@@ -870,20 +872,13 @@ class CameraStorageService
         }
 
         foreach ($targetPaths as $targetPath) {
-            $command = [
-                $binary,
-                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-                '-U',
-                $networkConfig['username'].'%'.$networkConfig['password'],
-                '-c',
-                'get "'.$targetPath.'" "'.$readPath.'"',
-            ];
-
-            $process = new Process($command);
-            $process->setTimeout(max(15, $transferTimeoutSeconds ?? 20));
-
             try {
-                $process->run();
+                $process = $this->runSmbClientCommand(
+                    $binary,
+                    $networkConfig,
+                    'get "'.$targetPath.'" "'.$readPath.'"',
+                    max(15, $transferTimeoutSeconds ?? 20),
+                );
             } catch (Throwable) {
                 @unlink($readPath);
 
@@ -920,25 +915,65 @@ class CameraStorageService
             return false;
         }
 
-        $command = [
-            $binary,
-            '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-            '-U',
-            $networkConfig['username'].'%'.$networkConfig['password'],
-            '-c',
-            'put "'.$localPath.'" "'.$targetPath.'"',
-        ];
+        $localSize = @filesize($localPath);
 
-        $process = new Process($command);
-        $process->setTimeout(max(20, $transferTimeoutSeconds ?? 30));
+        if (is_int($localSize) && $localSize >= 0 && $this->cameraDiskFileSizeWithSmbClient($diskPath) === $localSize) {
+            return true;
+        }
 
         try {
-            $process->run();
+            $temporaryTargetPath = $targetPath.'.uploading-'.bin2hex(random_bytes(8));
         } catch (Throwable) {
             return false;
         }
 
-        return $process->isSuccessful();
+        $timeout = max(20, $transferTimeoutSeconds ?? 30);
+
+        try {
+            $upload = $this->runSmbClientCommand(
+                $binary,
+                $networkConfig,
+                'put "'.$localPath.'" "'.$temporaryTargetPath.'"',
+                $timeout,
+            );
+
+            if (! $upload->isSuccessful()) {
+                return false;
+            }
+
+            $promote = $this->runSmbClientCommand(
+                $binary,
+                $networkConfig,
+                'rename "'.$temporaryTargetPath.'" "'.$targetPath.'"',
+                $timeout,
+            );
+
+            if ($promote->isSuccessful()) {
+                return true;
+            }
+
+            $replace = $this->runSmbClientCommand(
+                $binary,
+                $networkConfig,
+                'del "'.$targetPath.'"; rename "'.$temporaryTargetPath.'" "'.$targetPath.'"',
+                $timeout,
+            );
+
+            return $replace->isSuccessful();
+        } catch (Throwable) {
+            return false;
+        } finally {
+            try {
+                $this->runSmbClientCommand(
+                    $binary,
+                    $networkConfig,
+                    'del "'.$temporaryTargetPath.'"',
+                    min($timeout, 10),
+                );
+            } catch (Throwable) {
+                // Best-effort cleanup only. The staged local source remains available for retry.
+            }
+        }
     }
 
     private function openReadCacheDestination(string $readPath, string $readDirectory)
@@ -1560,18 +1595,12 @@ class CameraStorageService
         }
 
         foreach ($targetPaths as $targetPath) {
-            $command = [
+            $process = $this->runSmbClientCommand(
                 $binary,
-                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-                '-U',
-                $networkConfig['username'].'%'.$networkConfig['password'],
-                '-c',
+                $networkConfig,
                 'mkdir "'.$targetPath.'"',
-            ];
-
-            $process = new Process($command);
-            $process->setTimeout(30);
-            $process->run();
+                30,
+            );
 
             if ($process->isSuccessful()) {
                 continue;
@@ -1668,18 +1697,16 @@ class CameraStorageService
         $encounteredMissing = false;
 
         foreach ($targetPaths as $targetPath) {
-            $command = [
-                $binary,
-                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
-                '-U',
-                $networkConfig['username'].'%'.$networkConfig['password'],
-                '-c',
-                'allinfo "'.$targetPath.'"',
-            ];
-
-            $process = new Process($command);
-            $process->setTimeout(self::SMB_METADATA_TIMEOUT_SECONDS);
-            $process->run();
+            try {
+                $process = $this->runSmbClientCommand(
+                    $binary,
+                    $networkConfig,
+                    'allinfo "'.$targetPath.'"',
+                    self::SMB_METADATA_TIMEOUT_SECONDS,
+                );
+            } catch (Throwable) {
+                return null;
+            }
 
             $combinedOutput = trim($process->getErrorOutput().' '.$process->getOutput());
             $errorOutput = strtolower($combinedOutput);
@@ -1748,6 +1775,77 @@ class CameraStorageService
     private function smbClientBinary(): ?string
     {
         return $this->resolveBinary(['smbclient']);
+    }
+
+    /**
+     * @param  array{host: string, share: string, root: string, username: string, password: string}  $networkConfig
+     */
+    private function runSmbClientCommand(string $binary, array $networkConfig, string $command, int $timeoutSeconds): Process
+    {
+        $authFile = $this->createSmbAuthenticationFile($networkConfig);
+
+        try {
+            $process = new Process([
+                $binary,
+                '//'.$networkConfig['host'].'/'.$networkConfig['share'],
+                '-A',
+                $authFile,
+                '-c',
+                $command,
+            ]);
+            $process->setTimeout(max(1, $timeoutSeconds));
+            $process->run();
+
+            return $process;
+        } finally {
+            if (is_file($authFile)) {
+                @unlink($authFile);
+            }
+        }
+    }
+
+    /**
+     * @param  array{host: string, share: string, root: string, username: string, password: string}  $networkConfig
+     */
+    private function createSmbAuthenticationFile(array $networkConfig): string
+    {
+        $directory = storage_path('app/private/'.self::SMB_AUTH_DIRECTORY);
+        $this->ensureWritableDirectory($directory);
+        $authFile = tempnam($directory, 'smb-auth-');
+
+        if (! is_string($authFile) || $authFile === '') {
+            throw new RuntimeException('Unable to allocate a private SMB authentication file.');
+        }
+
+        [$domain, $username] = $this->parseSmbUsername($networkConfig['username']);
+        $contents = 'username = '.$username.PHP_EOL
+            .'password = '.$networkConfig['password'].PHP_EOL;
+
+        if ($domain !== null) {
+            $contents .= 'domain = '.$domain.PHP_EOL;
+        }
+
+        if (@file_put_contents($authFile, $contents, LOCK_EX) === false || ! @chmod($authFile, 0600)) {
+            @unlink($authFile);
+
+            throw new RuntimeException('Unable to create a private SMB authentication file.');
+        }
+
+        return $authFile;
+    }
+
+    /**
+     * @return array{0: string|null, 1: string}
+     */
+    private function parseSmbUsername(string $username): array
+    {
+        $trimmed = trim($username);
+
+        if (preg_match('/^([^\\\\\/]+)[\\\\\/](.+)$/', $trimmed, $matches) === 1) {
+            return [trim($matches[1]), trim($matches[2])];
+        }
+
+        return [null, $trimmed];
     }
 
     private function pruneEmptyDirectoryTree(string $directory, string $stopAt): void

@@ -712,6 +712,65 @@ class AdminSettingsTest extends TestCase
         $this->assertSame('', $diskConfig['root']);
     }
 
+    public function test_network_storage_path_rejects_uri_credentials_and_parent_traversal(): void
+    {
+        $settings = app(ApplicationSettingsService::class);
+
+        $this->assertNull($settings->parseNetworkStoragePath('smb://operator:secret@fileserver/share/cameras'));
+        $this->assertNull($settings->parseNetworkStoragePath('//fileserver/share/../private'));
+        $this->assertNull($settings->parseNetworkStoragePath("//fileserver/share/cameras\nother"));
+    }
+
+    public function test_smbclient_fallback_uses_a_private_authentication_file_instead_of_process_arguments(): void
+    {
+        $binaryDirectory = storage_path('app/private/test-binaries');
+        $argumentLog = $binaryDirectory.'/smbclient-arguments.log';
+        $authLog = $binaryDirectory.'/smbclient-auth.log';
+        $binary = $binaryDirectory.'/fake-smbclient.sh';
+        File::ensureDirectoryExists($binaryDirectory);
+        File::delete([$argumentLog, $authLog]);
+        File::put($binary, str_replace(
+            ['__ARGUMENT_LOG__', '__AUTH_LOG__'],
+            [$argumentLog, $authLog],
+            <<<'BASH'
+#!/usr/bin/env bash
+set -e
+printf '%s\n' "$@" > "__ARGUMENT_LOG__"
+previous=""
+for argument in "$@"; do
+    if [[ "$previous" == "-A" ]]; then
+        cp "$argument" "__AUTH_LOG__"
+        stat -c '%a' "$argument" >> "__AUTH_LOG__"
+        break
+    fi
+    previous="$argument"
+done
+BASH
+        ));
+        chmod($binary, 0755);
+
+        $storage = app(CameraStorageService::class);
+        $method = new \ReflectionMethod($storage, 'runSmbClientCommand');
+        $method->setAccessible(true);
+        $process = $method->invoke($storage, $binary, [
+            'host' => 'fileserver',
+            'share' => 'recordings',
+            'root' => 'cameras',
+            'username' => 'DOMAIN\\operator',
+            'password' => 'secret%with spaces',
+        ], 'allinfo "cameras/1/clip.mkv"', 3);
+
+        $this->assertTrue($process->isSuccessful());
+        $arguments = (string) file_get_contents($argumentLog);
+        $auth = (string) file_get_contents($authLog);
+        $this->assertStringContainsString("-A\n", $arguments);
+        $this->assertStringNotContainsString('secret%with spaces', $arguments);
+        $this->assertStringContainsString('username = operator', $auth);
+        $this->assertStringContainsString('password = secret%with spaces', $auth);
+        $this->assertStringContainsString('domain = DOMAIN', $auth);
+        $this->assertStringEndsWith("600\n", $auth);
+    }
+
     public function test_camera_storage_reads_legacy_parent_root_targets_for_network_recordings(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(

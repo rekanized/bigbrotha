@@ -97,6 +97,7 @@ return [
         'fps_mode' => trim((string) env('FFMPEG_LIVE_FPS_MODE', 'passthrough')),
         'avoid_negative_ts' => trim((string) env('FFMPEG_LIVE_AVOID_NEGATIVE_TS', 'make_zero')),
         'max_muxing_queue_size' => max(32, (int) env('FFMPEG_LIVE_MAX_MUXING_QUEUE_SIZE', 1024)),
+        'audio_resample' => trim((string) env('FFMPEG_LIVE_AUDIO_RESAMPLE', 'aresample=async=1000:min_hard_comp=0.100:first_pts=0')),
         'wall_fps' => max(1, (int) env('FFMPEG_LIVE_WALL_FPS', 4)),
         'wall_mjpeg_quality' => min(31, max(2, (int) env('FFMPEG_LIVE_WALL_MJPEG_QUALITY', 7))),
         'relay_fragment_duration' => max(100000, (int) env('FFMPEG_LIVE_RELAY_FRAGMENT_DURATION', 500000)),

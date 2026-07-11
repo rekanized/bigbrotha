@@ -20,6 +20,13 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - PostgreSQL 18 persists its version-specific `PGDATA` beneath a named volume mounted at `/var/lib/postgresql`.
 - The Nginx container runs read-only as its unprivileged `nginx` user on container port 8080; its health probe traverses Nginx and PHP-FPM through Laravel's `/up` endpoint, while an unhealthy relay does not prevent the operator UI from starting.
 
+## Operator UI Theme
+
+- `public/css/app.css` exposes one visual entry point: `public/css/pages/simplified-theme.css`.
+- `simplified-theme.css` owns the import order for shared reset, typography, layout, component, authentication, and operator-screen foundations.
+- The operator UI has one fixed light appearance. It does not select a second theme from browser storage or the operating-system color preference, and it does not render an appearance switch.
+- New operator-facing styles must extend the simplified theme instead of adding another theme manifest or a page-level design override.
+
 ## Route Map
 
 - `/setup` for first-launch authentication onboarding.
@@ -73,12 +80,13 @@ Important model helpers:
 
 - `App\Services\Onvif\OnvifRtspStreamService` retrieves ONVIF media capabilities, profiles, and RTSP stream URIs.
 - `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity, captures preview frames, falls back from UDP to TCP when needed, and can reuse an active MediaMTX live or recording relay for the same profile when a camera rejects another direct RTSP session.
-- `App\Services\CameraStorageService` manages per-camera storage folders, stages ffmpeg writes locally when needed, routes only the durable saved recording clip files under `cameras/{id}/recordings/YYYY/MM/DD/*` onto the admin-configured SMB disk when network storage is enabled, keeps previews, review assets, and temporary buffers on local private storage, and verifies remote camera-disk uploads before removing the local staged clip.
+- `App\Services\CameraStorageService` manages per-camera storage folders, stages ffmpeg writes locally when needed, routes only the durable saved recording clip files under `cameras/{id}/recordings/YYYY/MM/DD/*` onto the admin-configured SMB disk when network storage is enabled, keeps previews, review assets, and temporary buffers on local private storage, publishes SMB files through a temporary remote name before promotion, verifies the remote file before removing the local staged clip, and supplies `smbclient` credentials through short-lived mode-0600 authentication files instead of process arguments.
 - `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
 - `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, keeps a persistent per-camera short-segment motion buffer through `App\Services\MotionRecordingSegmenterService`, opens a motion event on the first detected motion segment, preserves configurable pre-roll context from the rolling buffer, extends the event while new motion segments continue to arrive, finalizes the event only after a full quiet post-trigger window has elapsed, stitches the closed buffer segments with ffmpeg concat into the saved recording, reuses that locally staged stitched clip for later SMB upload retries so the raw motion buffer can still prune back to its idle window during storage outages, reads from the canonical local MediaMTX source path for the selected profile so recorder workers do not open fresh direct RTSP sessions, keeps that relay-based recording path on a copy-oriented codec path instead of the live wall's browser-safe audio transcode, and prunes expired footage.
 - `App\Services\CameraRecordingService` now resolves a canonical internal MediaMTX source path per camera profile and points both the continuous recorder and the rolling motion segmenter at that internal RTSP path instead of opening fresh direct RTSP sessions from recorder-side ffmpeg processes.
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras and lets the motion-mask editor reuse an already-active live relay when it matches the selected recording profile, avoiding extra RTSP sessions on single-session cameras.
 - `App\Services\Relay\MediaMtxConfigService` now emits a three-stage topology per profile when needed: a canonical `camera-{id}-source[-profile-{n}]` ingest path that is the only path allowed to touch the hardware camera, plus derived `camera-{id}-live` or `camera-{id}-live-profile-{n}` playback paths that read from that internal source path for WebRTC delivery.
+- Live relay audio is always converted to the configured browser-safe codec through asynchronous timestamp compensation, while H.264 video can remain on the copy path. Request-time recording fallback playback now applies the same monotonic-DTS safety gate and CFR H.264 repair profile as durable review-asset generation.
 - `App\Services\Relay\MediaMtxAccessTokenService` issues and validates short-lived signed MediaMTX read tokens.
 - `App\Services\Relay\MediaMtxInstaller` verifies that the configured MediaMTX binary path is present and executable inside the Docker image.
 - `App\Services\Relay\MediaMtxProcessService` syncs config, starts the relay process, and checks relay health.
@@ -187,6 +195,7 @@ This split keeps relay auth enabled for public-facing WebRTC while still allowin
 Current relay management behavior:
 
 - `config/mediamtx.php` pins the relay ports, runtime paths, and Docker-internal service URLs.
+- the Docker relay auth callback targets `web:8080`, matching the internal nginx listener; using the service name without that port causes RTSP readers and publishers to fail with `401 Unauthorized` before camera media can flow.
 - `App\Services\Relay\MediaMtxInstaller` validates the configured relay binary path before startup.
 - `App\Services\Relay\MediaMtxConfigService` renders `storage/app/private/mediamtx/mediamtx.yml` from enabled cameras.
 - generated relay config now separates source-ingest paths from playback paths, so operator playback and recorder workers consume internal `camera-*-source*` paths instead of embedding camera RTSP URLs into every downstream path definition.
@@ -212,6 +221,7 @@ Current recording management behavior:
 - terminal queue failures now write an explicit `failed` state back onto the recording row, and review-asset queue failures write a failed manifest instead of disappearing into worker logs alone.
 - review-asset jobs now dispatch onto a dedicated `review-assets` queue, while the shared worker polls `recordings`, then `default`, then `review-assets` so capture work stays ahead of SMB-heavy preview generation.
 - review-asset generation now also normalizes the durable recording itself into a browser-playable MP4 with audio before producing the low-resolution timeline preview assets, so the Recordings page and buffered review route can usually serve the saved recording directly instead of starting ffmpeg in the request path.
+- review normalization retains stream-copy speed for H.264 only when ffprobe reports strictly increasing video DTS packets; timestamp-unsafe H.264 is rebuilt as CFR H.264, and only the first optional audio stream is carried into the browser asset.
 - routine model lifecycle changes can now persist immutable `audit_logs` rows through a reusable Eloquent auditing trait, and recording status transitions use those database audit rows instead of emitting application-state `info` lines into `storage/logs/laravel.log`.
 - the Admin navigation now exposes an Audit log page with filters for subject type, actor type, source, event key, and free-text actor or IP search.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.

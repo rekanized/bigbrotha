@@ -122,6 +122,45 @@
     data-stage-url="{{ !empty($tile['cameraId']) ? route('recordings.timeline.stage-data', ['camera' => (int) $tile['cameraId']]) : '' }}"
     wire:ignore
 >
+    <header class="recording-review-focus__rail-header">
+        <div>
+            <span class="recording-review-tile__eyebrow">Timeline rail</span>
+            <strong data-role="visible-range-label">{{ $reviewRangeLabel ?? $focusLabel }}</strong>
+        </div>
+
+        <div class="recording-review-focus__rail-toolbar">
+            <div class="recording-review-focus__rail-zoom" role="group" aria-label="Timeline zoom">
+                <button
+                    class="recording-review-focus__rail-zoom-button"
+                    type="button"
+                    data-role="zoom-out"
+                    aria-label="Zoom timeline out"
+                    title="Zoom out"
+                >−</button>
+                <button
+                    class="recording-review-focus__rail-zoom-button recording-review-focus__rail-zoom-button--reset"
+                    type="button"
+                    data-role="zoom-reset"
+                    aria-label="Reset timeline zoom"
+                    title="Reset zoom"
+                >
+                    <span>Zoom</span>
+                    <strong data-role="zoom-label">{{ number_format($timelineZoomScale, 2) }}x</strong>
+                </button>
+                <button
+                    class="recording-review-focus__rail-zoom-button"
+                    type="button"
+                    data-role="zoom-in"
+                    aria-label="Zoom timeline in"
+                    title="Zoom in"
+                >+</button>
+            </div>
+
+            <p class="recording-review-focus__rail-help">Swipe or scroll to move through time. Tap a clip or time label to select it. Drag the blue focus handle to scrub; use Ctrl/Command + wheel to zoom.</p>
+            <p class="recording-review-focus__rail-status" data-role="rail-status" role="status" aria-live="polite" hidden></p>
+        </div>
+    </header>
+
     <div class="recording-review-focus__rail-shell" data-role="rail-shell">
         <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
             <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
@@ -135,7 +174,13 @@
             </div>
         </div>
 
-        <div class="recording-review-focus__rail-viewport" data-role="rail-viewport">
+        <div
+            class="recording-review-focus__rail-viewport"
+            data-role="rail-viewport"
+            tabindex="0"
+            aria-label="Scrollable recording timeline for {{ $tile['cameraName'] ?? 'camera' }}"
+            aria-busy="false"
+        >
             <div class="recording-review-focus__rail-track" data-role="rail-track" style="height: {{ $trackHeightPx }}px;">
                 <div class="recording-review-focus__rail-columns" aria-hidden="true">
                     <div class="recording-review-focus__rail-axis-column"></div>
@@ -241,6 +286,14 @@
                 <div
                     class="recording-review-focus__rail-cursor"
                     data-role="focus-cursor"
+                    role="slider"
+                    tabindex="0"
+                    aria-label="Timeline focus"
+                    aria-orientation="vertical"
+                    aria-valuemin="{{ $dayStartMs }}"
+                    aria-valuemax="{{ max($dayStartMs, $dayEndMs - 1000) }}"
+                    aria-valuenow="{{ $focusAtMs }}"
+                    aria-valuetext="{{ $focusLabel }}"
                     style="top: {{ max(0, min(100, (($focusAtMs - $dayStartMs) / max(1, $dayEndMs - $dayStartMs)) * 100)) }}%;"
                 ></div>
             </div>

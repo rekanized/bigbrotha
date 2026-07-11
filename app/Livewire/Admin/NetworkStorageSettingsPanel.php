@@ -38,8 +38,8 @@ class NetworkStorageSettingsPanel extends Component
         $validated = $this->validate([
             'networkStorageEnabled' => ['required', 'in:0,1'],
             'networkStoragePath' => ['nullable', 'string', 'max:255'],
-            'networkStorageUsername' => ['nullable', 'string', 'max:255'],
-            'networkStoragePassword' => ['nullable', 'string', 'max:255'],
+            'networkStorageUsername' => ['nullable', 'string', 'max:255', 'not_regex:/[\r\n\x00]/'],
+            'networkStoragePassword' => ['nullable', 'string', 'max:255', 'not_regex:/[\r\n\x00]/'],
         ]);
 
         $enabled = $validated['networkStorageEnabled'] === '1';

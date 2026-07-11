@@ -287,7 +287,7 @@ class ContinuousRecordingSegmenterService
             '-map',
             '0:v:0',
             '-map',
-            '0:a?',
+            '0:a:0?',
             '-sn',
             '-dn',
             '-fps_mode',

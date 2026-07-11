@@ -18,7 +18,7 @@ x-app-environment: &app-environment
   GOOGLE_REDIRECT_URI: ""
   LOG_CHANNEL: stderr
   MEDIAMTX_API_BASE_URL: http://relay:9997
-  MEDIAMTX_AUTH_CALLBACK_URL: http://web/relay/auth/mediamtx
+  MEDIAMTX_AUTH_CALLBACK_URL: http://web:8080/relay/auth/mediamtx
   MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
   MEDIAMTX_MANAGED_EXTERNALLY: "true"
   MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://relay:8554

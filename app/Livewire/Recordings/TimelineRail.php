@@ -27,6 +27,8 @@ class TimelineRail extends Component
 
     public string $focusLabel = '';
 
+    public string $reviewRangeLabel = '';
+
     public int $dayStartMs = 0;
 
     public int $dayEndMs = 1000;

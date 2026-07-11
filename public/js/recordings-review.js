@@ -19,6 +19,7 @@
         queuedRequest: null,
         renderFrame: null,
         renderKey: '',
+        requestController: null,
         requestInFlight: false,
         requestTimer: null,
         segments: [],
@@ -47,12 +48,14 @@
         lastPointerEventAt: 0,
         lastScrollbarPointerAt: 0,
         lastWheelZoomAt: 0,
+        railRequestId: 0,
         resizeObservedElements: [],
         resizeObserver: null,
         resizeObserverScope: null,
         scrubPreviewFocusMs: null,
         scrubPreviewRequestId: 0,
         scrubSpriteCache: new Map(),
+        scrubSpriteFailures: new Map(),
         scrubSpritePending: new Map(),
         scrubPreviewVisible: false,
         rail: defaultRailState(),
@@ -67,6 +70,9 @@
         viewportScrollTop: null,
         zoomScale: null,
     };
+
+    const maximumRememberedSprites = 64;
+    const spriteFailureRetryDelayMs = 60_000;
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const clampVolume = (value) => clamp(Number(value) || 0, 0, 1);
@@ -1402,6 +1408,27 @@
         });
     };
 
+    const setRailStatus = (scope, status, message = '') => {
+        if (!(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const viewport = railViewport(scope);
+        const statusElement = scope.querySelector('[data-role="rail-status"]');
+        const isLoading = status === 'loading';
+        const normalizedMessage = String(message || '').trim();
+
+        if (viewport instanceof HTMLElement) {
+            viewport.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+        }
+
+        if (statusElement instanceof HTMLElement) {
+            statusElement.dataset.state = status;
+            statusElement.textContent = normalizedMessage;
+            statusElement.hidden = normalizedMessage === '';
+        }
+    };
+
     const updateFocusCursor = (scope, focusMs) => {
         if (!(scope instanceof HTMLElement)) {
             return;
@@ -1412,6 +1439,8 @@
         scope.querySelectorAll('[data-role="focus-cursor"]').forEach((element) => {
             if (element instanceof HTMLElement) {
                 element.style.top = `${topPercent}%`;
+                element.setAttribute('aria-valuenow', String(Math.round(focusMs)));
+                element.setAttribute('aria-valuetext', formatFocusLabel(focusMs, scope));
             }
         });
     };
@@ -1441,6 +1470,12 @@
     };
 
     const resetRailState = () => {
+        if (typeof AbortController !== 'undefined' && state.rail.requestController instanceof AbortController) {
+            state.rail.requestController.abort();
+        }
+
+        state.railRequestId += 1;
+
         if (Number.isInteger(state.rail.renderFrame)) {
             window.cancelAnimationFrame(state.rail.renderFrame);
         }
@@ -1553,6 +1588,15 @@
 
         state.rail.requestInFlight = true;
         state.rail.pendingKeys.add(requestKey);
+        state.railRequestId += 1;
+
+        const requestId = state.railRequestId;
+        const controller = typeof AbortController !== 'undefined'
+            ? new AbortController()
+            : null;
+
+        state.rail.requestController = controller;
+        setRailStatus(scope, 'loading', 'Loading the visible timeline…');
 
         const requestUrl = new URL(railDataUrl, window.location.href);
 
@@ -1567,6 +1611,7 @@
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest',
             },
+            signal: controller?.signal,
         })
             .then((response) => response.ok ? response.json() : Promise.reject(response))
             .then((payload) => {
@@ -1592,12 +1637,30 @@
                 void syncStageSegmentToFocus(currentRoot, currentFocusMs(currentRoot), {
                     fetchIfMissing: false,
                 });
+                setRailStatus(currentRoot, 'ready');
             })
-            .catch(() => {
+            .catch((error) => {
+                if (error?.name === 'AbortError' || requestId !== state.railRequestId) {
+                    return;
+                }
+
+                const currentRoot = root();
+                const currentRail = currentRoot instanceof HTMLElement ? timelineRail(currentRoot) : null;
+
+                if (currentRoot instanceof HTMLElement
+                    && currentRail instanceof HTMLElement
+                    && String(cameraId) === String(currentRail.dataset.cameraId || '')) {
+                    setRailStatus(currentRoot, 'error', 'The next timeline section could not be loaded. Scroll or try again to retry.');
+                }
             })
             .finally(() => {
+                if (requestId !== state.railRequestId) {
+                    return;
+                }
+
                 state.rail.pendingKeys.delete(requestKey);
                 state.rail.requestInFlight = false;
+                state.rail.requestController = null;
 
                 if (state.rail.queuedRequest && state.rail.requestTimer === null) {
                     state.rail.requestTimer = window.setTimeout(() => {
@@ -1792,6 +1855,7 @@
         hideScrubPreview(scope);
         resetRailBootstrapPayload(scope);
         resetRailState();
+        setRailStatus(scope, 'ready');
         readRailBootstrapData(scope);
         updateCameraSwitchUi(scope);
         renderRailWindow(scope, true);
@@ -1921,6 +1985,8 @@
         const thumbnailSpriteUrl = String(thumbnail.dataset.thumbnailSpriteUrl || '').trim();
         const thumbnailFrameIndex = readNumber(thumbnail, 'thumbnailFrameIndex', 0);
         const scrubFrameCount = Math.max(0, readNumber(thumbnail, 'scrubFrameCount', 0));
+        const scrubFrameWidth = Math.max(0, readNumber(thumbnail, 'scrubFrameWidth', 0));
+        const scrubFrameHeight = Math.max(0, readNumber(thumbnail, 'scrubFrameHeight', 0));
         const scrubColumns = Math.max(1, readNumber(thumbnail, 'scrubColumns', 1));
         const scrubRows = Math.max(1, readNumber(thumbnail, 'scrubRows', 1));
 
@@ -1975,7 +2041,11 @@
         removeRailThumbnailFallbackImage(frame);
         frame.dataset.renderState = thumbnailUrl !== '' ? 'loading' : 'empty';
 
-        void preloadScrubSprite(thumbnailSpriteUrl).then((loaded) => {
+        void preloadScrubSprite(thumbnailSpriteUrl, {
+            expectedHeight: scrubFrameHeight * scrubRows,
+            expectedWidth: scrubFrameWidth * scrubColumns,
+            priority: 'low',
+        }).then((loaded) => {
             if (!loaded) {
                 ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
                 frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'error';
@@ -2827,14 +2897,54 @@
         applySpriteFrameBackground(layer, spriteUrl, frameIndex, frameCount, columns, rows, frameKey);
     };
 
-    const preloadScrubSprite = (spriteUrl) => {
+    const trimRememberedSpriteMap = (entries) => {
+        while (entries.size > maximumRememberedSprites) {
+            const oldestKey = entries.keys().next().value;
+
+            if (oldestKey === undefined) {
+                return;
+            }
+
+            entries.delete(oldestKey);
+        }
+    };
+
+    const rememberLoadedSprite = (spriteUrl) => {
+        state.scrubSpriteCache.delete(spriteUrl);
+        state.scrubSpriteCache.set(spriteUrl, Date.now());
+        state.scrubSpriteFailures.delete(spriteUrl);
+        trimRememberedSpriteMap(state.scrubSpriteCache);
+    };
+
+    const rememberFailedSprite = (spriteUrl) => {
+        state.scrubSpritePending.delete(spriteUrl);
+        state.scrubSpriteFailures.delete(spriteUrl);
+        state.scrubSpriteFailures.set(spriteUrl, Date.now());
+        trimRememberedSpriteMap(state.scrubSpriteFailures);
+    };
+
+    const preloadScrubSprite = (spriteUrl, options = {}) => {
         if (spriteUrl === '') {
             return Promise.resolve(false);
         }
 
+        const expectedWidth = Math.max(0, Number(options.expectedWidth || 0));
+        const expectedHeight = Math.max(0, Number(options.expectedHeight || 0));
+        const priority = options.priority === 'high' ? 'high' : 'low';
+
         if (state.scrubSpriteCache.has(spriteUrl)) {
+            rememberLoadedSprite(spriteUrl);
+
             return Promise.resolve(true);
         }
+
+        const failedAt = Number(state.scrubSpriteFailures.get(spriteUrl) || 0);
+
+        if (failedAt > 0 && (Date.now() - failedAt) < spriteFailureRetryDelayMs) {
+            return Promise.resolve(false);
+        }
+
+        state.scrubSpriteFailures.delete(spriteUrl);
 
         const pendingLoad = state.scrubSpritePending.get(spriteUrl);
 
@@ -2846,13 +2956,24 @@
             const image = new Image();
 
             image.decoding = 'async';
+            image.fetchPriority = priority;
             image.onload = () => {
-                state.scrubSpriteCache.set(spriteUrl, true);
+                const widthMatches = expectedWidth < 1 || image.naturalWidth === expectedWidth;
+                const heightMatches = expectedHeight < 1 || image.naturalHeight === expectedHeight;
+
+                if (!widthMatches || !heightMatches) {
+                    rememberFailedSprite(spriteUrl);
+                    resolve(false);
+
+                    return;
+                }
+
+                rememberLoadedSprite(spriteUrl);
                 state.scrubSpritePending.delete(spriteUrl);
                 resolve(true);
             };
             image.onerror = () => {
-                state.scrubSpritePending.delete(spriteUrl);
+                rememberFailedSprite(spriteUrl);
                 resolve(false);
             };
             image.src = spriteUrl;
@@ -2861,22 +2982,6 @@
         state.scrubSpritePending.set(spriteUrl, preload);
 
         return preload;
-    };
-
-    const warmScrubSprites = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        const spriteUrls = [...new Set(railSegments(scope)
-            .map((segment) => segment.dataset.scrubSpriteUrl || '')
-            .filter((spriteUrl) => spriteUrl !== ''))];
-
-        window.setTimeout(() => {
-            spriteUrls.forEach((spriteUrl) => {
-                void preloadScrubSprite(spriteUrl);
-            });
-        }, 0);
     };
 
     const hideScrubPreview = (scope) => {
@@ -3084,7 +3189,11 @@
         const viewport = event.currentTarget;
         const scope = rootFor(viewport);
 
-        if (!(viewport instanceof HTMLElement) || !(scope instanceof HTMLElement) || event.deltaY === 0 || state.drag) {
+        if (!(viewport instanceof HTMLElement)
+            || !(scope instanceof HTMLElement)
+            || event.deltaY === 0
+            || state.drag
+            || (!event.ctrlKey && !event.metaKey)) {
             return;
         }
 
@@ -3312,15 +3421,16 @@
         const hasActiveSprite = activeLayer instanceof HTMLElement && (activeLayer.dataset.spriteUrl || '') !== '';
         const activeSpriteUrl = activeLayer instanceof HTMLElement ? (activeLayer.dataset.spriteUrl || '') : '';
         const maxPreviewWidth = Math.max(
-            220,
+            160,
             Math.min(
                 360,
-                Math.max(220, window.innerWidth - 96),
-                shell instanceof HTMLElement ? Math.max(220, shell.clientWidth - 28) : 360,
+                Math.max(160, window.innerWidth - 48),
+                shell instanceof HTMLElement ? Math.max(160, shell.clientWidth - 24) : 360,
             ),
         );
+        const minimumPreviewWidth = Math.min(220, maxPreviewWidth);
         const previewScale = clamp(260 / Math.max(frameWidth, 1), 1.25, 2.1);
-        const scaledFrameWidth = Math.round(clamp(frameWidth * previewScale, 220, maxPreviewWidth));
+        const scaledFrameWidth = Math.round(clamp(frameWidth * previewScale, minimumPreviewWidth, maxPreviewWidth));
         const scaledFrameHeight = Math.round((scaledFrameWidth / Math.max(frameWidth, 1)) * frameHeight);
 
         state.scrubPreviewVisible = true;
@@ -3377,7 +3487,11 @@
                 preview.removeAttribute('hidden');
             }
 
-            void preloadScrubSprite(spriteUrl).then((loaded) => {
+            void preloadScrubSprite(spriteUrl, {
+                expectedHeight: frameHeight * rows,
+                expectedWidth: frameWidth * columns,
+                priority: 'high',
+            }).then((loaded) => {
                 if (!loaded) {
                     return;
                 }
@@ -3400,8 +3514,12 @@
     };
 
     const shouldIgnoreMouseEvent = (event) => event instanceof MouseEvent
-        && !(event instanceof PointerEvent)
+        && (typeof PointerEvent === 'undefined' || !(event instanceof PointerEvent))
         && (Date.now() - state.lastPointerEventAt) < 120;
+
+    const isTouchPointerEvent = (event) => typeof PointerEvent !== 'undefined'
+        && event instanceof PointerEvent
+        && event.pointerType === 'touch';
 
     const updateLocalFocus = (scope, focusMs) => {
         if (!(scope instanceof HTMLElement)) {
@@ -3653,7 +3771,7 @@
             return;
         }
 
-        if (event instanceof PointerEvent) {
+        if (typeof PointerEvent !== 'undefined' && event instanceof PointerEvent) {
             state.lastPointerEventAt = Date.now();
         }
 
@@ -3662,8 +3780,18 @@
         const scrubbable = event.target instanceof Element
             ? event.target.closest('[data-role="rail-viewport"], [data-role="rail-track"], [data-role="rail-segments"], [data-role="rail-segment"], [data-role="rail-tick"], [data-role="focus-cursor"]')
             : null;
+        const focusHandle = event.target instanceof Element
+            ? event.target.closest('[data-role="focus-cursor"]')
+            : null;
 
         if (!(scope instanceof HTMLElement) || !(viewport instanceof HTMLElement) || !(scrubbable instanceof HTMLElement)) {
+            return;
+        }
+
+        // Touch gestures on the rail belong to native inertial scrolling. Scrubbing
+        // remains available from the explicit blue focus handle, while clips and
+        // time labels retain their normal tap/click behavior.
+        if (isTouchPointerEvent(event) && !(focusHandle instanceof HTMLElement)) {
             return;
         }
 
@@ -3719,6 +3847,30 @@
         state.drag.currentOffsetY = viewportOffsetFromClientY(state.drag.viewport, event.clientY) ?? state.drag.currentOffsetY;
         updateLocalFocus(state.drag.root, nextFocus);
         showScrubPreview(state.drag.root, segmentForFocus(state.drag.root, nextFocus), nextFocus);
+
+        if (event.cancelable) {
+            event.preventDefault();
+        }
+    };
+
+    const cancelDrag = (event) => {
+        if (!state.drag) {
+            return;
+        }
+
+        const scope = state.drag.root;
+        const viewport = state.drag.viewport;
+
+        if (typeof viewport.releasePointerCapture === 'function' && Number.isFinite(Number(event?.pointerId))) {
+            try {
+                viewport.releasePointerCapture(event.pointerId);
+            } catch (error) {
+            }
+        }
+
+        delete viewport.dataset.dragging;
+        state.drag = null;
+        hideScrubPreview(scope);
     };
 
     const clearDrag = (event) => {
@@ -3757,6 +3909,49 @@
         });
         state.drag = null;
         commitFocus(scope, nextFocus);
+    };
+
+    const handleKeyDown = (event) => {
+        if (!(event.target instanceof Element) || event.ctrlKey || event.metaKey || event.altKey) {
+            return;
+        }
+
+        const cursor = event.target.closest('[data-role="focus-cursor"]');
+        const scope = rootFor(event.target);
+
+        if (!(cursor instanceof HTMLElement) || !(scope instanceof HTMLElement)) {
+            return;
+        }
+
+        const focusMs = currentFocusMs(scope);
+        const arrowStepMs = event.shiftKey ? 60_000 : 1_000;
+        let nextFocus = focusMs;
+
+        if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+            nextFocus -= arrowStepMs;
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+            nextFocus += arrowStepMs;
+        } else if (event.key === 'PageUp') {
+            nextFocus -= 15 * 60_000;
+        } else if (event.key === 'PageDown') {
+            nextFocus += 15 * 60_000;
+        } else if (event.key === 'Home') {
+            nextFocus = timelineStartMs(scope);
+        } else if (event.key === 'End') {
+            nextFocus = timelineMaximumFocusMs(scope);
+        } else {
+            return;
+        }
+
+        nextFocus = clamp(nextFocus, timelineStartMs(scope), timelineMaximumFocusMs(scope));
+        updateLocalFocus(scope, nextFocus);
+        centerViewportOnFocus(scope, nextFocus);
+        hideScrubPreview(scope);
+        void syncStageSegmentToFocus(scope, nextFocus, {
+            fetchIfMissing: true,
+        });
+        commitFocus(scope, nextFocus);
+        event.preventDefault();
     };
 
     const handleInput = (event) => {
@@ -3934,20 +4129,22 @@
         document.addEventListener('pointerdown', handlePointerDown);
         document.addEventListener('pointermove', handlePointerMove);
         document.addEventListener('pointerup', clearDrag);
-        document.addEventListener('pointercancel', clearDrag);
+        document.addEventListener('pointercancel', cancelDrag);
         document.addEventListener('mousedown', handlePointerDown);
         document.addEventListener('mousemove', handlePointerMove);
         document.addEventListener('mouseup', clearDrag);
+        document.addEventListener('keydown', handleKeyDown, true);
         document.addEventListener('input', handleInput, true);
         document.addEventListener('click', handleClick, true);
 
         state.cleanupFns.push(() => document.removeEventListener('pointerdown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('pointermove', handlePointerMove));
         state.cleanupFns.push(() => document.removeEventListener('pointerup', clearDrag));
-        state.cleanupFns.push(() => document.removeEventListener('pointercancel', clearDrag));
+        state.cleanupFns.push(() => document.removeEventListener('pointercancel', cancelDrag));
         state.cleanupFns.push(() => document.removeEventListener('mousedown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('mousemove', handlePointerMove));
         state.cleanupFns.push(() => document.removeEventListener('mouseup', clearDrag));
+        state.cleanupFns.push(() => document.removeEventListener('keydown', handleKeyDown, true));
         state.cleanupFns.push(() => document.removeEventListener('input', handleInput, true));
         state.cleanupFns.push(() => document.removeEventListener('click', handleClick, true));
     };
