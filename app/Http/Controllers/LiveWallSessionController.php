@@ -23,7 +23,11 @@ class LiveWallSessionController extends Controller
     ): JsonResponse {
         $this->assertCameraCanStream($camera);
 
-        $relayStatus = $relayProcess->ensureRunning();
+        // The wall page and standalone player already perform the configuration
+        // sync/startup path. Reconnects only need a cheap health check; running a
+        // full config rebuild for every tile can cause a large wall to stampede
+        // the relay when several feeds recover at once.
+        $relayStatus = $relayProcess->status();
 
         abort_unless(
             ($relayStatus['running'] ?? false) && ($relayStatus['api_reachable'] ?? false),
@@ -52,6 +56,9 @@ class LiveWallSessionController extends Controller
             'access_token' => $accessTokenService->issueReadToken($request->user(), $path),
             'expires_in' => $accessTokenService->ttl(),
             'stream' => $relayConfig->browserCompatibleStreamFormat(),
+        ])->withHeaders([
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'Pragma' => 'no-cache',
         ]);
     }
 

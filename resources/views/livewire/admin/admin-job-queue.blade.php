@@ -34,7 +34,7 @@
         <article class="detail-card">
             <span class="detail-card__label">Worker capacity</span>
             <strong>{{ $worker['running_workers'] ?? 0 }} / {{ $worker['desired_workers'] ?? 0 }} running</strong>
-            <span class="queue-monitor__detail-copy">Docker targets {{ $worker['minimum_workers'] ?? 1 }} worker container{{ ($worker['minimum_workers'] ?? 1) === 1 ? '' : 's' }} for this stack. Increase CAMERA_RECORDING_WORKER_PROCESSES only when you also add matching worker service replicas.</span>
+            <span class="queue-monitor__detail-copy">The background container supervises {{ $worker['minimum_workers'] ?? 1 }} worker process{{ ($worker['minimum_workers'] ?? 1) === 1 ? '' : 'es' }}. CAMERA_RECORDING_WORKER_PROCESSES sets this process count.</span>
         </article>
 
         <article class="detail-card">

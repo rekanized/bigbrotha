@@ -324,6 +324,59 @@ class AdminSettingsTest extends TestCase
         $this->assertDatabaseCount('jobs', 1);
     }
 
+    public function test_terminal_failed_job_pruning_keeps_retryable_and_recent_failures(): void
+    {
+        config()->set('queue.failed.auto_retry.max_retries', 2);
+        config()->set('queue.failed.auto_retry.prune_terminal_enabled', true);
+        config()->set('queue.failed.auto_retry.terminal_retention_hours', 24);
+
+        $payload = static fn (int $totalRetries): string => json_encode([
+            'displayName' => 'App\\Jobs\\GenerateRecordingReviewAssetsJob',
+            'bigbrotha_failed_job_retry' => [
+                'total_retries' => $totalRetries,
+                'auto_retries' => $totalRetries,
+                'manual_retries' => 0,
+                'last_retry_type' => $totalRetries > 0 ? 'auto' : null,
+                'last_retry_at' => now()->subDays(2)->toIso8601String(),
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $expiredTerminalId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '83c7519c-c6c8-4e80-982d-c4c80c7b63f2',
+            'connection' => 'database',
+            'queue' => 'review-assets',
+            'payload' => $payload(2),
+            'exception' => 'RuntimeException: exhausted and expired',
+            'failed_at' => now()->subHours(25),
+        ]);
+
+        $expiredRetryableId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => '7fb503af-70cd-4e99-b5cb-a5d54e78d5cc',
+            'connection' => 'database',
+            'queue' => 'review-assets',
+            'payload' => $payload(1),
+            'exception' => 'RuntimeException: still retryable',
+            'failed_at' => now()->subHours(25),
+        ]);
+
+        $recentTerminalId = DB::table('failed_jobs')->insertGetId([
+            'uuid' => 'a20d11d3-2244-4f2d-a83d-f87583b835dc',
+            'connection' => 'database',
+            'queue' => 'review-assets',
+            'payload' => $payload(2),
+            'exception' => 'RuntimeException: exhausted but recent',
+            'failed_at' => now()->subHours(23),
+        ]);
+
+        $exitCode = Artisan::call('queue:prune-failed-terminal');
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseMissing('failed_jobs', ['id' => $expiredTerminalId]);
+        $this->assertDatabaseHas('failed_jobs', ['id' => $expiredRetryableId]);
+        $this->assertDatabaseHas('failed_jobs', ['id' => $recentTerminalId]);
+        $this->assertStringContainsString('Deleted 1 terminal failure.', Artisan::output());
+    }
+
     public function test_admin_job_queue_component_can_retry_a_failed_job(): void
     {
         config()->set('queue.default', 'database');
@@ -1553,6 +1606,40 @@ BASH
         $this->assertSame(
             CameraStorageService::RECORDING_AVAILABILITY_PRESENT,
             $storage->recordingAvailability('cameras/99/recordings/2026/04/07/smbclient-fallback.mkv'),
+        );
+    }
+
+    public function test_camera_storage_deletes_network_recordings_with_smbclient_without_using_the_adapter_parser(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('files')
+            ->once()
+            ->andThrow(new \RuntimeException('The optional empty-directory cleanup parser failed.'));
+        $disk->shouldNotReceive('exists');
+        $disk->shouldNotReceive('delete');
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->once()->andReturn($disk);
+        $storage->shouldReceive('networkCameraDiskAvailability')
+            ->once()
+            ->with('7/recordings/2026/04/10/delete-with-cli.mkv')
+            ->andReturn(CameraStorageService::RECORDING_AVAILABILITY_PRESENT);
+        $storage->shouldReceive('deleteCameraDiskPathWithSmbClient')
+            ->once()
+            ->with('7/recordings/2026/04/10/delete-with-cli.mkv')
+            ->andReturn(true);
+
+        $this->assertTrue(
+            $storage->deleteRecordingFile('cameras/7/recordings/2026/04/10/delete-with-cli.mkv'),
         );
     }
 

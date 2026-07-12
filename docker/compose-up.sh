@@ -19,4 +19,4 @@ chmod 600 "$ENV_FILE"
 
 exec "$ROOT_DIR/docker/compose.sh" \
     -f "$ROOT_DIR/docker-compose.build.yml" \
-    up -d --build "$@"
+    up -d --build --remove-orphans "$@"

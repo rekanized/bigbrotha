@@ -18,7 +18,7 @@ x-app-environment: &app-environment
   GOOGLE_REDIRECT_URI: ""
   LOG_CHANNEL: stderr
   MEDIAMTX_API_BASE_URL: http://relay:9997
-  MEDIAMTX_AUTH_CALLBACK_URL: http://web:8080/relay/auth/mediamtx
+  MEDIAMTX_AUTH_CALLBACK_URL: http://app:8080/relay/auth/mediamtx
   MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
   MEDIAMTX_MANAGED_EXTERNALLY: "true"
   MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://relay:8554
@@ -57,6 +57,8 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    ports:
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8082}:8080"
 
   relay:
     <<: *app-service
@@ -89,59 +91,16 @@ services:
       - "${MEDIAMTX_ICE_BIND_IP:-0.0.0.0}:${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/udp"
     user: www-data:www-data
 
-  web:
-    image: ${BIGBROTHA_WEB_IMAGE:-rekanized/bigbrotha-web:latest}
-    depends_on:
-      app:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/up || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    init: true
-    logging: *default-logging
-    cap_drop:
-      - ALL
-    read_only: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8082}:8080"
-    tmpfs:
-      - /tmp:uid=101,gid=101,mode=1777
-      - /var/cache/nginx:uid=101,gid=101,mode=0755
-      - /var/run:uid=101,gid=101,mode=0755
-    user: nginx:nginx
-
-  worker:
+  background:
     <<: *app-service
     depends_on:
       app:
         condition: service_healthy
       database:
         condition: service_healthy
-    command: ["run-worker"]
-    scale: ${CAMERA_RECORDING_WORKER_PROCESSES:-1}
+    command: ["run-background"]
     healthcheck:
-      test: ["CMD", "/usr/local/bin/healthcheck-worker"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-
-  scheduler:
-    <<: *app-service
-    depends_on:
-      app:
-        condition: service_healthy
-      database:
-        condition: service_healthy
-    command: ["run-scheduler"]
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/healthcheck-scheduler"]
+      test: ["CMD", "/usr/local/bin/healthcheck-background"]
       interval: 30s
       timeout: 10s
       retries: 3

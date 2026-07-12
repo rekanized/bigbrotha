@@ -551,14 +551,23 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $pruneEvent = collect(app(Schedule::class)->events())
             ->first(fn ($event): bool => str_contains((string) $event->command, 'camera-recordings:prune'));
 
+        $failedJobPruneEvent = collect(app(Schedule::class)->events())
+            ->first(fn ($event): bool => str_contains((string) $event->command, 'queue:prune-failed-terminal'));
+
         $this->assertNotNull($reviewBackfillEvent);
         $this->assertSame('* * * * *', $reviewBackfillEvent->expression);
+        $this->assertTrue($reviewBackfillEvent->runInBackground);
         $this->assertStringContainsString('--missing', (string) $reviewBackfillEvent->command);
         $this->assertStringNotContainsString("--missing='1'", (string) $reviewBackfillEvent->command);
         $this->assertNotNull($tickEvent);
         $this->assertSame('* * * * *', $tickEvent->expression);
+        $this->assertTrue($tickEvent->runInBackground);
         $this->assertNotNull($pruneEvent);
         $this->assertSame('0 * * * *', $pruneEvent->expression);
+        $this->assertTrue($pruneEvent->runInBackground);
+        $this->assertNotNull($failedJobPruneEvent);
+        $this->assertSame('10 * * * *', $failedJobPruneEvent->expression);
+        $this->assertFalse($failedJobPruneEvent->runInBackground);
     }
 
     public function test_it_skips_overlapping_prune_invocations_when_the_lock_is_already_held(): void

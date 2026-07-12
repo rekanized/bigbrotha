@@ -730,9 +730,30 @@ Artisan::command('queue:retry-failed-auto {--limit=}', function (): int {
     return $result['errors'] > 0 ? 1 : 0;
 })->purpose('Requeue eligible failed jobs until the configured automatic retry limit is reached');
 
+Artisan::command('queue:prune-failed-terminal {--hours=}', function (): int {
+    $hoursOption = $this->option('hours');
+    $hours = is_numeric($hoursOption) ? max(1, (int) $hoursOption) : null;
+    $result = app(FailedJobRetryService::class)->pruneTerminalFailures($hours);
+
+    if (!$result['enabled']) {
+        $this->components->info('Terminal failed-job pruning is disabled or unavailable on this environment.');
+
+        return 0;
+    }
+
+    $this->components->info(
+        'Scanned '.$result['scanned'].' expired failed job record'.($result['scanned'] === 1 ? '' : 's').'. '
+        .'Deleted '.$result['deleted'].' terminal failure'.($result['deleted'] === 1 ? '' : 's').'. '
+        .'Retained '.$result['retained'].' retryable failure'.($result['retained'] === 1 ? '' : 's').'.',
+    );
+
+    return 0;
+})->purpose('Delete failed jobs that exhausted automatic retries and exceeded the retention window');
+
 Schedule::command('camera-fleet:refresh-previews')
     ->everyThirtyMinutes()
-    ->withoutOverlapping(45);
+    ->withoutOverlapping(45)
+    ->runInBackground();
 
 if ((bool) config('queue.failed.auto_retry.enabled', true) && (int) config('queue.failed.auto_retry.max_retries', 2) > 0) {
     Schedule::command('queue:retry-failed-auto --limit='.(string) config('queue.failed.auto_retry.batch_size', 5))
@@ -740,19 +761,28 @@ if ((bool) config('queue.failed.auto_retry.enabled', true) && (int) config('queu
         ->withoutOverlapping(5);
 }
 
+if ((bool) config('queue.failed.auto_retry.prune_terminal_enabled', true)) {
+    Schedule::command('queue:prune-failed-terminal')
+        ->hourlyAt(10)
+        ->withoutOverlapping(15);
+}
+
 if ((bool) config('recording.review_assets.scheduler_enabled', true)) {
     Schedule::command('camera-recordings:build-review-assets --missing --limit='.(string) config('recording.review_assets.scheduler_limit', 4))
         ->everyMinute()
-        ->withoutOverlapping(15);
+        ->withoutOverlapping(15)
+        ->runInBackground();
 }
 
 Schedule::command('camera-recordings:tick')
     ->everyMinute()
-    ->withoutOverlapping(5);
+    ->withoutOverlapping(5)
+    ->runInBackground();
 
 Schedule::command('camera-recordings:prune')
     ->hourly()
-    ->withoutOverlapping(180);
+    ->withoutOverlapping(180)
+    ->runInBackground();
 
 Schedule::command('model:prune', ['--model' => [AuditLog::class]])
     ->daily()

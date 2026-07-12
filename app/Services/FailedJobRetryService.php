@@ -31,6 +31,74 @@ class FailedJobRetryService
         return max(0, (int) config('queue.failed.auto_retry.cooldown_seconds', 60));
     }
 
+    public function terminalPruningEnabled(): bool
+    {
+        return (bool) config('queue.failed.auto_retry.prune_terminal_enabled', true);
+    }
+
+    public function terminalRetentionHours(): int
+    {
+        return max(1, (int) config('queue.failed.auto_retry.terminal_retention_hours', 24));
+    }
+
+    /**
+     * @return array{enabled: bool, scanned: int, deleted: int, retained: int}
+     */
+    public function pruneTerminalFailures(?int $retentionHours = null): array
+    {
+        if (
+            !$this->terminalPruningEnabled()
+            || $this->maxAutoRetries() === 0
+            || !Schema::hasTable('failed_jobs')
+        ) {
+            return [
+                'enabled' => false,
+                'scanned' => 0,
+                'deleted' => 0,
+                'retained' => 0,
+            ];
+        }
+
+        $retentionHours = $retentionHours === null ? $this->terminalRetentionHours() : max(1, $retentionHours);
+        $cutoff = now()->subHours($retentionHours);
+        $result = [
+            'enabled' => true,
+            'scanned' => 0,
+            'deleted' => 0,
+            'retained' => 0,
+        ];
+
+        foreach (DB::table('failed_jobs')
+            ->where('failed_at', '<=', $cutoff)
+            ->orderBy('failed_at')
+            ->orderBy('id')
+            ->pluck('id') as $failedJobId) {
+            DB::transaction(function () use ($failedJobId, &$result): void {
+                $failedJob = DB::table('failed_jobs')
+                    ->where('id', $failedJobId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($failedJob === null) {
+                    return;
+                }
+
+                $result['scanned']++;
+                $metadata = $this->retryMetadataFromPayload((string) $failedJob->payload);
+
+                if ($metadata['total_retries'] < $this->maxAutoRetries()) {
+                    $result['retained']++;
+
+                    return;
+                }
+
+                $result['deleted'] += DB::table('failed_jobs')->where('id', $failedJobId)->delete();
+            });
+        }
+
+        return $result;
+    }
+
     /**
      * @return array{total_retries: int, auto_retries: int, manual_retries: int, last_retry_type: string|null, last_retry_at: string|null}
      */

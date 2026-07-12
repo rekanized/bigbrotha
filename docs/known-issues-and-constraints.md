@@ -122,7 +122,7 @@ If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are
 
 - `.env.docker` contains the database credential and must be mode `0600`; `docker/compose.sh` enforces that permission when it manages the deployment.
 - `APP_URL` and `DB_PASSWORD` are required Compose values. The stack no longer starts with the public `bigbrotha` database-password default.
-- `CAMERA_RECORDING_WORKER_PROCESSES` is the worker service's Compose `scale`, so `docker compose up -d` through the supported wrapper honors the requested replica count without a separate `--scale` flag.
+- `CAMERA_RECORDING_WORKER_PROCESSES` is the queue-worker process count supervised inside the single `background` container.
 - Docker JSON logs are rotated, the relay runs as `www-data` with all capabilities dropped, and `no-new-privileges` is enabled for the stack services.
 - PostgreSQL 18 changed its official-image `PGDATA` to a version-specific directory below `/var/lib/postgresql`. The Compose volume must therefore target `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
 - An existing PostgreSQL 18 deployment started with the old child mount stores its real cluster in an anonymous parent volume. Do not recreate that database container until `docker/migrate-postgres-18-volume.sh` has created a logical backup and copied the stopped cluster into the named `db-data` volume.
@@ -138,10 +138,10 @@ Current expectations:
 - `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
 - a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
-- the repository Docker stack satisfies those requirements with dedicated `worker` and `scheduler` containers.
-- if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and start the stack through `./docker/compose-up.sh` so Compose scales the `worker` service to the same replica count.
+- the repository Docker stack satisfies those requirements with separate scheduler and worker process groups inside the `background` container.
+- if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and recreate `background` so Supervisor starts the requested process count.
 - the scheduler remains a scheduling loop only; it is not a fallback worker supervisor.
-- the scheduler now also runs a bounded failed-job retry sweep, so entries in `failed_jobs` are automatically requeued after the configured cooldown until `QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES` is reached; the Admin settings queue panel shows the recorded exception excerpt and current retry state for each failed row.
+- the scheduler runs a bounded failed-job retry sweep, so entries in `failed_jobs` are automatically requeued after the configured cooldown until `QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES` is reached; terminal rows are retained for `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` (24 hours by default) for operator inspection and are then pruned automatically. Long recording, preview, review-asset, and retention commands run as overlap-protected background scheduler events so they cannot block retry and pruning sweeps. The Admin settings queue panel shows the recorded exception excerpt and current retry state for each failed row.
 - recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
 - continuous recording no longer trusts the minute scheduler as the clip boundary. Once the scheduler boots a camera's segmenter, ffmpeg keeps rotating segment-muxer files on its own so scheduler jitter does not create minute-aligned gaps.
 - continuous recording timestamps are now anchored to the imported segment filename timestamp and the configured segment duration, rather than to delayed scheduler enqueue times or PHP cleanup timestamps.
@@ -150,7 +150,7 @@ Current expectations:
 
 ## Shared Storage Permissions
 
-This host runs web traffic as `www-data` while scheduler and queue commands may run as the deploy user.
+The Docker runtime runs Nginx, PHP-FPM, scheduler, and queue worker processes as `www-data` against the shared application-storage volume.
 
 Current expectations:
 
@@ -222,7 +222,7 @@ Current behavior:
 - if scrub sprite generation has not completed yet, the thumbnail route still returns a placeholder image, but the stage player continues to use the buffered review-stream route instead of swapping to another stage source.
 - use `php artisan camera-recordings:queue-review-assets --camera_id=...` or a `--date_from` / `--date_to` display-date range to selectively queue missing scrub-sprite backfills when you want to drive the async queue directly; the command still refuses an unfiltered whole-library queue sweep.
 - the minute scheduler now also runs a bounded synchronous safety-net backfill through `camera-recordings:build-review-assets --missing --limit=...`, ordered newest-first, so recent clips still pick up playback normalization and scrub-sprite assets even when the async review queue is delayed; tune it with `CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED` and `CAMERA_REVIEW_ASSET_SCHEDULER_LIMIT`.
-- recordings worker capacity is fixed to the Docker replica count. Set `CAMERA_RECORDING_WORKER_PROCESSES` to the exact number of worker replicas you want and start the stack through `./docker/compose-up.sh` so the running container pool matches the expected worker count.
+- recordings worker capacity is fixed to the supervised process count. Set `CAMERA_RECORDING_WORKER_PROCESSES` to the exact number of worker processes required and recreate `background` so its process pool matches the expected count.
 - the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
 - scrub sprite requests are deduplicated, loaded only when a thumbnail approaches the viewport or an operator actively scrubs, validated against the manifest's expected sprite-grid dimensions, kept in a bounded recent-success cache, and placed on a short failure cooldown so a missing or placeholder sprite cannot be requested repeatedly during fast scrolling.
 - native timeline scrolling takes precedence over scrubbing on touch devices; operators drag the explicit blue focus handle to scrub, while ordinary rail swipes retain inertial scrolling. Unmodified mouse-wheel input scrolls and Ctrl/Command + wheel zooms.
@@ -239,6 +239,8 @@ Implications:
 - MediaMTX requires its own HTTP and ICE ports in addition to the Laravel web port.
 - a separate `/live-wall/{camera}/relay` endpoint is available for a no-transcode path that remuxes copied video into fragmented MP4.
 - live-wall tiles must stay live-only. If a camera feed is unavailable, the tile should fail closed, show the stream error, and retry the live session instead of swapping to a saved preview image.
+- browser receiver work is visibility-aware: off-screen tiles pause after 30 seconds, dimmed tiles pause for the duration of focused mode, and a hidden wall pauses after 10 seconds. Returning to the wall reconnects those live receivers with staggered startup, so a briefly resumed tile can take a few seconds to display again while MediaMTX wakes an on-demand path.
+- reconnects use bounded exponential backoff with jitter and a decoded-frame watchdog. This reduces synchronized retry storms and recovers WebRTC sessions whose signaling remains open after video delivery has stalled.
 
 If browsers still fail to connect over WebRTC, check `webrtcAdditionalHosts`, `webrtcLocalUDPAddress`, `webrtcLocalTCPAddress`, host firewall rules, and TURN requirements before changing the Laravel UI.
 
@@ -331,7 +333,7 @@ If the player stays on `Loading secure stream…`, check these in order:
 6. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
 7. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
 8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
-9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://web:8080/relay/auth/mediamtx`; the nginx container listens on port `8080`, not port `80`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
+9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://app:8080/relay/auth/mediamtx`; Nginx listens inside `app` on port `8080`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
 10. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
 
 ## Nginx Reverse Proxy Requirements

@@ -14,10 +14,9 @@ Plain `docker compose up -d` does not read `.env.docker` for Compose-level inter
 
 The stack runs these services:
 
-- `app` for Laravel under `php-fpm` plus the MediaMTX relay.
-- `web` for Nginx and `/__webrtc/` proxying.
-- `worker` for `php artisan queue:work` on `recordings,default,review-assets`.
-- `scheduler` for the recurring `php artisan schedule:run` loop.
+- `app` for Supervisor-managed Nginx and PHP-FPM, including `/__webrtc/` proxying.
+- `background` for one scheduler and the configured queue-worker process pool.
+- `relay` for MediaMTX and its on-demand stream processes.
 - `database` for the bundled PostgreSQL service.
 
 ## Prerequisites
@@ -32,14 +31,14 @@ Before startup, review these values in [docker-compose.yml](../docker-compose.ym
 - copy `.env.docker.example` to `.env.docker`
 - restrict `.env.docker` to its owner with `chmod 600 .env.docker`
 - `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
-- `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you need to pin specific published tags
+- `BIGBROTHA_APP_IMAGE` if you need to pin a specific published tag
 - `APP_URL`
 - `WEB_BIND_IP`
 - `WEB_PORT`
 - `MEDIAMTX_ICE_BIND_IP`
 - `MEDIAMTX_ICE_PORT`
 - `DB_*` values if you are not using the bundled PostgreSQL defaults
-- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of `worker` replicas
+- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of queue-worker processes inside `background`
 
 For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and the later Google OAuth setup flow use.
 
@@ -55,13 +54,13 @@ For a normal deployment that should pull published images:
 
 ```bash
 ./docker/compose.sh pull
-./docker/compose.sh up -d
+./docker/compose.sh up -d --remove-orphans
 ```
 
 If this host requires Docker commands through sudo, run:
 
 ```bash
-sudo ./docker/compose.sh up -d
+sudo ./docker/compose.sh up -d --remove-orphans
 ```
 
 For a local source checkout that should build images from the repository:
@@ -75,8 +74,7 @@ The `app` container will:
 - wait for PostgreSQL on `database:5432`
 - ensure `APP_KEY` and persist it under `./.docker-state/app.key` on the Docker host
 - apply pending Laravel migrations automatically and bootstrap an empty database when needed
-- start the MediaMTX relay
-- write the bootstrap marker that unblocks `worker` and `scheduler`
+- supervise Nginx and PHP-FPM after writing the bootstrap marker that unblocks `background` and `relay`
 
 After the containers are healthy on a brand-new deployment, open `/setup` on the published application URL and complete the onboarding wizard:
 
@@ -94,14 +92,13 @@ The current onboarding flow uses direct ONVIF probes from Camera Fleet, so this 
 
 ```bash
 ./docker/compose.sh ps
-./docker/compose.sh logs --tail=100 app web worker scheduler
+./docker/compose.sh logs --tail=100 app background relay
 ./docker/compose.sh exec app php artisan relay:status
 ```
 
 What you should see:
 
-- `database`, `app`, `web`, `worker`, and `scheduler` running
-- `app`, `web`, `worker`, and `scheduler` healthy once startup settles
+- `database`, `app`, `background`, and `relay` running and healthy once startup settles
 - MediaMTX installed, running, and API reachable from the `app` container
 
 ## 5. Useful Runtime Commands
@@ -118,12 +115,13 @@ What you should see:
 
 ## Notes
 
-- The worker pool is Docker-managed. Do not install host cron jobs or systemd units for queue work.
+- The scheduler and worker pool are Supervisor-managed inside `background`. Do not install host cron jobs or systemd units for queue work.
+- When upgrading from the former six-service layout, pass `--remove-orphans` so the obsolete `web`, `worker`, and `scheduler` containers release their resources and host port.
 - The default [docker-compose.yml](../docker-compose.yml) is image-first so a deployment can run from Docker Hub without local Docker builds.
 - `./docker/compose.sh` keeps routine Compose commands pinned to the same `.env.docker` file and `COMPOSE_PROJECT_NAME`.
 - `./docker/compose-up.sh` explicitly uses the repo-root Compose files and builds the application images from source.
-- the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the worker service's default scale, including image-only deployments.
+- the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the supervised worker-process count, including image-only deployments.
 - Keep `./.docker-state/app.key` with the deployment. If that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The bundled PostgreSQL service stays internal to the Compose network by default.
-- The relay, database, and Laravel services communicate through Docker DNS names such as `app`, `web`, and `database`.
+- The relay, database, background, and Laravel services communicate through Docker DNS names such as `app`, `relay`, and `database`.
 - PostgreSQL 18's named volume is mounted at `/var/lib/postgresql`, above its version-specific `PGDATA`. Deployments that previously mounted `/var/lib/postgresql/data` must run `docker/migrate-postgres-18-volume.sh` before the database container is recreated.

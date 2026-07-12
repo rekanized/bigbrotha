@@ -657,7 +657,9 @@ class RecordingReviewAssetService
             $this->storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
 
             if ($sourceRelativePath !== null && $sourceRelativePath !== $targetRelativePath) {
-                $this->storage->deleteRecordingFile($sourceRelativePath);
+                if (!$this->storage->deleteRecordingFile($sourceRelativePath)) {
+                    throw new RuntimeException('Unable to remove the replaced source recording after publishing its browser playback asset.');
+                }
             }
 
             return $readyManifest;

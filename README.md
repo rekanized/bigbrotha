@@ -39,28 +39,28 @@ Preferred wrapper:
 
 ```bash
 ./docker/compose.sh pull
-./docker/compose.sh up -d
+./docker/compose.sh up -d --remove-orphans
 ```
 
 Raw Docker Compose equivalent:
 
 ```bash
 docker compose --env-file .env.docker pull
-docker compose --env-file .env.docker up -d
+docker compose --env-file .env.docker up -d --remove-orphans
 ```
 
 3. Verify the stack and relay health.
 
 ```bash
 ./docker/compose.sh ps
-./docker/compose.sh logs --tail=100 app relay web worker scheduler
+./docker/compose.sh logs --tail=100 app background relay
 ./docker/compose.sh exec app php artisan relay:status
 ```
 
 Expected result:
 
-- `database`, `app`, `relay`, `web`, `worker`, and `scheduler` are running.
-- `app`, `relay`, `web`, `worker`, and `scheduler` become healthy after startup settles.
+- `database`, `app`, `background`, and `relay` are running.
+- all four services become healthy after startup settles.
 - `php artisan relay:status` reports MediaMTX installed, running, and API reachable.
 
 4. Open `/setup` on the published application URL if this is a brand-new deployment.
@@ -69,7 +69,7 @@ Expected result:
 - Create the initial local administrator if local sign-in is enabled.
 - Enter the Google client ID, client secret, and redirect URI in the setup wizard and run the built-in validation flow before enabling Google sign-in.
 
-If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d`.
+If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d --remove-orphans`.
 
 ## Docker Configuration
 
@@ -81,8 +81,8 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 - For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`.
 - The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
 - Keep `./.docker-state/app.key` with the deployment; if that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
-- The default published images are `rekanized/bigbrotha-app:latest` and `rekanized/bigbrotha-web:latest` unless overridden in `.env.docker`.
-- `CAMERA_RECORDING_WORKER_PROCESSES` is applied as the Compose service scale, so image-only and source-build deployments start the same requested worker count.
+- The default published image is `rekanized/bigbrotha-app:latest` unless overridden in `.env.docker`.
+- `CAMERA_RECORDING_WORKER_PROCESSES` controls the queue-worker process count supervised inside the `background` container.
 - PostgreSQL 18 data is mounted at `/var/lib/postgresql`, the parent of its version-specific `PGDATA`; do not change this back to the pre-18 `/var/lib/postgresql/data` target.
 
 ## Stack
@@ -162,7 +162,7 @@ If you want to start the application with raw Docker Compose instead of the wrap
 ```bash
 cp .env.docker.example .env.docker
 docker compose --env-file .env.docker pull
-docker compose --env-file .env.docker up -d
+docker compose --env-file .env.docker up -d --remove-orphans
 ```
 
 Why `--env-file .env.docker` matters:
@@ -175,13 +175,12 @@ Equivalent wrapper commands:
 
 ```bash
 ./docker/compose.sh pull
-./docker/compose.sh up -d
+./docker/compose.sh up -d --remove-orphans
 ```
 
-The default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) consumes published Docker Hub images:
+The default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) consumes the published Docker Hub image:
 
 - `rekanized/bigbrotha-app:latest`
-- `rekanized/bigbrotha-web:latest`
 
 Quick start from a source checkout that should build images locally:
 
@@ -200,8 +199,9 @@ Copy `.env.docker.example` to `.env.docker` and review these values before first
 - `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
 - `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
 - `DB_*` if you are not using the bundled PostgreSQL defaults
-- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of `worker` replicas
-- `BIGBROTHA_APP_IMAGE` and `BIGBROTHA_WEB_IMAGE` if you want to pin a non-default image tag
+- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of queue-worker processes
+- `BIGBROTHA_APP_IMAGE` if you want to pin a non-default image tag
+- `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` for how long exhausted queue failures remain available for diagnostics before automatic pruning (24 hours by default)
 - `./.docker-state/app.key` preserved after the first successful boot
 
 Google OAuth no longer needs to be defined in `.env.docker`. Configure it from `/setup` on the first launch or later from the admin authentication settings panel, and the client ID, client secret, and redirect URI will be stored in the database.
@@ -218,19 +218,22 @@ Minimum usable deployment rules:
 
 Container notes:
 
-- the published app image includes ffmpeg, ffprobe, and MediaMTX.
-- the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then serves `php-fpm`.
+- the published app image includes Nginx, PHP-FPM, Supervisor, ffmpeg, ffprobe, and MediaMTX.
+- the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then supervises unprivileged Nginx and PHP-FPM processes.
+- the `background` container supervises one Laravel scheduler plus exactly `CAMERA_RECORDING_WORKER_PROCESSES` queue workers; its health check validates both roles and the configured worker count.
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.
-- the `web` container serves Nginx for the operator UI and proxies `/__webrtc/` traffic to `relay`.
+- Nginx in the `app` container serves the operator UI and proxies `/__webrtc/` traffic to `relay`.
 - `./docker/compose.sh` wraps the default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.
-- `./docker/compose-up.sh` uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml); the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the worker-service scale for both build and image deployments.
-- the `worker` and `scheduler` containers wait for the app bootstrap marker and rely on Docker healthchecks and restart policies instead of cron or systemd.
-- internal service traffic uses Docker DNS names: `database`, `app`, `relay`, and `web`.
+- `./docker/compose-up.sh` uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml); image and source deployments use the same four-service shape.
+- the `background` container waits for the app bootstrap marker and uses Supervisor plus Docker health checks instead of host cron or systemd.
+- internal service traffic uses Docker DNS names: `database`, `app`, `background`, and `relay`.
 - the bundled PostgreSQL service stays internal to the Compose network by default.
 - MediaMTX signaling and API traffic stay internal to the Compose network; only the web port and WebRTC ICE port need to be unique on the host.
 - the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
 - Compose log rotation is bounded, containers use Docker's init process where appropriate, and the relay runs as `www-data` with all Linux capabilities dropped.
 - PostgreSQL 18 uses the named `db-data` volume at `/var/lib/postgresql`, which preserves its version-specific data directory.
+
+When upgrading a six-service deployment, use `up -d --remove-orphans`. This removes the former `web`, `worker`, and `scheduler` containers so the old web container cannot retain `WEB_PORT`; named database and application-storage volumes are not removed.
 
 Deployments created with the older `/var/lib/postgresql/data` mount must migrate before recreating the database container. The guarded migration creates a logical backup, copies the stopped PostgreSQL 18 cluster into the named volume, retains the old anonymous volume, and restarts the stack:
 
@@ -248,21 +251,20 @@ Verification:
 
 ```bash
 ./docker/compose.sh ps
-./docker/compose.sh logs --tail=100 app relay web worker scheduler
+./docker/compose.sh logs --tail=100 app background relay
 ./docker/compose.sh exec app php artisan relay:status
 ```
 
 What you should see:
 
-- `database`, `app`, `relay`, `web`, `worker`, and `scheduler` running.
-- `app`, `relay`, `web`, `worker`, and `scheduler` reporting healthy after startup settles.
+- `database`, `app`, `background`, and `relay` running and healthy after startup settles.
 - `php artisan relay:status` reporting MediaMTX installed, running, and API reachable.
 
 If you started the stack with raw Compose, keep using the same form for follow-up commands:
 
 ```bash
 docker compose --env-file .env.docker ps
-docker compose --env-file .env.docker logs --tail=100 app relay web worker scheduler
+docker compose --env-file .env.docker logs --tail=100 app background relay
 docker compose --env-file .env.docker exec app php artisan relay:status
 ```
 
@@ -278,7 +280,7 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 
 ## Publishing Images
 
-`publish.sh` builds a dedicated test image, runs the full application suite, validates the production app and Nginx images, publishes an immutable timestamp-and-commit tag, updates `latest`, and verifies each remote manifest.
+`publish.sh` builds a dedicated test image, runs the full application suite, validates the unified production image, publishes an immutable timestamp-and-commit tag, updates `latest`, and verifies the remote manifest.
 
 ```bash
 ./publish.sh

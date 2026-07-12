@@ -68,7 +68,7 @@ gzip -9 "$backup_base"
 gzip -t "$backup_file"
 
 echo "Stopping the deployment for a consistent volume copy..."
-compose stop web worker scheduler relay app database
+compose down --remove-orphans
 
 echo "Copying PostgreSQL 18 data from $source_volume to $target_volume ..."
 docker run --rm \

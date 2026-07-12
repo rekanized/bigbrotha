@@ -164,7 +164,7 @@ Current behavior:
 3. motion mode now captures one buffered motion-only clip that includes the per-camera pre-roll context and the monitored span that follows it, then saves the whole clip when motion crosses the threshold during that monitored span.
 4. motion events ignore new motion triggers while an existing motion clip is still being compiled so overlapping motion files are not generated for the same camera.
 5. motion capture and review-asset work stay queue-backed and guarded by a per-camera lock so duplicate overlapping jobs are avoided, while continuous mode is watchdog-managed by the persistent segmenter service.
-6. the minute scheduler also sweeps the `failed_jobs` table and requeues eligible failed jobs up to the configured automatic retry limit, so recurring queue failures do not accumulate indefinitely before an operator can inspect them.
+6. the minute scheduler sweeps the `failed_jobs` table and requeues eligible failed jobs up to the configured automatic retry limit; exhausted rows remain visible for the configured terminal retention window and are then pruned hourly, preventing indefinite accumulation while preserving a diagnostic window.
 7. `camera-recordings:prune` runs hourly and removes files whose row `created_at` time is older than the camera's retention window, and `camera-recordings:prune-audit` can be used to inspect the same candidates without deleting anything.
 
 Continuous timestamp behavior:
@@ -243,6 +243,8 @@ Current behavior:
 9. operators can promote one live tile at a time to output wall audio, while every other tile stays muted, the selected source is visibly marked, and a shared wall volume slider sits in the bottom dock.
 10. each tile still exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
 11. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, relay auth settings, or camera-specific live-transcode overrides change.
+12. large walls stagger browser connection startup and retry with jittered backoff so a relay or network recovery does not make every tile reconnect at once.
+13. a wall tile that stays outside the viewport for 30 seconds is disconnected until it approaches the viewport again; focused mode also disconnects dimmed tiles, and a background tab releases all receivers after 10 seconds. These states resume automatically and never substitute a saved preview for the live feed.
 
 This gives operators a shared live view path for multiple simultaneous viewers while keeping a separate no-transcode path available for consumers that do not need WebRTC.
 

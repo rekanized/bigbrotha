@@ -56,7 +56,6 @@
                         $liveSelection = $tile['liveSelection'];
                         $selectedProfile = $liveSelection['profile'] ?? null;
                         $selectedProfileIndex = $liveSelection['index'] ?? null;
-                        $playerPageUrl = $tile['playerPageUrl'] ?? null;
                         $sessionUrl = $tile['sessionUrl'] ?? null;
                         $readerUrl = $tile['readerUrl'] ?? null;
                         $sessionBootstrap = $tile['sessionBootstrap'] ?? null;
@@ -69,12 +68,6 @@
                         data-camera-name="{{ e($camera->name) }}"
                         data-camera-id="{{ $camera->getKey() }}"
                         data-profile-index="{{ $selectedProfileIndex ?? '' }}"
-                        data-session-url="{{ $sessionUrl ?? '' }}"
-                        data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
-                        data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
-                        data-access-token="{{ $sessionBootstrap['access_token'] ?? '' }}"
-                        data-access-token-expires-in="{{ $sessionBootstrap['expires_in'] ?? '' }}"
-                        data-access-token-issued-at="{{ $sessionBootstrap['issued_at'] ?? '' }}"
                         @if (is_string($webrtcPath) && $webrtcPath !== '') data-webrtc-path="{{ $webrtcPath }}" @endif
                     >
                         <div class="wall-monitor-tile__feed">
@@ -83,6 +76,7 @@
                                     <div
                                         class="webrtc-player"
                                         data-webrtc-player
+                                        data-player-lifecycle="viewport"
                                         data-session-url="{{ $sessionUrl }}"
                                         data-reader-url="{{ $sessionBootstrap['reader_url'] ?? $readerUrl ?? '' }}"
                                         data-whep-url="{{ $sessionBootstrap['whep_url'] ?? $whepUrl ?? '' }}"
@@ -95,7 +89,7 @@
                                         data-expected-audio-sample-rate="{{ $streamFormat['audio_sample_rate'] ?? 48000 }}"
                                         data-player-label="{{ $camera->name }}"
                                     >
-                                        <video class="webrtc-player__video" data-role="video" autoplay muted playsinline></video>
+                                        <video class="webrtc-player__video" data-role="video" autoplay muted playsinline preload="none" disablepictureinpicture></video>
                                         <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
                                         <div class="wall-monitor-tile__overlay">
                                             <div class="wall-monitor-tile__identity">

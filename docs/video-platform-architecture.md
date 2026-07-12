@@ -14,11 +14,11 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - ffmpeg and ffprobe configured through `config/ffmpeg.php` and service bindings in `app/Providers/AppServiceProvider.php`.
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
 - MediaMTX as the shared WebRTC relay managed from Laravel and bundled directly into the Docker app image.
-- Docker Compose deployments are image-first by default through published `rekanized/bigbrotha-app` and `rekanized/bigbrotha-web` images, while repository-local builds use `docker-compose.build.yml` as an override.
+- Docker Compose deployments are image-first by default through one published `rekanized/bigbrotha-app` image, while repository-local builds use `docker-compose.build.yml` as an override.
 - The Dockerfile downloads MediaMTX 1.19.2 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
-- The Compose worker service derives its default replica count directly from `CAMERA_RECORDING_WORKER_PROCESSES`, so published-image and local-build deployments use the same capacity setting.
+- The `background` container uses Supervisor to run one scheduler and the queue-worker count configured by `CAMERA_RECORDING_WORKER_PROCESSES`.
 - PostgreSQL 18 persists its version-specific `PGDATA` beneath a named volume mounted at `/var/lib/postgresql`.
-- The Nginx container runs read-only as its unprivileged `nginx` user on container port 8080; its health probe traverses Nginx and PHP-FPM through Laravel's `/up` endpoint, while an unhealthy relay does not prevent the operator UI from starting.
+- The `app` container supervises unprivileged Nginx and PHP-FPM processes on container port 8080; its health probe traverses both through Laravel's `/up` endpoint, while an unhealthy relay does not prevent the operator UI from starting.
 
 ## Operator UI Theme
 
@@ -156,6 +156,8 @@ Current live viewing behavior:
 - normalizes live timestamps in the shared relay path with generated PTS, wallclock-backed input timestamps, `aresample=async=1:first_pts=0`, and `avoid_negative_ts=make_zero` so cameras with unstable AAC timing do not corrupt live playback.
 - serves a Laravel-rendered player shell and an authenticated session bootstrap endpoint instead of embedding the stock public MediaMTX iframe page.
 - uses `public/js/live-wall-player.js` to fetch session bootstrap data and then load the official per-path MediaMTX `reader.js` implementation.
+- staggers initial WHEP connections instead of starting every tile in the same browser task, uses exponential retry backoff with jitter, cancels superseded session fetches, and restarts a feed when its live video track ends or decoded frame clock stalls.
+- releases browser WebRTC receivers after a tile remains off screen for 30 seconds, after the page remains hidden for 10 seconds, or while another tile is in focused mode; visible receivers resume automatically with the same staggered startup guard. The selected off-screen audio tile remains connected until audio is deselected or the whole page is suspended.
 - issues short-lived Laravel-signed MediaMTX read tokens per authenticated operator and per camera path.
 - uses MediaMTX `authMethod: http` so the relay calls back into Laravel before accepting a WebRTC read.
 - uses dedicated internal RTSP publisher credentials for the ffmpeg `runOnDemand` republish leg, so relay auth can stay enabled without blocking the local publisher.
@@ -168,7 +170,7 @@ The current secure playback sequence is:
 1. `App\Livewire\LiveWall\TilesManager` saves named walls and explicit camera tile assignments.
 2. `App\Http\Controllers\LiveWallController` renders the selected wall's saved tile assignments with Laravel session bootstrap URLs.
 3. `App\Http\Controllers\LiveWallPlayerController` renders the single-camera secure player page.
-4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token, stream }`.
+4. The browser calls `App\Http\Controllers\LiveWallSessionController` for `{ whep_url, reader_url, access_token, stream }`; reconnect bootstraps perform a relay health check without rebuilding or resyncing the full MediaMTX configuration per tile.
 5. `public/js/live-wall-player.js` loads the official MediaMTX `reader.js` script from the proxied path and opens the WHEP session with the bearer token.
 6. MediaMTX calls `App\Http\Controllers\Relay\MediaMtxAuthController` with `action=read` and `protocol=webrtc`.
 7. If the path has no active publisher, MediaMTX executes the configured ffmpeg `runOnDemand` command.
@@ -251,7 +253,7 @@ Relevant behavior:
 - `App\Http\Middleware\RestrictWebsiteIp` evaluates the client IP after proxy normalization and is driven by `WEBSITE_ALLOWED_IPS`.
 - MediaMTX player traffic defaults to a proxied path such as `/__webrtc/` derived from `APP_URL`, and `MEDIAMTX_WEBRTC_PUBLIC_URL` remains available as an override for non-default relay publishing.
 - the reverse proxy must preserve the `/__webrtc` prefix on WHEP session URLs, typically with `X-Forwarded-Prefix` and `proxy_redirect` rules that rewrite upstream `Location` headers back under `/__webrtc/`.
-- the containerized Nginx proxy should resolve the `relay` upstream through Docker DNS instead of pinning a single container IP, otherwise recreating the relay container can leave `/__webrtc/` traffic pointed at a stale address until web is reloaded.
+- Nginx inside `app` resolves the `relay` upstream through Docker DNS instead of pinning a single container IP, so recreating the relay does not leave `/__webrtc/` traffic pointed at a stale address.
 - Media traffic still requires direct ICE reachability on the configured WebRTC transport ports, typically `8189/udp` and optionally `8189/tcp`.
 
 ## Storage Layout

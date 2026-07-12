@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\RuntimeHeartbeatService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -66,6 +67,20 @@ class RecordingContainerHealthCommandTest extends TestCase
         $this->assertStringContainsString('Oldest queued recordings job is', Artisan::output());
     }
 
+    public function test_worker_healthcheck_fails_when_fewer_than_the_configured_process_count_are_running(): void
+    {
+        $this->writeBootstrapMarker();
+        $this->configureWorkerProcessSnapshot();
+        config()->set('recording.worker.processes', 2);
+        config()->set('recording.worker.max_processes', 2);
+        app(RuntimeHeartbeatService::class)->touchWorker('test');
+
+        $exitCode = Artisan::call('camera-recordings:healthcheck', ['role' => 'worker']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Detected 1 of 2 required recordings queue worker processes.', Artisan::output());
+    }
+
     public function test_worker_healthcheck_passes_from_a_non_worker_container_when_shared_worker_heartbeat_exists(): void
     {
         $this->writeBootstrapMarker();
@@ -83,6 +98,26 @@ class RecordingContainerHealthCommandTest extends TestCase
 
         $this->assertSame(0, $exitCode);
         $this->assertStringContainsString('Worker container health checks passed.', Artisan::output());
+    }
+
+    public function test_worker_heartbeat_path_uses_the_supervised_process_identity(): void
+    {
+        config()->set('recording.worker.container_mode', true);
+        $environment = Env::getRepository();
+        $original = Env::get('CAMERA_RECORDING_WORKER_INSTANCE_ID');
+        $environment->set('CAMERA_RECORDING_WORKER_INSTANCE_ID', 'worker_03');
+
+        try {
+            $path = app(RuntimeHeartbeatService::class)->workerPath();
+
+            $this->assertStringEndsWith('/recordings-worker-worker_03.heartbeat', $path);
+        } finally {
+            if ($original === null) {
+                $environment->clear('CAMERA_RECORDING_WORKER_INSTANCE_ID');
+            } else {
+                $environment->set('CAMERA_RECORDING_WORKER_INSTANCE_ID', (string) $original);
+            }
+        }
     }
 
     public function test_scheduler_healthcheck_fails_when_the_scheduler_heartbeat_is_stale(): void

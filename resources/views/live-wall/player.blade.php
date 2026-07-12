@@ -46,7 +46,7 @@
                             data-expected-audio-channels="{{ $streamFormat['audio_channels'] ?? 2 }}"
                             data-expected-audio-sample-rate="{{ $streamFormat['audio_sample_rate'] ?? 48000 }}"
                         >
-                            <video class="webrtc-player__video" data-role="video" autoplay muted playsinline controls></video>
+                            <video class="webrtc-player__video" data-role="video" autoplay muted playsinline controls preload="none"></video>
                             <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
                             <div class="wall-tile__actions">
                                 <button class="button button--soft" type="button" data-role="audio-toggle" aria-pressed="false" aria-label="Listen to {{ $camera->name }}">

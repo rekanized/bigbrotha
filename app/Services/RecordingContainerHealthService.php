@@ -123,14 +123,17 @@ class RecordingContainerHealthService
     {
         $snapshot = $this->workers->snapshot();
 
-        if ($snapshot['running_workers'] > 0) {
+        if ($snapshot['running_workers'] >= $snapshot['desired_workers']) {
             return $this->ok(
                 'worker_process',
-                'Detected '.$snapshot['running_workers'].' recordings queue worker process'.($snapshot['running_workers'] === 1 ? '' : 'es').'.'
+                'Detected '.$snapshot['running_workers'].' of '.$snapshot['desired_workers'].' required recordings queue worker process'.($snapshot['desired_workers'] === 1 ? '' : 'es').'.'
             );
         }
 
-        return $this->fail('worker_process', 'No recordings queue worker process is running.');
+        return $this->fail(
+            'worker_process',
+            'Detected '.$snapshot['running_workers'].' of '.$snapshot['desired_workers'].' required recordings queue worker process'.($snapshot['desired_workers'] === 1 ? '' : 'es').'.'
+        );
     }
 
     /**
@@ -157,6 +160,7 @@ class RecordingContainerHealthService
     {
         $statuses = $this->heartbeats->workerStatuses();
         $maxAgeSeconds = max(60, (int) config('recording.health.worker_max_age_seconds', 360));
+        $requiredCount = max(1, (int) config('recording.worker.processes', 1));
         $freshCount = count(array_filter(
             $statuses,
             static fn (array $status): bool => ($status['exists'] ?? false)
@@ -164,10 +168,10 @@ class RecordingContainerHealthService
                 && $status['age_seconds'] <= $maxAgeSeconds,
         ));
 
-        if ($freshCount > 0) {
+        if ($freshCount >= $requiredCount) {
             return $this->ok(
                 'worker_heartbeat',
-                'Detected '.$freshCount.' fresh worker heartbeat file'.($freshCount === 1 ? '' : 's').'.'
+                'Detected '.$freshCount.' of '.$requiredCount.' required fresh worker heartbeat file'.($requiredCount === 1 ? '' : 's').'.'
             );
         }
 
@@ -182,7 +186,10 @@ class RecordingContainerHealthService
             return $this->fail('worker_heartbeat', 'No shared worker heartbeat files were found under '.dirname((string) $firstStatus['path']).'.');
         }
 
-        return $this->fail('worker_heartbeat', 'Shared worker heartbeat files exist, but none are fresh enough for the configured worker health window.');
+        return $this->fail(
+            'worker_heartbeat',
+            'Detected '.$freshCount.' of '.$requiredCount.' required fresh worker heartbeat file'.($requiredCount === 1 ? '' : 's').' within the configured worker health window.'
+        );
     }
 
     /**

@@ -68,7 +68,7 @@ mv "$temporary_file" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
 echo "Recreating application services with the rotated credential..."
-compose up -d --force-recreate database app relay web worker scheduler
+compose up -d --force-recreate --remove-orphans database app relay background
 
 deadline=$(( $(date +%s) + 180 ))
 while :; do

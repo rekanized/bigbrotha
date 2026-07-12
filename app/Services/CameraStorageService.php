@@ -247,17 +247,28 @@ class CameraStorageService
 
         if ($this->usesNetworkCameraStorage($relativePath)) {
             $diskPath = $this->cameraDiskRelativePath($relativePath);
+            $availability = $this->networkCameraDiskAvailability($diskPath);
 
-            if (!$this->cameraDisk()->exists($diskPath)) {
-                $this->pruneEmptyRecordingDirectories($relativePath);
+            if ($availability === self::RECORDING_AVAILABILITY_MISSING) {
+                $this->pruneEmptyRecordingDirectoriesSafely($relativePath);
 
                 return true;
+            }
+
+            $smbClientDeleted = $this->deleteCameraDiskPathWithSmbClient($diskPath);
+
+            if (is_bool($smbClientDeleted)) {
+                if ($smbClientDeleted) {
+                    $this->pruneEmptyRecordingDirectoriesSafely($relativePath);
+                }
+
+                return $smbClientDeleted;
             }
 
             $deleted = $this->cameraDisk()->delete($diskPath);
             $stillExists = $this->cameraDisk()->exists($diskPath);
 
-            $this->pruneEmptyRecordingDirectories($relativePath);
+            $this->pruneEmptyRecordingDirectoriesSafely($relativePath);
 
             return $deleted || !$stillExists;
         }
@@ -1209,6 +1220,15 @@ class CameraStorageService
         }
     }
 
+    private function pruneEmptyRecordingDirectoriesSafely(string $recordingPath): void
+    {
+        try {
+            $this->pruneEmptyRecordingDirectories($recordingPath);
+        } catch (Throwable) {
+            // Removing empty parent directories is optional and must not fail a completed file operation.
+        }
+    }
+
     private function cameraDirectoryEmpty(string $diskDirectory): bool
     {
         return $this->cameraDisk()->files($diskDirectory) === []
@@ -1669,6 +1689,62 @@ class CameraStorageService
         $size = $metadata['size'] ?? null;
 
         return is_int($size) ? $size : null;
+    }
+
+    /**
+     * @return bool|null True when deleted or already missing, false on a confirmed CLI failure, null when unavailable.
+     */
+    protected function deleteCameraDiskPathWithSmbClient(string $diskPath): ?bool
+    {
+        if (!$this->shouldUseSmbClientTransfers()) {
+            return null;
+        }
+
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+        $binary = $this->smbClientBinary();
+        $targetPaths = $this->cameraDiskReadSmbTargetPaths($diskPath);
+
+        if (!is_array($networkConfig) || $binary === null || $targetPaths === []) {
+            return null;
+        }
+
+        $deletedOrMissing = false;
+
+        foreach ($targetPaths as $targetPath) {
+            try {
+                $process = $this->runSmbClientCommand(
+                    $binary,
+                    $networkConfig,
+                    'del "'.$targetPath.'"',
+                    30,
+                );
+            } catch (Throwable) {
+                return false;
+            }
+
+            if ($process->isSuccessful()) {
+                $deletedOrMissing = true;
+
+                continue;
+            }
+
+            $errorOutput = strtolower(trim($process->getErrorOutput().' '.$process->getOutput()));
+
+            if (collect([
+                'nt_status_object_name_not_found',
+                'nt_status_no_such_file',
+                'nt_status_object_path_not_found',
+                'not found',
+            ])->contains(static fn (string $needle): bool => str_contains($errorOutput, $needle))) {
+                $deletedOrMissing = true;
+
+                continue;
+            }
+
+            return false;
+        }
+
+        return $deletedOrMissing;
     }
 
     /**

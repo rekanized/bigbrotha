@@ -168,7 +168,7 @@ class RuntimeHeartbeatService
 
     private function workerInstanceId(): string
     {
-        $candidate = trim((string) (env('HOSTNAME') ?: gethostname() ?: 'worker'));
+        $candidate = trim((string) (env('CAMERA_RECORDING_WORKER_INSTANCE_ID') ?: env('HOSTNAME') ?: gethostname() ?: 'worker'));
         $candidate = preg_replace('/[^A-Za-z0-9._-]+/', '-', $candidate) ?: 'worker';
 
         return trim($candidate, '-.') !== '' ? trim($candidate, '-.') : 'worker';

@@ -457,7 +457,7 @@ class MediaMtxConfigService
         }
 
         $scheme = $request?->getScheme() ?? parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'http';
-        $host = $request?->getHost() ?? parse_url((string) config('app.url'), PHP_URL_HOST) ?? 'web';
+        $host = $request?->getHost() ?? parse_url((string) config('app.url'), PHP_URL_HOST) ?? 'app';
         $port = (int) config('mediamtx.webrtc.port', 8889);
 
         return $scheme.'://'.$host.($port > 0 ? ':'.$port : '');

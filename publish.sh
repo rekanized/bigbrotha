@@ -16,9 +16,7 @@ BUILD_FLAGS="${BUILD_FLAGS:---pull}"
 TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-300}"
 
 APP_IMAGE="$USERNAME/bigbrotha-app:$IMAGE_TAG"
-WEB_IMAGE="$USERNAME/bigbrotha-web:$IMAGE_TAG"
 APP_LATEST_IMAGE="$USERNAME/bigbrotha-app:latest"
-WEB_LATEST_IMAGE="$USERNAME/bigbrotha-web:latest"
 TEST_IMAGE="bigbrotha-publish-test:${SHORT_REF}"
 
 require_command() {
@@ -33,7 +31,7 @@ cleanup() {
 }
 
 validate_repo_root() {
-    if [ ! -f Dockerfile ] || [ ! -f docker/nginx/Dockerfile ] || [ ! -f artisan ]; then
+    if [ ! -f Dockerfile ] || [ ! -f docker/nginx/default.conf ] || [ ! -f artisan ]; then
         echo "Unable to locate the BigBrotha repository root." >&2
         exit 1
     fi
@@ -48,21 +46,18 @@ validate_app_image() {
         test -x /usr/local/bin/mediamtx
         command -v ffmpeg >/dev/null
         command -v ffprobe >/dev/null
+        command -v nginx >/dev/null
         command -v smbclient >/dev/null
+        command -v supervisord >/dev/null
+        test -f /etc/nginx/nginx.conf
+        test -f /usr/local/etc/php-fpm.d/zz-production.conf
+        test -f /etc/supervisor/app.conf
+        test -f /etc/supervisor/background.conf
+        nginx -t
+        CAMERA_RECORDING_WORKER_PROCESSES=1 python3 -c '\''import sys; from supervisor.options import ServerOptions; [ServerOptions().realize(["-c", path]) for path in sys.argv[1:]]'\'' /etc/supervisor/app.conf /etc/supervisor/background.conf
         php -r '\''foreach (["bcmath", "mbstring", "pcntl", "pdo_pgsql", "xml", "zip"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension: {$extension}\n"); exit(1); } }'\''
         php artisan --version
         /usr/local/bin/mediamtx --version
-    '
-}
-
-validate_web_image() {
-    echo "Validating web image contents..."
-
-    docker run --rm --add-host app:127.0.0.1 --entrypoint sh "$WEB_IMAGE" -lc '
-        set -eu
-        test -f /app/public/index.php
-        test -f /etc/nginx/conf.d/default.conf
-        nginx -t
     '
 }
 
@@ -108,7 +103,7 @@ docker build $BUILD_FLAGS \
     .
 timeout --foreground "$TEST_TIMEOUT_SECONDS" docker run --rm --stop-timeout 10 "$TEST_IMAGE"
 
-echo "Building BigBrotha release images for $USERNAME with immutable tag $IMAGE_TAG..."
+echo "Building the BigBrotha release image for $USERNAME with immutable tag $IMAGE_TAG..."
 
 # shellcheck disable=SC2086
 docker build $BUILD_FLAGS \
@@ -119,35 +114,21 @@ docker build $BUILD_FLAGS \
     -t "$APP_IMAGE" \
     .
 
-# shellcheck disable=SC2086
-docker build $BUILD_FLAGS \
-    --build-arg APP_VERSION="$IMAGE_TAG" \
-    --build-arg VCS_REF="$VCS_REF" \
-    --build-arg BUILD_DATE="$BUILD_DATE" \
-    -t "$WEB_IMAGE" \
-    -f docker/nginx/Dockerfile \
-    .
-
 validate_app_image
-validate_web_image
 
-echo "Pushing immutable release images..."
+echo "Pushing the immutable release image..."
 push_and_verify "$APP_IMAGE"
-push_and_verify "$WEB_IMAGE"
 
 if [ "$PUBLISH_LATEST" = "true" ] && [ "$IMAGE_TAG" != "latest" ]; then
     docker tag "$APP_IMAGE" "$APP_LATEST_IMAGE"
-    docker tag "$WEB_IMAGE" "$WEB_LATEST_IMAGE"
 
     echo "Updating latest tags..."
     push_and_verify "$APP_LATEST_IMAGE"
-    push_and_verify "$WEB_LATEST_IMAGE"
 fi
 
 echo "Successfully published and verified Docker Hub images."
 echo "Immutable deployment values:"
 echo "BIGBROTHA_APP_IMAGE=$APP_IMAGE"
-echo "BIGBROTHA_WEB_IMAGE=$WEB_IMAGE"
 
 if [ "$PUBLISH_LATEST" = "true" ]; then
     echo "The latest tags were updated as well."

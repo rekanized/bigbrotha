@@ -74,19 +74,19 @@ $optionalEnvBool = static function (string $key, bool $default): bool {
 
 $defaultInstallRoot = storage_path('app/private/mediamtx');
 $defaultBinaryPath = '/usr/local/bin/mediamtx';
-$defaultAppUrl = trim((string) env('APP_URL', 'http://web'));
-$defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://web';
+$defaultAppUrl = trim((string) env('APP_URL', 'http://app'));
+$defaultAppUrl = $defaultAppUrl !== '' ? $defaultAppUrl : 'http://app';
 $defaultWebRtcPublicUrl = rtrim($defaultAppUrl, '/').'/__webrtc';
 $configuredWebRtcPublicUrl = $optionalEnvString('MEDIAMTX_WEBRTC_PUBLIC_URL') ?? $defaultWebRtcPublicUrl;
 $defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl, $defaultAppUrl): string {
     $sourceUrl = $configuredWebRtcPublicUrl !== '' ? $configuredWebRtcPublicUrl : $defaultAppUrl;
     $scheme = parse_url($sourceUrl, PHP_URL_SCHEME) ?? 'http';
-    $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'web';
+    $host = parse_url($sourceUrl, PHP_URL_HOST) ?? 'app';
     $port = parse_url($sourceUrl, PHP_URL_PORT);
 
     return $scheme.'://'.$host.($port !== null ? ':'.$port : '');
 })();
-$defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'web';
+$defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'app';
 $configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
 $defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
 $appKey = $resolvedAppKey;

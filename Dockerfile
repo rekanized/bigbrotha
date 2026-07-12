@@ -45,8 +45,10 @@ RUN apt-get update \
         libpq-dev \
         libxml2-dev \
         libzip-dev \
+        nginx-light \
         procps \
         smbclient \
+        supervisor \
     && docker-php-ext-install -j"$(nproc)" \
         bcmath \
         mbstring \
@@ -59,6 +61,11 @@ RUN apt-get update \
 
 COPY --from=mediamtx /usr/local/bin/mediamtx /usr/local/bin/mediamtx
 COPY docker/php-production.ini /usr/local/etc/php/conf.d/zz-production.ini
+COPY docker/php-fpm-production.conf /usr/local/etc/php-fpm.d/zz-production.conf
+COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY docker/supervisor/app.conf /etc/supervisor/app.conf
+COPY docker/supervisor/background.conf /etc/supervisor/background.conf
 
 WORKDIR /app
 
@@ -124,23 +131,25 @@ RUN mkdir -p \
 
 COPY docker/entrypoint.sh /usr/local/bin/container-entrypoint
 COPY docker/healthcheck-app.sh /usr/local/bin/healthcheck-app
-COPY docker/healthcheck-worker.sh /usr/local/bin/healthcheck-worker
-COPY docker/healthcheck-scheduler.sh /usr/local/bin/healthcheck-scheduler
+COPY docker/healthcheck-background.sh /usr/local/bin/healthcheck-background
+COPY docker/run-app.sh /usr/local/bin/run-app
+COPY docker/run-background.sh /usr/local/bin/run-background
 COPY docker/run-worker.sh /usr/local/bin/run-worker
 COPY docker/run-scheduler.sh /usr/local/bin/run-scheduler
 
 RUN chmod 0755 \
         /usr/local/bin/container-entrypoint \
         /usr/local/bin/healthcheck-app \
-        /usr/local/bin/healthcheck-worker \
-        /usr/local/bin/healthcheck-scheduler \
+        /usr/local/bin/healthcheck-background \
+        /usr/local/bin/run-app \
+        /usr/local/bin/run-background \
         /usr/local/bin/run-worker \
         /usr/local/bin/run-scheduler
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["/usr/local/bin/healthcheck-app"]
 
 ENTRYPOINT ["container-entrypoint"]
-CMD ["php-fpm", "-F"]
+CMD ["run-app"]
 
 FROM runtime AS test
 

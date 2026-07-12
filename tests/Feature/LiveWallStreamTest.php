@@ -5,10 +5,10 @@ namespace Tests\Feature;
 use App\Models\Camera;
 use App\Models\LiveWall;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\File;
 use App\Services\Relay\MediaMtxAccessTokenService;
 use App\Services\Relay\MediaMtxProcessService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
@@ -90,6 +90,9 @@ class LiveWallStreamTest extends TestCase
             ->assertSee('data-role="master-volume-value"', false)
             ->assertDontSee('data-role="volume-slider"', false)
             ->assertSee('data-live-wall-grid', false)
+            ->assertSee('data-player-lifecycle="viewport"', false)
+            ->assertSee('preload="none"', false)
+            ->assertSee('disablepictureinpicture', false)
             ->assertSee('data-navigate-once', false)
             ->assertSee(route('wall-tiles.index'), false);
 
@@ -532,6 +535,52 @@ class LiveWallStreamTest extends TestCase
             'read',
             'webrtc',
         ));
+
+        $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function test_live_wall_session_checks_relay_health_without_resyncing_its_configuration(): void
+    {
+        config()->set('mediamtx.webrtc.public_base_url', 'https://relay.example/__webrtc');
+
+        $status = [
+            'installed' => true,
+            'running' => true,
+            'api_reachable' => true,
+            'config_changed' => false,
+            'binary_path' => '/tmp/mediamtx',
+            'config_path' => '/tmp/mediamtx.yml',
+            'log_path' => '/tmp/mediamtx.log',
+            'pid' => 1234,
+        ];
+
+        $relayProcess = Mockery::mock(MediaMtxProcessService::class);
+        $relayProcess->shouldReceive('status')->once()->andReturn($status);
+        $relayProcess->shouldNotReceive('ensureRunning');
+        $this->app->instance(MediaMtxProcessService::class, $relayProcess);
+
+        $camera = Camera::query()->create([
+            'name' => 'Session Health Camera',
+            'local_ip' => '192.168.1.99',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream2',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'rtsp_profiles' => [[
+                    'name' => 'Sub stream',
+                    'encoding' => 'H264',
+                    'resolution' => '1280x720',
+                    'uri' => 'rtsp://192.168.1.99:554/stream2',
+                ]],
+            ],
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->getJson(route('live-wall.session', ['camera' => $camera]))
+            ->assertOk();
     }
 
     public function test_live_wall_session_returns_not_found_when_the_selected_profile_is_only_verified_via_the_motion_buffer(): void
@@ -817,7 +866,7 @@ class LiveWallStreamTest extends TestCase
         File::ensureDirectoryExists($binaryDirectory);
 
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-live-mjpeg.sh';
-    File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '%s' '--bigbrotha-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrotha-live--\\r\\n'".PHP_EOL);
+        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '%s' '--bigbrotha-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrotha-live--\\r\\n'".PHP_EOL);
         chmod($ffmpegBinary, 0755);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);

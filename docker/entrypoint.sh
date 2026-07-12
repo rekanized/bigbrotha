@@ -23,7 +23,7 @@ mkdir -p "$(dirname "$APP_KEY_FILE")"
 chmod 700 "$(dirname "$APP_KEY_FILE")" 2>/dev/null || true
 
 case "$(basename "$start_command")" in
-    php-fpm|php-fpm*)
+    run-app|php-fpm|php-fpm*)
         chown -R www-data:www-data \
             bootstrap/cache \
             storage/app/private/bootstrap \
@@ -256,17 +256,17 @@ PHP
 wait_for_database
 
 case "$(basename "$start_command")" in
-    php-fpm|php-fpm*)
+    run-app|php-fpm|php-fpm*)
         run_app_bootstrap
         ;;
-    run-worker|run-scheduler)
+    run-background|run-worker|run-scheduler)
         wait_for_app_bootstrap
         ;;
 esac
 
 if [ "$#" -gt 0 ]; then
     case "$(basename "$1")" in
-        php-fpm|php-fpm*)
+        run-app|run-background|php-fpm|php-fpm*)
             exec "$@"
             ;;
     esac

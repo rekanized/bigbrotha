@@ -22,8 +22,7 @@ class LiveWallController extends Controller
         MediaMtxConfigService $relayConfig,
         MediaMtxAccessTokenService $accessTokenService,
         MediaMtxProcessService $relayProcess,
-    ): View
-    {
+    ): View {
         $relayStatus = $relayProcess->ensureRunning();
         $operator = $request->user();
         $canBootstrapSessions = $operator instanceof User && ($relayStatus['running'] ?? false);
@@ -50,12 +49,17 @@ class LiveWallController extends Controller
             ->map(function (LiveWallTile $tile) use ($accessTokenService, $canBootstrapSessions, $operator, $request, $relayConfig, $selectedWall, $streamService): array {
                 $camera = $tile->camera;
 
-                if (!$camera instanceof Camera || !$selectedWall instanceof LiveWall) {
+                if (! $camera instanceof Camera || ! $selectedWall instanceof LiveWall) {
                     return [];
                 }
 
-                $liveSelection = $streamService->selectWallProfile($camera);
                 $liveDefinition = $relayConfig->cameraLivePlaybackDefinition($camera);
+                $liveSelection = $liveDefinition !== null
+                    ? [
+                        'index' => $liveDefinition['index'],
+                        'profile' => $liveDefinition['profile'],
+                    ]
+                    : $streamService->selectWallProfile($camera);
                 $whepUrl = $liveDefinition !== null
                     ? $relayConfig->browserWhepUrlForPath($liveDefinition['path'], $request)
                     : null;
@@ -85,7 +89,6 @@ class LiveWallController extends Controller
                     'columnSpan' => max(1, min($selectedWall->grid_columns, $tile->column_span)),
                     'rowSpan' => max(1, $tile->row_span),
                     'liveSelection' => $liveSelection,
-                    'playerPageUrl' => route('live-wall.player', ['camera' => $camera]),
                     'sessionUrl' => $sessionUrl,
                     'webrtcWhepUrl' => $whepUrl,
                     'readerUrl' => $readerUrl,

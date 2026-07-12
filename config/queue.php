@@ -135,6 +135,8 @@ return [
             'max_retries' => max(0, (int) env('QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES', 2)),
             'batch_size' => max(1, (int) env('QUEUE_FAILED_AUTO_RETRY_BATCH_SIZE', 5)),
             'cooldown_seconds' => max(0, (int) env('QUEUE_FAILED_AUTO_RETRY_COOLDOWN_SECONDS', 60)),
+            'prune_terminal_enabled' => filter_var(env('QUEUE_FAILED_PRUNE_TERMINAL_ENABLED', true), FILTER_VALIDATE_BOOL),
+            'terminal_retention_hours' => max(1, (int) env('QUEUE_FAILED_TERMINAL_RETENTION_HOURS', 24)),
         ],
     ],
 

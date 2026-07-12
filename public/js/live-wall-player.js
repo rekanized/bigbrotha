@@ -20,8 +20,16 @@
         players: [],
         readerScriptPromise: null,
         readerScriptUrl: '',
-        reconnectDelayMs: 15000,
+        documentSuspendTimeout: null,
+        healthCheckInterval: null,
+        intersectionObserver: null,
+        reconnectBaseDelayMs: 5000,
+        reconnectMaxDelayMs: 30000,
     };
+
+    const offscreenSuspendDelayMs = 30000;
+    const hiddenPageSuspendDelayMs = 10000;
+    const stalledVideoThresholdMs = 20000;
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
 
@@ -62,6 +70,7 @@
 
         document.body.classList.remove('live-wall-focus-mode');
         state.focusedTile = null;
+        state.players.forEach((player, index) => player.setFocusEligible(true, Math.min(1800, index * 150)));
     };
 
     const setFocusedTile = (tile) => {
@@ -81,6 +90,7 @@
 
         document.body.classList.add('live-wall-focus-mode');
         state.focusedTile = tile;
+        state.players.forEach((player) => player.setFocusEligible(player.tile === tile));
     };
 
     const toggleFocusedTile = (tile) => {
@@ -186,8 +196,13 @@
             return;
         }
 
+        const previousPlayer = state.activeAudioPlayer;
         state.activeAudioPlayer = player;
         syncAudioSelection();
+
+        if (previousPlayer) {
+            previousPlayer.setIntersecting(previousPlayer.isIntersecting);
+        }
     };
 
     const setMasterVolume = (value) => {
@@ -255,6 +270,15 @@
             this.hasRetriedFreshSession = false;
             this.awaitingUserActivation = false;
             this.retryTimeout = null;
+            this.initialStartTimeout = null;
+            this.offscreenSuspendTimeout = null;
+            this.sessionAbortController = null;
+            this.connectionAttempt = 0;
+            this.failureCount = 0;
+            this.suspendReasons = new Set();
+            this.isIntersecting = true;
+            this.lastVideoTime = 0;
+            this.lastVideoProgressAt = Date.now();
 
             this.handleAudioToggle = this.handleAudioToggle.bind(this);
 
@@ -263,7 +287,7 @@
             }
         }
 
-        start() {
+        start(delayMs = 0) {
             if (this.bootstrapUrl === '' || this.video === null || this.message === null) {
                 return;
             }
@@ -287,13 +311,29 @@
                 this.syncAudioUi();
             }
 
-            this.connect().catch((error) => {
-                this.handleFailure(error);
-            });
+            if (this.root.dataset.playerLifecycle === 'viewport' && state.intersectionObserver) {
+                state.intersectionObserver.observe(this.root);
+            }
+
+            if (document.hidden) {
+                this.suspendReasons.add('document');
+                this.setMessage('Paused while the live wall is in the background.');
+            }
+
+            if (!navigator.onLine) {
+                this.suspendReasons.add('offline');
+                this.setMessage('Paused while the browser is offline.');
+            }
+
+            this.initialStartTimeout = window.setTimeout(() => {
+                this.initialStartTimeout = null;
+                this.connectIfEligible();
+            }, Math.max(0, delayMs));
         }
 
         async connect() {
             this.destroyConnection();
+            const attempt = ++this.connectionAttempt;
             this.setMessage('Loading camera feed...');
 
             const bootstrapSession = this.readBootstrapSession();
@@ -302,9 +342,9 @@
                 ? this.loadReaderScript(hintedReaderUrl)
                 : Promise.resolve();
 
-            const session = bootstrapSession || await this.fetchSession();
+            const session = bootstrapSession || await this.fetchSession(attempt);
 
-            if (this.closed) {
+            if (!this.isCurrentAttempt(attempt)) {
                 return;
             }
 
@@ -316,7 +356,7 @@
                 await hintedReaderLoad;
             }
 
-            if (this.closed) {
+            if (!this.isCurrentAttempt(attempt)) {
                 return;
             }
 
@@ -326,28 +366,39 @@
 
             const usedBootstrapSession = bootstrapSession !== null && session === bootstrapSession;
 
-            this.reader = new window.MediaMTXWebRTCReader({
+            let reader = null;
+            reader = new window.MediaMTXWebRTCReader({
                 url: session.whep_url,
                 token: session.access_token,
                 onError: (error) => {
-                    if (!this.closed) {
-                        this.handleReaderError(error, usedBootstrapSession);
+                    if (reader && this.isCurrentAttempt(attempt) && this.reader === reader) {
+                        this.handleReaderError(error, usedBootstrapSession, attempt);
                     }
                 },
                 onTrack: (event) => {
-                    this.handleTrack(event);
+                    if (reader && this.isCurrentAttempt(attempt) && this.reader === reader) {
+                        this.handleTrack(event);
+                    }
                 },
             });
+            this.reader = reader;
         }
 
-        async fetchSession() {
+        async fetchSession(attempt) {
+            this.sessionAbortController = new AbortController();
             const response = await fetch(this.bootstrapUrl, {
                 headers: {
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
                 credentials: 'same-origin',
+                cache: 'no-store',
+                signal: this.sessionAbortController.signal,
             });
+
+            if (!this.isCurrentAttempt(attempt)) {
+                throw new DOMException('Superseded player session.', 'AbortError');
+            }
 
             if (!response.ok) {
                 throw new Error(await this.readError(response, 'The secure player session could not be started.'));
@@ -375,7 +426,7 @@
             };
         }
 
-        handleReaderError(error, usedBootstrapSession) {
+        handleReaderError(error, usedBootstrapSession, attempt) {
             const normalizedError = error instanceof Error ? error : new Error(String(error));
 
             if (usedBootstrapSession && !this.hasRetriedFreshSession && this.shouldRetryWithFreshSession(normalizedError)) {
@@ -387,7 +438,7 @@
                 return;
             }
 
-            this.handleFailure(normalizedError);
+            this.handleFailure(normalizedError, attempt);
         }
 
         handleTrack(event) {
@@ -402,6 +453,12 @@
             }
 
             this.refreshTrackState();
+
+            if (this.hasVideoTrack) {
+                this.failureCount = 0;
+                this.lastVideoTime = this.video.currentTime;
+                this.lastVideoProgressAt = Date.now();
+            }
 
             if (this.isAudioSelectable) {
                 this.applyAudioSelection();
@@ -445,8 +502,13 @@
 
                 if (!alreadyAttached) {
                     this.mediaStream.addTrack(track);
+                    const attachedAttempt = this.connectionAttempt;
                     track.addEventListener('ended', () => {
                         this.removeTrack(track.id);
+
+                        if (track.kind === 'video' && this.isCurrentAttempt(attachedAttempt)) {
+                            this.handleFailure(new Error(`${this.label} stopped delivering its video track.`), attachedAttempt);
+                        }
                     }, { once: true });
                 }
             });
@@ -532,19 +594,28 @@
             }
         }
 
-        handleFailure(error) {
-            if (this.closed) {
+        handleFailure(error, attempt = null) {
+            if (this.closed || this.isAbortError(error) || (attempt !== null && !this.isCurrentAttempt(attempt))) {
                 return;
             }
 
             this.destroyConnection();
+            this.failureCount += 1;
             const failureMessage = error instanceof Error ? error.message : `Unable to play ${this.label}.`;
-            this.setMessage(`${failureMessage} Retrying automatically in 15 seconds.`);
-            this.scheduleReconnect();
+            const reconnectDelay = this.reconnectDelay();
+            this.setMessage(`${failureMessage} Retrying automatically in ${Math.ceil(reconnectDelay / 1000)} seconds.`);
+            this.syncAudioUi();
+            this.scheduleReconnect(reconnectDelay);
         }
 
         destroyConnection() {
             this.clearRetryTimeout();
+            this.connectionAttempt += 1;
+
+            if (this.sessionAbortController) {
+                this.sessionAbortController.abort();
+                this.sessionAbortController = null;
+            }
 
             if (this.reader && typeof this.reader.close === 'function') {
                 this.reader.close();
@@ -557,6 +628,7 @@
 
             this.mediaStream.getTracks().forEach((track) => {
                 this.mediaStream.removeTrack(track);
+                track.stop();
             });
 
             this.hasStream = false;
@@ -568,6 +640,19 @@
         close() {
             this.closed = true;
             this.clearRetryTimeout();
+
+            if (this.initialStartTimeout !== null) {
+                window.clearTimeout(this.initialStartTimeout);
+                this.initialStartTimeout = null;
+            }
+
+            if (this.offscreenSuspendTimeout !== null) {
+                window.clearTimeout(this.offscreenSuspendTimeout);
+                this.offscreenSuspendTimeout = null;
+            }
+
+            state.intersectionObserver?.unobserve(this.root);
+            delete this.root.bigBrothaWhepPlayer;
 
             if (this.isAudioSelectable) {
                 this.audioToggle.removeEventListener('click', this.handleAudioToggle);
@@ -610,6 +695,122 @@
 
                 throw error;
             }
+        }
+
+        connectIfEligible() {
+            if (this.closed || this.suspendReasons.size > 0 || !navigator.onLine) {
+                return;
+            }
+
+            this.connect().catch((error) => this.handleFailure(error));
+        }
+
+        suspend(reason, message) {
+            const wasEligible = this.suspendReasons.size === 0;
+            this.suspendReasons.add(reason);
+
+            if (wasEligible) {
+                if (this.initialStartTimeout !== null) {
+                    window.clearTimeout(this.initialStartTimeout);
+                    this.initialStartTimeout = null;
+                }
+
+                if (state.activeAudioPlayer === this) {
+                    state.activeAudioPlayer = null;
+                    syncAudioSelection();
+                }
+
+                this.destroyConnection();
+                this.setMessage(message);
+                this.syncAudioUi();
+            }
+        }
+
+        resume(reason, delayMs = 0) {
+            const wasSuspendedForReason = this.suspendReasons.delete(reason);
+
+            if (wasSuspendedForReason && !this.closed && this.suspendReasons.size === 0) {
+                this.failureCount = 0;
+
+                if (this.initialStartTimeout !== null) {
+                    window.clearTimeout(this.initialStartTimeout);
+                }
+
+                this.initialStartTimeout = window.setTimeout(() => {
+                    this.initialStartTimeout = null;
+                    this.connectIfEligible();
+                }, Math.max(0, delayMs));
+            }
+        }
+
+        setFocusEligible(isEligible, delayMs = 0) {
+            if (isEligible) {
+                this.resume('focus', delayMs);
+            } else {
+                this.suspend('focus', 'Paused while another camera is focused.');
+            }
+        }
+
+        setIntersecting(isIntersecting) {
+            this.isIntersecting = isIntersecting;
+
+            if (this.offscreenSuspendTimeout !== null) {
+                window.clearTimeout(this.offscreenSuspendTimeout);
+                this.offscreenSuspendTimeout = null;
+            }
+
+            if (isIntersecting) {
+                this.resume('offscreen');
+
+                return;
+            }
+
+            if (state.activeAudioPlayer === this) {
+                return;
+            }
+
+            this.offscreenSuspendTimeout = window.setTimeout(() => {
+                this.offscreenSuspendTimeout = null;
+
+                if (!this.isIntersecting && state.activeAudioPlayer !== this) {
+                    this.suspend('offscreen', 'Paused while this camera is off screen.');
+                }
+            }, offscreenSuspendDelayMs);
+        }
+
+        checkHealth(now) {
+            if (this.closed || this.suspendReasons.size > 0 || !this.hasVideoTrack || !this.video || this.awaitingUserActivation || document.hidden) {
+                return;
+            }
+
+            const currentTime = this.video.currentTime;
+
+            if (currentTime > this.lastVideoTime + 0.01) {
+                this.lastVideoTime = currentTime;
+                this.lastVideoProgressAt = now;
+
+                return;
+            }
+
+            if ((now - this.lastVideoProgressAt) >= stalledVideoThresholdMs) {
+                this.handleFailure(new Error(`${this.label} stopped delivering video frames.`));
+            }
+        }
+
+        isCurrentAttempt(attempt) {
+            return !this.closed && this.suspendReasons.size === 0 && this.connectionAttempt === attempt;
+        }
+
+        isAbortError(error) {
+            return error?.name === 'AbortError';
+        }
+
+        reconnectDelay() {
+            const exponent = Math.max(0, Math.min(3, this.failureCount - 1));
+            const baseDelay = Math.min(state.reconnectMaxDelayMs, state.reconnectBaseDelayMs * (2 ** exponent));
+            const jitter = 0.85 + (Math.random() * 0.3);
+
+            return Math.round(baseDelay * jitter);
         }
 
         isAutoplayBlocked(error) {
@@ -719,6 +920,9 @@
                     existing.addEventListener('load', () => resolve(), { once: true });
                     existing.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
                 }).catch((error) => {
+                    if (existing.dataset.loaded !== 'true') {
+                        existing.remove();
+                    }
                     state.readerScriptPromise = null;
                     state.readerScriptUrl = '';
 
@@ -731,8 +935,10 @@
             }
 
             state.readerScriptUrl = readerUrl;
+            let createdScript = null;
             state.readerScriptPromise = new Promise((resolve, reject) => {
                 const script = document.createElement('script');
+                createdScript = script;
                 script.src = readerUrl;
                 script.defer = true;
                 script.dataset.mediamtxReader = readerUrl;
@@ -743,6 +949,7 @@
                 script.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
                 document.head.appendChild(script);
             }).catch((error) => {
+                createdScript?.remove();
                 state.readerScriptPromise = null;
                 state.readerScriptUrl = '';
 
@@ -752,7 +959,7 @@
             await state.readerScriptPromise;
         }
 
-        scheduleReconnect() {
+        scheduleReconnect(delayMs) {
             if (this.closed) {
                 return;
             }
@@ -766,10 +973,8 @@
                 }
 
                 this.hasRetriedFreshSession = false;
-                this.connect().catch((error) => {
-                    this.handleFailure(error);
-                });
-            }, state.reconnectDelayMs);
+                this.connectIfEligible();
+            }, delayMs);
         }
 
         clearRetryTimeout() {
@@ -839,10 +1044,11 @@
     }
 
     const closePlayers = () => {
-        clearFocusedTile();
-        state.players.forEach((player) => player.close());
+        const players = state.players;
         state.players = [];
         state.activeAudioPlayer = null;
+        players.forEach((player) => player.close());
+        clearFocusedTile();
         state.lastTap = {
             tile: null,
             time: 0,
@@ -858,13 +1064,68 @@
 
         state.players = Array.from(document.querySelectorAll('[data-webrtc-player]'))
             .filter((element) => element instanceof HTMLElement && element.dataset.webrtcPlayerSkipAuto !== 'true')
-            .map((element) => new BigBrothaWhepPlayer(element));
+            .map((element) => {
+                const player = new BigBrothaWhepPlayer(element);
+                element.bigBrothaWhepPlayer = player;
+
+                return player;
+            });
 
         updateMasterVolumeUi();
-        state.players.forEach((player) => player.start());
+        state.players.forEach((player, index) => player.start(Math.min(1800, index * 150)));
+    };
+
+    const initializeIntersectionObserver = () => {
+        if (typeof window.IntersectionObserver !== 'function') {
+            return;
+        }
+
+        state.intersectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                const player = entry.target.bigBrothaWhepPlayer;
+
+                if (player instanceof BigBrothaWhepPlayer) {
+                    player.setIntersecting(entry.isIntersecting || entry.intersectionRatio > 0);
+                }
+            });
+        }, {
+            root: null,
+            rootMargin: '120px 0px',
+            threshold: 0.01,
+        });
+    };
+
+    const handleVisibilityChange = () => {
+        if (state.documentSuspendTimeout !== null) {
+            window.clearTimeout(state.documentSuspendTimeout);
+            state.documentSuspendTimeout = null;
+        }
+
+        if (!document.hidden) {
+            state.players.forEach((player, index) => player.resume('document', Math.min(1800, index * 150)));
+
+            return;
+        }
+
+        state.documentSuspendTimeout = window.setTimeout(() => {
+            state.documentSuspendTimeout = null;
+
+            if (document.hidden) {
+                state.players.forEach((player) => player.suspend('document', 'Paused while the live wall is in the background.'));
+            }
+        }, hiddenPageSuspendDelayMs);
+    };
+
+    const handleOnline = () => {
+        state.players.forEach((player, index) => player.resume('offline', Math.min(1800, index * 150)));
+    };
+
+    const handleOffline = () => {
+        state.players.forEach((player) => player.suspend('offline', 'Paused while the browser is offline.'));
     };
 
     const initialize = () => {
+        initializeIntersectionObserver();
         document.addEventListener('input', handleMasterVolumeInput);
         document.addEventListener('dblclick', handleTileDoubleClick);
         document.addEventListener('pointerdown', handlePlaybackUnlock, { passive: true });
@@ -873,7 +1134,15 @@
         document.addEventListener('keydown', handlePlaybackUnlock);
         document.addEventListener('livewire:navigating', closePlayers);
         document.addEventListener('livewire:navigated', bootstrapPlayers);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
         window.addEventListener('beforeunload', closePlayers);
+
+        state.healthCheckInterval = window.setInterval(() => {
+            const now = Date.now();
+            state.players.forEach((player) => player.checkHealth(now));
+        }, 5000);
 
         updateMasterVolumeUi();
         bootstrapPlayers();

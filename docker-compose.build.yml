@@ -3,8 +3,3 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-
-  web:
-    build:
-      context: .
-      dockerfile: docker/nginx/Dockerfile
