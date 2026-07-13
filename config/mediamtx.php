@@ -89,6 +89,7 @@ $defaultCallbackOrigin = (function () use ($configuredWebRtcPublicUrl, $defaultA
 $defaultAdditionalHost = parse_url($configuredWebRtcPublicUrl, PHP_URL_HOST) ?? parse_url($defaultAppUrl, PHP_URL_HOST) ?? 'app';
 $configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
 $defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
+$defaultIcePort = max(1, (int) env('MEDIAMTX_ICE_PORT', 8190));
 $appKey = $resolvedAppKey;
 $defaultTokenSecret = $appKey !== '' ? $appKey : hash('sha256', $defaultAppUrl.'|mediamtx-token-secret');
 $configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $defaultTokenSecret;
@@ -130,8 +131,8 @@ return [
         'port' => (int) env('MEDIAMTX_WEBRTC_PORT', 8889),
         'allow_origins' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ALLOW_ORIGINS') ?? [$defaultCallbackOrigin],
         'ips_from_interfaces' => $optionalEnvBool('MEDIAMTX_WEBRTC_IPS_FROM_INTERFACES', false),
-        'local_udp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS') ?? ':8189',
-        'local_tcp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS') ?? ':8189',
+        'local_udp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS') ?? ':'.$defaultIcePort,
+        'local_tcp_address' => $envStringAllowEmpty('MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS') ?? ':'.$defaultIcePort,
         'additional_hosts' => $optionalEnvCsv('MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS') ?? [$defaultAdditionalHost],
         'iframe_query' => http_build_query([
             'controls' => 'false',

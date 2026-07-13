@@ -10,27 +10,21 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 
 BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml). You do not need to build images locally for a normal deployment.
 
-1. Copy the Docker environment template and set the public URL, published ports, and worker count.
+1. Copy the Docker environment template and set the public URL.
 
 ```bash
 cp .env.docker.example .env.docker
 chmod 600 .env.docker
-openssl rand -base64 32
 ```
 
-Put the generated random value in `DB_PASSWORD`; startup intentionally fails when `APP_URL` or `DB_PASSWORD` is empty.
+Set `APP_URL` to the exact public origin. Leave `DB_PASSWORD` empty if you use `./docker/compose.sh`; the wrapper generates and persists a strong password on its first invocation. Raw Compose users must set `DB_PASSWORD` themselves.
 
 Minimum values to review in `.env.docker` before first startup:
 
 - `COMPOSE_PROJECT_NAME`
 - `APP_URL`
-- `WEB_BIND_IP`
 - `WEB_PORT`
-- `MEDIAMTX_ICE_BIND_IP`
 - `MEDIAMTX_ICE_PORT`
-- `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
-- `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
-- `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`
 - `CAMERA_RECORDING_WORKER_PROCESSES`
 
 2. Start from the published Docker Hub images.
@@ -159,8 +153,11 @@ Use `./docker/compose.sh` for routine Compose commands so the selected `.env.doc
 
 If you want to start the application with raw Docker Compose instead of the wrapper, pass `--env-file .env.docker` on every command:
 
+Copy the template, set `APP_URL`, and put the output of `openssl rand -base64 32` into `DB_PASSWORD` before running these raw commands.
+
 ```bash
 cp .env.docker.example .env.docker
+openssl rand -base64 32
 docker compose --env-file .env.docker pull
 docker compose --env-file .env.docker up -d --remove-orphans
 ```
@@ -169,7 +166,7 @@ Why `--env-file .env.docker` matters:
 
 - `docker-compose.yml` injects `.env.docker` into the containers with `env_file`, but Compose does not use that file for top-level interpolation unless you pass `--env-file` or rename it to `.env`.
 - If you run plain `docker compose up -d` without `--env-file .env.docker`, Compose does not receive the required production URL and database credential and exits instead of silently starting with insecure defaults.
-- The `relay` service publishes the host ICE port using `MEDIAMTX_ICE_PORT`, so that value must stay aligned with `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS` and `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS` in `.env.docker`.
+- `MEDIAMTX_ICE_PORT` controls the published TCP/UDP port and both MediaMTX ICE listeners; separate listener variables are no longer required.
 
 Equivalent wrapper commands:
 
@@ -188,6 +185,8 @@ Quick start from a source checkout that should build images locally:
 ./docker/compose-up.sh
 ```
 
+The simplified Compose file relies on the matching application image for role launchers, health checks, and fixed production defaults. Build from the checkout with `compose-up.sh` or publish and pin the matching image tag; do not pair this Compose revision with an older app image.
+
 Copy `.env.docker.example` to `.env.docker` and review these values before first startup:
 
 - `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
@@ -196,17 +195,13 @@ Copy `.env.docker.example` to `.env.docker` and review these values before first
 - `WEB_PORT`
 - `MEDIAMTX_ICE_BIND_IP` if the WebRTC ICE listener should not bind all host interfaces
 - `MEDIAMTX_ICE_PORT`
-- `MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
-- `MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS`, typically `:${MEDIAMTX_ICE_PORT}`
 - `DB_*` if you are not using the bundled PostgreSQL defaults
 - `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of queue-worker processes
 - `BIGBROTHA_APP_IMAGE` if you want to pin a non-default image tag
 - `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` for how long exhausted queue failures remain available for diagnostics before automatic pruning (24 hours by default)
 - `./.docker-state/app.key` preserved after the first successful boot
 
-Google OAuth no longer needs to be defined in `.env.docker`. Configure it from `/setup` on the first launch or later from the admin authentication settings panel, and the client ID, client secret, and redirect URI will be stored in the database.
-
-The Docker Compose stack now forces the legacy `GOOGLE_*` container variables to empty strings so old `.env.docker` entries do not override the database-backed authentication settings.
+Google OAuth is database-only. Configure it from `/setup` on the first launch or later from the admin authentication settings panel; legacy `GOOGLE_*` environment entries are ignored and can be removed.
 
 Minimum usable deployment rules:
 
@@ -219,6 +214,7 @@ Minimum usable deployment rules:
 Container notes:
 
 - the published app image includes Nginx, PHP-FPM, Supervisor, ffmpeg, ffprobe, and MediaMTX.
+- the image owns fixed production defaults and dispatches one built-in health check to the app, background, or relay probe based on the running role, keeping Compose focused on topology and deployment-specific values.
 - the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then supervises unprivileged Nginx and PHP-FPM processes.
 - the `background` container supervises one Laravel scheduler plus exactly `CAMERA_RECORDING_WORKER_PROCESSES` queue workers; its health check validates both roles, the configured worker count, writable nested recorder runtime directories, and every enabled persistent camera recorder process.
 - app and background startup repair ownership and directory modes throughout the persistent continuous and motion recorder runtime trees before unprivileged recording processes start, including runtime paths left behind by older root-run maintenance commands.

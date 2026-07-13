@@ -16,5 +16,6 @@ if [ "$worker_processes" -lt 1 ]; then
 fi
 
 export CAMERA_RECORDING_WORKER_PROCESSES="$worker_processes"
+: > /tmp/container-role-background
 
 exec /usr/bin/supervisord -c /etc/supervisor/background.conf

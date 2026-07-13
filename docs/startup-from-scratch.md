@@ -26,13 +26,10 @@ The stack runs these services:
 
 ## 1. Review Deployment Values
 
-Before startup, review these values in [docker-compose.yml](../docker-compose.yml):
+Before startup, copy `.env.docker.example` to `.env.docker`, restrict it to the owner with `chmod 600 .env.docker`, and set `APP_URL` to the exact public origin. The remaining values are optional deployment overrides:
 
-- copy `.env.docker.example` to `.env.docker`
-- restrict `.env.docker` to its owner with `chmod 600 .env.docker`
 - `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
 - `BIGBROTHA_APP_IMAGE` if you need to pin a specific published tag
-- `APP_URL`
 - `WEB_BIND_IP`
 - `WEB_PORT`
 - `MEDIAMTX_ICE_BIND_IP`
@@ -44,9 +41,9 @@ For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082
 
 For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `APP_URL`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`. MediaMTX signaling and API traffic stay internal to the Compose network, so they do not need separate host ports per stack.
 
-Generate a unique database password before startup, for example with `openssl rand -base64 32`, and place it in `DB_PASSWORD`. The example file intentionally leaves that value empty.
+`./docker/compose.sh` generates and saves a strong `DB_PASSWORD` when the value is empty or missing. If you use raw `docker compose` commands, generate and set that password yourself before startup.
 
-The Docker Compose stack now clears legacy `GOOGLE_*` container variables explicitly, so custom `.env.docker` files should remove any old Google client ID, client secret, or redirect URI entries and let the setup flow persist those values in the database instead.
+Google OAuth configuration is database-only. Remove legacy Google client ID, client secret, or redirect URI entries from custom `.env.docker` files and use the setup or admin authentication flow instead.
 
 ## 2. Start The Stack
 
@@ -120,7 +117,8 @@ What you should see:
 - The default [docker-compose.yml](../docker-compose.yml) is image-first so a deployment can run from Docker Hub without local Docker builds.
 - `./docker/compose.sh` keeps routine Compose commands pinned to the same `.env.docker` file and `COMPOSE_PROJECT_NAME`.
 - `./docker/compose-up.sh` explicitly uses the repo-root Compose files and builds the application images from source.
-- the base Compose file applies `CAMERA_RECORDING_WORKER_PROCESSES` as the supervised worker-process count, including image-only deployments.
+- the application image reads `CAMERA_RECORDING_WORKER_PROCESSES` from `.env.docker` and applies it as the supervised worker-process count.
+- the application image owns fixed production defaults plus role-aware health checks, so the Compose file only carries deployment-specific values and service topology.
 - Keep `./.docker-state/app.key` with the deployment. If that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The bundled PostgreSQL service stays internal to the Compose network by default.
 - The relay, database, background, and Laravel services communicate through Docker DNS names such as `app`, `relay`, and `database`.

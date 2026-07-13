@@ -36,9 +36,11 @@ return [
     ],
 
     'google' => [
-        'client_id' => env('GOOGLE_CLIENT_ID'),
-        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => env('GOOGLE_REDIRECT_URI'),
+        // Google OAuth is configured through the setup or admin UI and then
+        // applied from encrypted database settings at runtime.
+        'client_id' => null,
+        'client_secret' => null,
+        'redirect' => null,
     ],
 
 ];

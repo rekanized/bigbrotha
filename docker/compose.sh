@@ -21,6 +21,28 @@ chmod 600 "$ENV_FILE"
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
+if ! grep -Eq '^DB_PASSWORD=.+$' "$ENV_FILE"; then
+    if command -v openssl >/dev/null 2>&1; then
+        database_password="$(openssl rand -base64 32 | tr -d '\r\n')"
+    else
+        database_password="$(od -An -N 32 -tx1 /dev/urandom | tr -d ' \r\n')"
+    fi
+
+    temporary_env_file="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+    trap 'rm -f "$temporary_env_file"' EXIT HUP INT TERM
+    awk -v password="$database_password" '
+        BEGIN { replaced = 0 }
+        /^DB_PASSWORD=/ { print "DB_PASSWORD=" password; replaced = 1; next }
+        { print }
+        END { if (!replaced) print "DB_PASSWORD=" password }
+    ' "$ENV_FILE" > "$temporary_env_file"
+    chmod 600 "$temporary_env_file"
+    mv "$temporary_env_file" "$ENV_FILE"
+    temporary_env_file=""
+    trap - EXIT HUP INT TERM
+    echo "Generated DB_PASSWORD in $ENV_FILE." >&2
+fi
+
 if docker info >/dev/null 2>&1; then
     export BIGBROTHA_DOCKER_ENV_FILE="$ENV_FILE"
     exec docker compose \

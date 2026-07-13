@@ -18,9 +18,10 @@ class DockerRuntimeConfigurationTest extends TestCase
         sort($services);
 
         $this->assertSame(['app', 'background', 'database', 'relay'], $services);
-        $this->assertStringContainsString('MEDIAMTX_AUTH_CALLBACK_URL: http://app:8080/relay/auth/mediamtx', $compose);
         $this->assertStringContainsString('command: ["run-background"]', $compose);
+        $this->assertStringContainsString('command: ["run-relay"]', $compose);
         $this->assertStringContainsString('${WEB_PORT:-8082}:8080', $compose);
+        $this->assertStringNotContainsString('GOOGLE_CLIENT_ID', $compose);
         $this->assertStringNotContainsString('BIGBROTHA_WEB_IMAGE', $compose);
     }
 
@@ -28,15 +29,23 @@ class DockerRuntimeConfigurationTest extends TestCase
     {
         $dockerfile = file_get_contents(base_path('Dockerfile'));
         $buildOverride = file_get_contents(base_path('docker-compose.build.yml'));
+        $services = file_get_contents(base_path('config/services.php'));
 
         $this->assertIsString($dockerfile);
         $this->assertIsString($buildOverride);
+        $this->assertIsString($services);
         $this->assertStringContainsString('nginx-light', $dockerfile);
         $this->assertStringContainsString('supervisor', $dockerfile);
         $this->assertStringContainsString('COPY docker/supervisor/app.conf', $dockerfile);
         $this->assertStringContainsString('COPY docker/supervisor/background.conf', $dockerfile);
         $this->assertStringContainsString('COPY docker/php-fpm-production.conf', $dockerfile);
+        $this->assertStringContainsString('APP_KEY_FILE=/app/bootstrap-persist/app.key', $dockerfile);
+        $this->assertStringContainsString('MEDIAMTX_AUTH_CALLBACK_URL=http://app:8080/relay/auth/mediamtx', $dockerfile);
+        $this->assertStringContainsString('COPY docker/healthcheck.sh /usr/local/bin/healthcheck', $dockerfile);
+        $this->assertStringContainsString('COPY docker/run-relay.sh /usr/local/bin/run-relay', $dockerfile);
+        $this->assertStringContainsString('CMD ["/usr/local/bin/healthcheck"]', $dockerfile);
         $this->assertStringContainsString('CMD ["run-app"]', $dockerfile);
+        $this->assertStringNotContainsString("env('GOOGLE_", $services);
         $this->assertStringNotContainsString("\n  web:\n", $buildOverride);
     }
 
@@ -62,11 +71,16 @@ class DockerRuntimeConfigurationTest extends TestCase
     public function test_docker_shell_entrypoints_are_syntactically_valid(): void
     {
         $scripts = [
+            'docker/compose.sh',
+            'docker/compose-up.sh',
             'docker/entrypoint.sh',
+            'docker/healthcheck.sh',
             'docker/healthcheck-app.sh',
             'docker/healthcheck-background.sh',
+            'docker/healthcheck-relay.sh',
             'docker/run-app.sh',
             'docker/run-background.sh',
+            'docker/run-relay.sh',
             'docker/run-worker.sh',
             'docker/run-scheduler.sh',
             'publish.sh',
@@ -78,6 +92,14 @@ class DockerRuntimeConfigurationTest extends TestCase
 
             $this->assertTrue($process->isSuccessful(), $script.': '.$process->getErrorOutput());
         }
+    }
+
+    public function test_relay_uses_a_writable_working_directory_for_generated_tls_files(): void
+    {
+        $relay = file_get_contents(base_path('docker/run-relay.sh'));
+
+        $this->assertIsString($relay);
+        $this->assertStringContainsString("cd /tmp\n", $relay);
     }
 
     public function test_scheduler_clears_interrupted_overlap_locks_before_the_bootstrap_tick(): void

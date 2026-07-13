@@ -1,125 +1,66 @@
-name: ${COMPOSE_PROJECT_NAME:-bigbrotha}
-
-x-app-environment: &app-environment
-  APP_ENV: production
-  APP_DEBUG: "false"
-  APP_URL: ${APP_URL:?Set APP_URL in .env.docker}
-  APP_KEY_FILE: /app/bootstrap-persist/app.key
-  CACHE_STORE: database
-  DB_CONNECTION: pgsql
-  DB_DATABASE: ${DB_DATABASE:-bigbrotha}
-  DB_HOST: database
-  DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
-  DB_PORT: 5432
-  DB_USERNAME: ${DB_USERNAME:-bigbrotha}
-  CAMERA_RECORDING_WORKER_PROCESSES: ${CAMERA_RECORDING_WORKER_PROCESSES:-1}
-  GOOGLE_CLIENT_ID: ""
-  GOOGLE_CLIENT_SECRET: ""
-  GOOGLE_REDIRECT_URI: ""
-  LOG_CHANNEL: stderr
-  MEDIAMTX_API_BASE_URL: http://relay:9997
-  MEDIAMTX_AUTH_CALLBACK_URL: http://app:8080/relay/auth/mediamtx
-  MEDIAMTX_BINARY_PATH: /usr/local/bin/mediamtx
-  MEDIAMTX_MANAGED_EXTERNALLY: "true"
-  MEDIAMTX_RTSP_INTERNAL_BASE_URL: rtsp://relay:8554
-  MEDIAMTX_RTSP_LOCAL_INTERNAL_BASE_URL: rtsp://relay:8554
-  MEDIAMTX_RTSP_PUBLISH_BASE_URL: rtsp://relay:8554
-  MEDIAMTX_WEBRTC_INTERNAL_BASE_URL: http://relay:8889
-  QUEUE_CONNECTION: database
-  SESSION_DRIVER: database
-  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-*}
-
-x-logging: &default-logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "5"
-
-x-app-service: &app-service
-  env_file:
-    - path: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env.docker}
-      required: true
-  image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
-  environment: *app-environment
+x-service: &service
   init: true
-  logging: *default-logging
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "5"}
   restart: unless-stopped
-  security_opt:
-    - no-new-privileges:true
+  security_opt: [no-new-privileges:true]
   stop_grace_period: 1m
+
+x-app: &app
+  <<: *service
+  image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
+  env_file: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env.docker}
+  environment:
+    APP_URL: ${APP_URL:?Set APP_URL in .env.docker}
+    DB_DATABASE: ${DB_DATABASE:-bigbrotha}
+    DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
+    DB_USERNAME: ${DB_USERNAME:-bigbrotha}
   volumes:
     - app-storage:/app/storage
     - ./.docker-state:/app/bootstrap-persist
 
 services:
   app:
-    <<: *app-service
+    <<: *app
     depends_on:
-      database:
-        condition: service_healthy
+      database: {condition: service_healthy}
     ports:
       - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8082}:8080"
 
-  relay:
-    <<: *app-service
+  background:
+    <<: *app
+    command: ["run-background"]
     depends_on:
-      app:
-        condition: service_healthy
-    entrypoint:
-      - /bin/sh
-      - -lc
-    command:
-      - test -s /app/storage/app/private/mediamtx/mediamtx.yml && exec /usr/local/bin/mediamtx /app/storage/app/private/mediamtx/mediamtx.yml
-    env_file: []
-    environment: {}
-    cap_drop:
-      - ALL
+      app: {condition: service_healthy}
     healthcheck:
-      test:
-        [
-          "CMD",
-          "php",
-          "-r",
-          "$$context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]); $$response = @file_get_contents('http://127.0.0.1:9997/v3/info', false, $$context); if ($$response === false) { exit(1); } foreach ($$http_response_header ?? [] as $$header) { if (preg_match('#^HTTP/\\S+ 2\\d\\d#', $$header) === 1) { exit(0); } } exit(1);",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      test: [CMD, /usr/local/bin/healthcheck]
+      timeout: 10s
+      start_period: 90s
+
+  relay:
+    <<: *service
+    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
+    command: ["run-relay"]
+    depends_on:
+      app: {condition: service_healthy}
+    cap_drop: [ALL]
     ports:
       - "${MEDIAMTX_ICE_BIND_IP:-0.0.0.0}:${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/tcp"
       - "${MEDIAMTX_ICE_BIND_IP:-0.0.0.0}:${MEDIAMTX_ICE_PORT:-8190}:${MEDIAMTX_ICE_PORT:-8190}/udp"
     user: www-data:www-data
-
-  background:
-    <<: *app-service
-    depends_on:
-      app:
-        condition: service_healthy
-      database:
-        condition: service_healthy
-    command: ["run-background"]
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/healthcheck-background"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
+    volumes:
+      - app-storage:/app/storage
 
   database:
+    <<: *service
     image: postgres:18-alpine
-    init: true
-    logging: *default-logging
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 1m
     environment:
       POSTGRES_DB: ${DB_DATABASE:-bigbrotha}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
       POSTGRES_USER: ${DB_USERNAME:-bigbrotha}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bigbrotha} -d ${DB_DATABASE:-bigbrotha}"]
+      test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 12

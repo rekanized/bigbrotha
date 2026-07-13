@@ -9,6 +9,10 @@ start_command="${1:-php-fpm}"
 
 cd "$APP_ROOT"
 
+if [ "$(basename "$start_command")" = "run-relay" ]; then
+    exec "$@"
+fi
+
 mkdir -p \
     bootstrap/cache \
     storage/app/private/bootstrap \

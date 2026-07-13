@@ -67,8 +67,22 @@ class MediaMtxConfigDefaultsTest extends TestCase
         });
     }
 
+    public function test_ice_listeners_follow_the_single_published_ice_port_by_default(): void
+    {
+        $this->withEnvironmentOverrides([
+            'MEDIAMTX_ICE_PORT' => '8210',
+            'MEDIAMTX_WEBRTC_LOCAL_UDP_ADDRESS' => null,
+            'MEDIAMTX_WEBRTC_LOCAL_TCP_ADDRESS' => null,
+        ], function (): void {
+            $config = require base_path('config/mediamtx.php');
+
+            $this->assertSame(':8210', $config['webrtc']['local_udp_address']);
+            $this->assertSame(':8210', $config['webrtc']['local_tcp_address']);
+        });
+    }
+
     /**
-     * @param  array<string, string>  $overrides
+     * @param  array<string, string|null>  $overrides
      */
     private function withEnvironmentOverrides(array $overrides, callable $callback): void
     {
@@ -83,9 +97,14 @@ class MediaMtxConfigDefaultsTest extends TestCase
                 'server_value' => $_SERVER[$key] ?? null,
             ];
 
-            putenv($key.'='.$value);
-            $_ENV[$key] = $value;
-            $_SERVER[$key] = $value;
+            if ($value === null) {
+                putenv($key);
+                unset($_ENV[$key], $_SERVER[$key]);
+            } else {
+                putenv($key.'='.$value);
+                $_ENV[$key] = $value;
+                $_SERVER[$key] = $value;
+            }
         }
 
         try {

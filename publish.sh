@@ -53,6 +53,9 @@ validate_app_image() {
         test -f /usr/local/etc/php-fpm.d/zz-production.conf
         test -f /etc/supervisor/app.conf
         test -f /etc/supervisor/background.conf
+        test -x /usr/local/bin/healthcheck
+        test -x /usr/local/bin/healthcheck-relay
+        test -x /usr/local/bin/run-relay
         nginx -t
         CAMERA_RECORDING_WORKER_PROCESSES=1 python3 -c '\''import sys; from supervisor.options import ServerOptions; [ServerOptions().realize(["-c", path]) for path in sys.argv[1:]]'\'' /etc/supervisor/app.conf /etc/supervisor/background.conf
         php -r '\''foreach (["bcmath", "mbstring", "pcntl", "pdo_pgsql", "xml", "zip"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension: {$extension}\n"); exit(1); } }'\''

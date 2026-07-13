@@ -101,6 +101,19 @@ ARG APP_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
+ENV APP_ENV=production \
+    APP_DEBUG=false \
+    APP_KEY_FILE=/app/bootstrap-persist/app.key \
+    CACHE_STORE=database \
+    DB_CONNECTION=pgsql \
+    DB_HOST=database \
+    DB_PORT=5432 \
+    LOG_CHANNEL=stderr \
+    MEDIAMTX_AUTH_CALLBACK_URL=http://app:8080/relay/auth/mediamtx \
+    MEDIAMTX_MANAGED_EXTERNALLY=true \
+    QUEUE_CONNECTION=database \
+    SESSION_DRIVER=database
+
 LABEL org.opencontainers.image.title="BigBrotha Laravel application" \
       org.opencontainers.image.description="Laravel camera operations application with ffmpeg and MediaMTX" \
       org.opencontainers.image.source="https://github.com/rekanized/bigbrotha" \
@@ -130,23 +143,29 @@ RUN mkdir -p \
     && chown -R www-data:www-data bootstrap/cache storage
 
 COPY docker/entrypoint.sh /usr/local/bin/container-entrypoint
+COPY docker/healthcheck.sh /usr/local/bin/healthcheck
 COPY docker/healthcheck-app.sh /usr/local/bin/healthcheck-app
 COPY docker/healthcheck-background.sh /usr/local/bin/healthcheck-background
+COPY docker/healthcheck-relay.sh /usr/local/bin/healthcheck-relay
 COPY docker/run-app.sh /usr/local/bin/run-app
 COPY docker/run-background.sh /usr/local/bin/run-background
+COPY docker/run-relay.sh /usr/local/bin/run-relay
 COPY docker/run-worker.sh /usr/local/bin/run-worker
 COPY docker/run-scheduler.sh /usr/local/bin/run-scheduler
 
 RUN chmod 0755 \
         /usr/local/bin/container-entrypoint \
+        /usr/local/bin/healthcheck \
         /usr/local/bin/healthcheck-app \
         /usr/local/bin/healthcheck-background \
+        /usr/local/bin/healthcheck-relay \
         /usr/local/bin/run-app \
         /usr/local/bin/run-background \
+        /usr/local/bin/run-relay \
         /usr/local/bin/run-worker \
         /usr/local/bin/run-scheduler
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["/usr/local/bin/healthcheck-app"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["/usr/local/bin/healthcheck"]
 
 ENTRYPOINT ["container-entrypoint"]
 CMD ["run-app"]

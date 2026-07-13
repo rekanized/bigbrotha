@@ -121,7 +121,9 @@ If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are
 ## Docker Deployment Security And PostgreSQL 18
 
 - `.env.docker` contains the database credential and must be mode `0600`; `docker/compose.sh` enforces that permission when it manages the deployment.
-- `APP_URL` and `DB_PASSWORD` are required Compose values. The stack no longer starts with the public `bigbrotha` database-password default.
+- `APP_URL` and `DB_PASSWORD` are required Compose values. `docker/compose.sh` generates `DB_PASSWORD` when it is empty or missing, while raw Compose users must provide it themselves.
+- `MEDIAMTX_ICE_PORT` configures both published ICE transports and both internal MediaMTX listeners. Only use the lower-level listener variables when an intentionally asymmetric deployment requires them.
+- The compact Compose file and application image are one runtime contract. The image must contain `run-relay`, the role-aware health check, and the baked production defaults from the same revision; build locally or publish the matching image before recreating a deployment from a newer Compose file.
 - `CAMERA_RECORDING_WORKER_PROCESSES` is the queue-worker process count supervised inside the single `background` container.
 - Docker JSON logs are rotated, the relay runs as `www-data` with all capabilities dropped, and `no-new-privileges` is enabled for the stack services.
 - PostgreSQL 18 changed its official-image `PGDATA` to a version-specific directory below `/var/lib/postgresql`. The Compose volume must therefore target `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
