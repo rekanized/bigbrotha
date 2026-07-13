@@ -21,6 +21,10 @@ if [ "$interval_seconds" -lt 1 ]; then
     exit 1
 fi
 
+# An interrupted container can leave Laravel's persistent overlap mutexes behind.
+# This process is the sole scheduler for a stack, so its startup owns clearing them.
+php artisan schedule:clear-cache --no-interaction
+
 if [ "${CAMERA_RECORDING_BOOTSTRAP_TICK:-true}" = "true" ]; then
     if ! php artisan camera-recordings:tick --no-interaction; then
         echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') initial camera-recordings:tick failed; continuing so the recurring scheduler loop can retry." >&2

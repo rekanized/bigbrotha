@@ -80,6 +80,19 @@ class DockerRuntimeConfigurationTest extends TestCase
         }
     }
 
+    public function test_scheduler_clears_interrupted_overlap_locks_before_the_bootstrap_tick(): void
+    {
+        $scheduler = file_get_contents(base_path('docker/run-scheduler.sh'));
+
+        $this->assertIsString($scheduler);
+        $clearPosition = strpos($scheduler, 'php artisan schedule:clear-cache --no-interaction');
+        $tickPosition = strpos($scheduler, 'php artisan camera-recordings:tick --no-interaction');
+
+        $this->assertIsInt($clearPosition);
+        $this->assertIsInt($tickPosition);
+        $this->assertLessThan($tickPosition, $clearPosition);
+    }
+
     public function test_container_startup_repairs_persistent_recorder_runtime_permissions(): void
     {
         $entrypoint = file_get_contents(base_path('docker/entrypoint.sh'));

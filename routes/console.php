@@ -222,6 +222,8 @@ Artisan::command('camera-fleet:refresh-previews', function (): int {
 
 Artisan::command('camera-recordings:tick', function (): int {
     $scheduledFor = now()->utc()->startOfMinute();
+    $heartbeats = app(RuntimeHeartbeatService::class);
+    $heartbeats->touchRecordingTick('camera-recordings:tick:start');
     $recordings = app(CameraRecordingService::class);
     $recovered = $recordings->recoverStalePendingRecordings();
     $continuousRecorders = app(ContinuousRecordingSegmenterService::class);
@@ -239,8 +241,10 @@ Artisan::command('camera-recordings:tick', function (): int {
         ->where('supports_rtsp', true)
         ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
         ->orderBy('id')
-        ->chunkById(50, function ($cameras) use ($scheduledFor, &$queued, &$continuousStarted, &$continuousImported, &$motionStarted, &$motionFinalized, $recordings, $continuousRecorders): void {
+        ->chunkById(50, function ($cameras) use (&$queued, &$continuousStarted, &$continuousImported, &$motionStarted, &$motionFinalized, $recordings, $continuousRecorders, $heartbeats): void {
             foreach ($cameras as $camera) {
+                $heartbeats->touchRecordingTick('camera-recordings:tick:camera-'.$camera->id);
+
                 if (!$camera->hasRecordingEnabled()) {
                     continue;
                 }
@@ -326,7 +330,7 @@ Artisan::command('camera-recordings:tick', function (): int {
     }
 
     $this->components->info($message);
-    app(RuntimeHeartbeatService::class)->touchRecordingTick('camera-recordings:tick');
+    $heartbeats->touchRecordingTick('camera-recordings:tick:complete');
 
     return 0;
 })->purpose('Queue recording work for cameras with active recording policies');
