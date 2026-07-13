@@ -8,6 +8,7 @@ use App\Http\Controllers\AdminSettingsController;
 use App\Http\Controllers\AdminUsersController;
 use App\Http\Controllers\Auth\GoogleTestCallbackController;
 use App\Http\Controllers\Auth\GoogleTestRedirectController;
+use App\Http\Controllers\CameraFleetMotionEditorAnalysisController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
 use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetController;
@@ -53,6 +54,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)
         ->middleware('media-access')
         ->name('camera-fleet.motion-editor-session');
+    Route::post('/camera-fleet/{camera}/motion-editor-analysis', CameraFleetMotionEditorAnalysisController::class)
+        ->name('camera-fleet.motion-editor-analysis');
     Route::get('/recordings', [RecordingController::class, 'index'])->name('recordings.index');
     Route::get('/recordings/timeline', [RecordingController::class, 'timeline'])->name('recordings.timeline');
     Route::get('/recordings/timeline/cameras/{camera}/segments', [RecordingController::class, 'timelineRailData'])->name('recordings.timeline.rail-data');

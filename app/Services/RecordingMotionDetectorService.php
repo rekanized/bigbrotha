@@ -17,7 +17,7 @@ class RecordingMotionDetectorService
 
     /**
      * @param  array{authenticated_uri: string, transport: string}  $source
-     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int}
+     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
      */
     public function detect(Camera $camera, array $source): array
     {
@@ -48,7 +48,7 @@ class RecordingMotionDetectorService
     }
 
     /**
-     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int}
+     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
      */
     public function detectClip(Camera $camera, string $absolutePath, ?int $offsetSeconds = null, ?int $durationSeconds = null): array
     {
@@ -72,7 +72,7 @@ class RecordingMotionDetectorService
 
     /**
      * @param  array<int, string>  $inputArguments
-     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int}
+     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
      */
     private function detectFromInput(Camera $camera, array $inputArguments, ?int $expectedDurationSeconds = null): array
     {
@@ -96,6 +96,7 @@ class RecordingMotionDetectorService
                 'changed_pixels' => 0,
                 'selected_pixels' => 0,
                 'frame_count' => 0,
+                'changed_indexes' => [],
             ];
         }
 
@@ -142,6 +143,7 @@ class RecordingMotionDetectorService
                     'changed_pixels' => $selectedPixels,
                     'selected_pixels' => $selectedPixels,
                     'frame_count' => max(2, $legacyHits + 1),
+                    'changed_indexes' => $selectedIndexes,
                 ];
             }
 
@@ -151,6 +153,7 @@ class RecordingMotionDetectorService
                 'changed_pixels' => 0,
                 'selected_pixels' => $selectedPixels,
                 'frame_count' => $frameCount,
+                'changed_indexes' => [],
             ];
         }
 
@@ -187,6 +190,7 @@ class RecordingMotionDetectorService
             min(1.0, (float) config('recording.motion.refresh_spike_activity_ratio', 0.85))
         );
         $peakChangedPixels = 0;
+        $peakChangedIndexes = [];
         $detected = false;
         $frames = [];
 
@@ -214,9 +218,7 @@ class RecordingMotionDetectorService
                 $clusterBonusMinSize,
                 $clusterBonusMultiplier,
             );
-            $activityRatio = min(1.0, $changedPixels / $selectedPixels);
-
-            if ($changedPixels < $triggerPixelThreshold) {
+            if ($changedPixels < 1) {
                 continue;
             }
 
@@ -246,8 +248,12 @@ class RecordingMotionDetectorService
                 continue;
             }
 
-            $peakChangedPixels = max($peakChangedPixels, $changedPixels);
-            if ($activityRatio >= $activityThreshold) {
+            if ($changedPixels > $peakChangedPixels) {
+                $peakChangedPixels = $changedPixels;
+                $peakChangedIndexes = $changedIndexes;
+            }
+
+            if ($changedPixels >= $triggerPixelThreshold) {
                 $detected = true;
             }
         }
@@ -258,6 +264,7 @@ class RecordingMotionDetectorService
             'changed_pixels' => $peakChangedPixels,
             'selected_pixels' => $selectedPixels,
             'frame_count' => $frameCount,
+            'changed_indexes' => $peakChangedIndexes,
         ];
     }
 

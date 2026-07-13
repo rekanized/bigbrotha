@@ -98,37 +98,24 @@
             this.playerRestartTimer = null;
             this.playerRestartAttempts = 0;
             this.maxPlayerRestartAttempts = 40;
-            this.sampleFrameHandle = null;
-            this.lastSampleAt = 0;
+            this.analysisTimer = null;
+            this.analysisAbortController = null;
+            this.analysisInFlight = false;
+            this.analysisStatus = 'waiting';
+            this.analysisMessage = 'Waiting for the recorder detector...';
+            this.settingsSaved = true;
+            this.recordingEventActive = false;
             this.isPainting = false;
             this.isSaving = false;
             this.tool = 'paint';
-            this.sampleFps = 4;
-            this.pixelDeltaThreshold = Math.max(1, Number.parseInt(root.dataset.pixelDeltaThreshold || '18', 10) || 18);
-            this.isolatedPixelRadius = Math.max(1, Number.parseInt(root.dataset.isolatedPixelRadius || '1', 10) || 1);
-            this.minimumClusterPixels = Math.max(3, Number.parseInt(root.dataset.minimumClusterPixels || '3', 10) || 3);
-            this.clusterBonusMinSize = Math.max(3, Number.parseInt(root.dataset.clusterBonusMinSize || '3', 10) || 3);
             this.clusterBonusMultiplier = Math.max(0, Number.parseInt(root.dataset.clusterBonusMultiplier || '2', 10) || 2);
-            this.artifactWidespreadActivityRatio = Math.max(0.1, Math.min(1, Number.parseFloat(root.dataset.artifactWidespreadActivityRatio || '0.55') || 0.55));
-            this.artifactLuminanceMeanDelta = Math.max(1, Math.min(255, Number.parseFloat(root.dataset.artifactLuminanceMeanDelta || '6') || 6));
-            this.artifactLuminanceDirectionRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.artifactLuminanceDirectionRatio || '0.9') || 0.9));
-            this.artifactLuminanceCoverageRatio = Math.max(0.1, Math.min(1, Number.parseFloat(root.dataset.artifactLuminanceCoverageRatio || '0.5') || 0.5));
-            this.artifactLuminancePixelDelta = Math.max(1, Math.min(this.pixelDeltaThreshold, Number.parseInt(root.dataset.artifactLuminancePixelDelta || '4', 10) || 4));
-            this.refreshSpikeWindowFrames = Math.max(1, Number.parseInt(root.dataset.refreshSpikeWindowFrames || '2', 10) || 2);
-            this.refreshSpikeActivityRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.refreshSpikeActivityRatio || '0.85') || 0.85));
+            this.analysisIntervalMs = Math.max(1000, Number.parseInt(root.dataset.analysisIntervalMs || '4000', 10) || 4000);
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
             this.gridHeight = Math.max(1, Number.parseInt(root.dataset.gridHeight || '90', 10) || 90);
             this.totalPixels = this.gridWidth * this.gridHeight;
-            this.offscreenCanvas = document.createElement('canvas');
-            this.offscreenCanvas.width = this.gridWidth;
-            this.offscreenCanvas.height = this.gridHeight;
-            this.offscreenContext = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
             this.maskBits = new Uint8Array(this.totalPixels);
             this.changedBits = new Uint8Array(this.totalPixels);
-            this.frameHistory = [];
-            this.previousFrame = null;
             this.currentChangedPixels = 0;
-            this.currentRawChangedPixels = 0;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 
@@ -152,7 +139,7 @@
             this.refreshMetrics();
             this.renderMask();
             this.renderActivity();
-            this.startSampling();
+            this.queueAnalysis(0);
         }
 
         dispose() {
@@ -173,9 +160,13 @@
             this.brushInput?.removeEventListener('input', this.handleBrushInput);
             this.saveButton?.removeEventListener('click', this.handleSaveButtonClick, true);
 
-            if (this.sampleFrameHandle !== null) {
-                window.cancelAnimationFrame(this.sampleFrameHandle);
+            if (this.analysisTimer !== null) {
+                window.clearTimeout(this.analysisTimer);
+                this.analysisTimer = null;
             }
+
+            this.analysisAbortController?.abort();
+            this.analysisAbortController = null;
 
             if (this.playerRestartTimer !== null) {
                 window.clearTimeout(this.playerRestartTimer);
@@ -329,6 +320,7 @@
             this.renderMask();
             this.renderActivity();
             this.refreshMetrics();
+            this.queueAnalysis(0);
         }
 
         handleClearMaskClick() {
@@ -337,6 +329,7 @@
             this.renderMask();
             this.renderActivity();
             this.refreshMetrics();
+            this.queueAnalysis(0);
         }
 
         handleBrushInput() {
@@ -347,6 +340,8 @@
 
         handleTriggerPixelsInput() {
             this.refreshTriggerPixelsUi();
+            this.settingsSaved = false;
+            this.queueAnalysis(250);
         }
 
         handleProfileChange() {
@@ -354,6 +349,7 @@
             this.renderActivity();
             this.refreshMetrics();
             this.restartPlayer();
+            this.queueAnalysis(0);
         }
 
         handlePointerDown(event) {
@@ -381,6 +377,7 @@
             }
 
             this.isPainting = false;
+            this.queueAnalysis(0);
         }
 
         paintAt(event) {
@@ -412,6 +409,8 @@
 
             this.renderMask();
             this.refreshMetrics();
+            this.settingsSaved = false;
+            this.queueAnalysis(350);
         }
 
         gridPointFromEvent(event) {
@@ -543,24 +542,45 @@
             if (this.stateValue instanceof HTMLElement) {
                 if (selectedPixels < 1) {
                     this.stateValue.textContent = 'Mask empty';
+                } else if (this.analysisStatus === 'error') {
+                    this.stateValue.textContent = 'Unavailable';
+                } else if (this.analysisStatus === 'waiting') {
+                    this.stateValue.textContent = 'Waiting for buffer';
                 } else if (this.isTriggered) {
-                    this.stateValue.textContent = 'Recording';
+                    this.stateValue.textContent = this.settingsSaved
+                        ? (this.recordingEventActive ? 'Recording event active' : 'Would trigger recorder')
+                        : 'Would trigger after save';
                 } else if (this.currentChangedPixels > 0) {
-                    this.stateValue.textContent = 'Tracking';
+                    this.stateValue.textContent = this.settingsSaved ? 'Below threshold' : 'Draft below threshold';
                 } else {
-                    this.stateValue.textContent = 'Watching';
+                    this.stateValue.textContent = this.settingsSaved ? 'No recorder trigger' : 'Draft has no trigger';
                 }
             }
 
             if (this.statusBadge instanceof HTMLElement) {
-                this.statusBadge.dataset.state = selectedPixels < 1
-                    ? 'empty'
-                    : (this.isTriggered ? 'triggered' : (this.currentChangedPixels > 0 ? 'active' : 'watching'));
-                this.statusBadge.textContent = selectedPixels < 1
-                    ? 'Mask empty'
-                    : (this.isTriggered
-                        ? 'Recording trigger active'
-                        : (this.currentChangedPixels > 0 ? 'Trigger pixels visible' : 'Armed and watching'));
+                if (selectedPixels < 1) {
+                    this.statusBadge.dataset.state = 'empty';
+                    this.statusBadge.textContent = 'Mask empty';
+                } else if (this.analysisStatus === 'error') {
+                    this.statusBadge.dataset.state = 'error';
+                    this.statusBadge.textContent = 'Recorder analysis unavailable';
+                } else if (this.analysisStatus === 'waiting') {
+                    this.statusBadge.dataset.state = 'waiting';
+                    this.statusBadge.textContent = 'Waiting for recorder buffer';
+                } else if (this.isTriggered) {
+                    this.statusBadge.dataset.state = 'triggered';
+                    this.statusBadge.textContent = this.settingsSaved
+                        ? (this.recordingEventActive ? 'Recording event active' : 'Recorder would trigger')
+                        : 'Draft would trigger after save';
+                } else if (this.currentChangedPixels > 0) {
+                    this.statusBadge.dataset.state = 'active';
+                    this.statusBadge.textContent = 'Recorder activity below threshold';
+                } else {
+                    this.statusBadge.dataset.state = 'watching';
+                    this.statusBadge.textContent = 'Recorder sees no trigger';
+                }
+
+                this.statusBadge.title = this.analysisMessage;
             }
         }
 
@@ -619,72 +639,86 @@
             }
         }
 
-        startSampling() {
-            const step = (timestamp) => {
-                if (!document.body.contains(this.root)) {
-                    return;
-                }
+        queueAnalysis(delay = this.analysisIntervalMs) {
+            if (this.analysisTimer !== null) {
+                window.clearTimeout(this.analysisTimer);
+            }
 
-                if ((timestamp - this.lastSampleAt) >= (1000 / this.sampleFps)) {
-                    this.lastSampleAt = timestamp;
-                    this.sampleFrame();
-                }
-
-                this.sampleFrameHandle = window.requestAnimationFrame(step);
-            };
-
-            this.sampleFrameHandle = window.requestAnimationFrame(step);
+            this.analysisTimer = window.setTimeout(() => {
+                this.analysisTimer = null;
+                this.requestRecorderAnalysis();
+            }, Math.max(0, delay));
         }
 
-        sampleFrame() {
-            if (!(this.video instanceof HTMLVideoElement) || !(this.offscreenContext instanceof CanvasRenderingContext2D)) {
+        async requestRecorderAnalysis() {
+            if (!document.body.contains(this.root) || this.analysisInFlight || this.analysisUrl() === '') {
                 return;
             }
 
-            if (this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || this.video.videoWidth < 1 || this.video.videoHeight < 1) {
-                return;
+            this.analysisInFlight = true;
+            this.analysisAbortController = new AbortController();
+
+            try {
+                const response = await fetch(this.analysisUrl(), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                    },
+                    body: JSON.stringify({
+                        mask: this.maskPayload(),
+                        trigger_pixels: this.triggerPixelsThreshold(),
+                    }),
+                    signal: this.analysisAbortController.signal,
+                });
+                const payload = await response.json().catch(() => null);
+
+                if (!response.ok || !payload || typeof payload !== 'object') {
+                    throw new Error(typeof payload?.message === 'string' ? payload.message : 'Recorder analysis failed.');
+                }
+
+                this.applyRecorderAnalysis(payload);
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    this.analysisStatus = 'error';
+                    this.analysisMessage = error instanceof Error ? error.message : 'Recorder analysis failed.';
+                    this.resetDetectionState(false);
+                    this.renderActivity();
+                    this.refreshMetrics();
+                }
+            } finally {
+                this.analysisInFlight = false;
+                this.analysisAbortController = null;
+
+                if (document.body.contains(this.root)) {
+                    this.queueAnalysis();
+                }
             }
+        }
 
-            this.offscreenContext.drawImage(this.video, 0, 0, this.gridWidth, this.gridHeight);
-            const imageData = this.offscreenContext.getImageData(0, 0, this.gridWidth, this.gridHeight).data;
-            const currentFrame = new Uint8Array(this.totalPixels);
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                const offset = index * 4;
-                currentFrame[index] = Math.round(
-                    (imageData[offset] * 0.299)
-                    + (imageData[offset + 1] * 0.587)
-                    + (imageData[offset + 2] * 0.114),
-                );
-            }
-
-            this.frameHistory.push(currentFrame);
-
-            if (this.frameHistory.length > Math.max(2, this.refreshSpikeWindowFrames + 2)) {
-                this.frameHistory.shift();
-            }
-
-            if (this.frameHistory.length < 2) {
-                this.previousFrame = currentFrame;
-
-                return;
-            }
-
-            const transition = this.currentTransition();
-            const selectedPixels = this.selectedPixels();
-
-            this.previousFrame = currentFrame;
-
-            if (transition === null) {
-                return;
-            }
+        applyRecorderAnalysis(payload) {
+            const decision = payload.decision && typeof payload.decision === 'object' ? payload.decision : {};
+            const changedIndexes = Array.isArray(decision.changed_indexes) ? decision.changed_indexes : [];
 
             this.changedBits.fill(0);
-            this.changedBits.set(transition.bits);
-            this.currentChangedPixels = transition.changedPixels;
-            this.currentRawChangedPixels = transition.rawChangedPixels;
-            this.currentActivityRatio = selectedPixels > 0 ? Math.min(1, (transition.changedPixels / selectedPixels)) : 0;
-            this.isTriggered = selectedPixels > 0 && transition.changedPixels >= this.triggerPixelsNeeded(selectedPixels);
+
+            changedIndexes.forEach((value) => {
+                const index = Number.parseInt(value, 10);
+
+                if (Number.isInteger(index) && index >= 0 && index < this.totalPixels && this.maskBits[index] === 1) {
+                    this.changedBits[index] = 1;
+                }
+            });
+
+            this.analysisStatus = typeof payload.status === 'string' ? payload.status : 'ready';
+            this.analysisMessage = typeof payload.message === 'string' ? payload.message : '';
+            this.settingsSaved = payload.settings_saved === true;
+            this.recordingEventActive = payload.recording_event_active === true;
+            this.currentChangedPixels = Math.max(0, Number.parseInt(decision.effective_trigger_pixels || '0', 10) || 0);
+            this.currentActivityRatio = Math.max(0, Math.min(1, Number.parseFloat(decision.activity_ratio || '0') || 0));
+            this.isTriggered = decision.detected === true;
             this.renderActivity();
             this.refreshMetrics();
         }
@@ -764,302 +798,24 @@
             return Math.max(1, selectedPixels + (selectedPixels * this.clusterBonusMultiplier));
         }
 
-        currentTransition() {
-            const currentIndex = this.frameHistory.length - 1;
-
-            if (currentIndex < 1) {
-                return null;
-            }
-
-            const previousFrame = this.frameHistory[currentIndex - 1];
-            const currentFrame = this.frameHistory[currentIndex];
-            const bits = new Uint8Array(this.totalPixels);
-            let changedPixels = 0;
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                if (this.maskBits[index] !== 1) {
-                    continue;
-                }
-
-                if (Math.abs(currentFrame[index] - previousFrame[index]) >= this.pixelDeltaThreshold) {
-                    bits[index] = 1;
-                    changedPixels += 1;
-                }
-            }
-
-            if (changedPixels < 1) {
-                return {
-                    bits,
-                    changedPixels: 0,
-                    rawChangedPixels: 0,
-                };
-            }
-
-            const filteredBits = this.filterIsolatedChangedBits(bits);
-            const filteredChangedPixels = this.countChangedBits(filteredBits);
-
-            if (filteredChangedPixels < 1) {
-                return {
-                    bits: filteredBits,
-                    changedPixels: 0,
-                    rawChangedPixels: 0,
-                };
-            }
-
-            if (this.isFrameRefreshArtifact(previousFrame, currentFrame) || this.isIsolatedRefreshSpike(currentIndex)) {
-                return {
-                    bits: new Uint8Array(this.totalPixels),
-                    changedPixels: 0,
-                    rawChangedPixels: 0,
-                };
-            }
-
-            const weightedTriggerPixels = this.weightedTriggerPixels(filteredBits);
-
-            return {
-                bits: filteredBits,
-                changedPixels: weightedTriggerPixels,
-                rawChangedPixels: filteredChangedPixels,
-            };
-        }
-
-        filterIsolatedChangedBits(bits) {
-            if (!(bits instanceof Uint8Array)) {
-                return new Uint8Array(this.totalPixels);
-            }
-
-            const filteredBits = new Uint8Array(this.totalPixels);
-            const visited = new Uint8Array(this.totalPixels);
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                if (bits[index] !== 1 || visited[index] === 1) {
-                    continue;
-                }
-
-                const cluster = this.connectedClusterIndexes(bits, index, visited, this.isolatedPixelRadius);
-
-                if (cluster.length < this.minimumClusterPixels) {
-                    continue;
-                }
-
-                for (const clusterIndex of cluster) {
-                    filteredBits[clusterIndex] = 1;
-                }
-            }
-
-            return filteredBits;
-        }
-
-        connectedClusterIndexes(bits, startingIndex, visited, radius = 1) {
-            const stack = [startingIndex];
-            const cluster = [];
-            visited[startingIndex] = 1;
-
-            while (stack.length > 0) {
-                const index = stack.pop();
-
-                if (typeof index !== 'number') {
-                    continue;
-                }
-
-                cluster.push(index);
-
-                const x = index % this.gridWidth;
-                const y = Math.floor(index / this.gridWidth);
-
-                for (let neighborY = Math.max(0, y - radius); neighborY <= Math.min(this.gridHeight - 1, y + radius); neighborY += 1) {
-                    for (let neighborX = Math.max(0, x - radius); neighborX <= Math.min(this.gridWidth - 1, x + radius); neighborX += 1) {
-                        if (neighborX === x && neighborY === y) {
-                            continue;
-                        }
-
-                        const neighborIndex = (neighborY * this.gridWidth) + neighborX;
-
-                        if (bits[neighborIndex] !== 1 || visited[neighborIndex] === 1) {
-                            continue;
-                        }
-
-                        visited[neighborIndex] = 1;
-                        stack.push(neighborIndex);
-                    }
-                }
-            }
-
-            return cluster;
-        }
-
-        countChangedBits(bits) {
-            let changedPixels = 0;
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                changedPixels += bits[index] === 1 ? 1 : 0;
-            }
-
-            return changedPixels;
-        }
-
-        weightedTriggerPixels(bits) {
-            const visited = new Uint8Array(this.totalPixels);
-            let triggerPixels = 0;
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                if (bits[index] !== 1 || visited[index] === 1) {
-                    continue;
-                }
-
-                const clusterSize = this.connectedClusterSize(bits, index, visited);
-
-                triggerPixels += clusterSize;
-
-                if (clusterSize >= this.clusterBonusMinSize) {
-                    triggerPixels += (clusterSize - (this.clusterBonusMinSize - 1)) * this.clusterBonusMultiplier;
-                }
-            }
-
-            return triggerPixels;
-        }
-
-        connectedClusterSize(bits, startingIndex, visited) {
-            const stack = [startingIndex];
-            visited[startingIndex] = 1;
-            let clusterSize = 0;
-
-            while (stack.length > 0) {
-                const index = stack.pop();
-
-                if (typeof index !== 'number') {
-                    continue;
-                }
-
-                clusterSize += 1;
-
-                const x = index % this.gridWidth;
-                const y = Math.floor(index / this.gridWidth);
-
-                for (let neighborY = Math.max(0, y - 1); neighborY <= Math.min(this.gridHeight - 1, y + 1); neighborY += 1) {
-                    for (let neighborX = Math.max(0, x - 1); neighborX <= Math.min(this.gridWidth - 1, x + 1); neighborX += 1) {
-                        if (neighborX === x && neighborY === y) {
-                            continue;
-                        }
-
-                        const neighborIndex = (neighborY * this.gridWidth) + neighborX;
-
-                        if (bits[neighborIndex] !== 1 || visited[neighborIndex] === 1) {
-                            continue;
-                        }
-
-                        visited[neighborIndex] = 1;
-                        stack.push(neighborIndex);
-                    }
-                }
-            }
-
-            return clusterSize;
-        }
-
-        isFrameRefreshArtifact(leftFrame, rightFrame) {
-            let changedPixels = 0;
-            let luminanceChangedPixels = 0;
-            let absoluteDelta = 0;
-            let signedDelta = 0;
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                const delta = rightFrame[index] - leftFrame[index];
-                absoluteDelta += Math.abs(delta);
-                signedDelta += delta;
-
-                if (Math.abs(delta) >= this.pixelDeltaThreshold) {
-                    changedPixels += 1;
-                }
-
-                if (Math.abs(delta) >= this.artifactLuminancePixelDelta) {
-                    luminanceChangedPixels += 1;
-                }
-            }
-
-            if ((changedPixels / this.totalPixels) >= this.artifactWidespreadActivityRatio) {
-                return true;
-            }
-
-            const meanAbsoluteDelta = absoluteDelta / this.totalPixels;
-
-            if (meanAbsoluteDelta < this.artifactLuminanceMeanDelta
-                || (luminanceChangedPixels / this.totalPixels) < this.artifactLuminanceCoverageRatio
-                || absoluteDelta < 1) {
-                return false;
-            }
-
-            return (Math.abs(signedDelta) / absoluteDelta) >= this.artifactLuminanceDirectionRatio;
-        }
-
-        isIsolatedRefreshSpike(currentIndex) {
-            const previousFrame = this.frameHistory[currentIndex - 1] ?? null;
-            const currentFrame = this.frameHistory[currentIndex] ?? null;
-
-            if (!(previousFrame instanceof Uint8Array) || !(currentFrame instanceof Uint8Array)) {
-                return false;
-            }
-
-            const activityThreshold = this.triggerPixelsNeeded() / Math.max(1, this.selectedPixels());
-            const currentTransitionRatio = this.changedPixelsAcrossFrame(previousFrame, currentFrame) / this.totalPixels;
-
-            if (currentTransitionRatio < this.refreshSpikeActivityRatio) {
-                return false;
-            }
-
-            for (let lookahead = 1; lookahead <= this.refreshSpikeWindowFrames; lookahead += 1) {
-                const futureFrame = this.frameHistory[currentIndex + lookahead] ?? null;
-
-                if (!(futureFrame instanceof Uint8Array)) {
-                    break;
-                }
-
-                const futureChangedRatio = this.changedPixelsAcrossFrame(currentFrame, futureFrame) / this.totalPixels;
-                const recoveredRatio = this.changedPixelsAcrossFrame(previousFrame, futureFrame) / this.totalPixels;
-
-                if (futureChangedRatio >= this.refreshSpikeActivityRatio && recoveredRatio < activityThreshold) {
-                    return true;
-                }
-            }
-
-            for (let lookback = 1; lookback <= this.refreshSpikeWindowFrames; lookback += 1) {
-                const olderFrame = this.frameHistory[currentIndex - lookback - 1] ?? null;
-
-                if (!(olderFrame instanceof Uint8Array)) {
-                    break;
-                }
-
-                const pastChangedRatio = this.changedPixelsAcrossFrame(olderFrame, previousFrame) / this.totalPixels;
-                const recoveredRatio = this.changedPixelsAcrossFrame(olderFrame, currentFrame) / this.totalPixels;
-
-                if (pastChangedRatio >= this.refreshSpikeActivityRatio && recoveredRatio < activityThreshold) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        changedPixelsAcrossFrame(leftFrame, rightFrame) {
-            let changedPixels = 0;
-
-            for (let index = 0; index < this.totalPixels; index += 1) {
-                if (Math.abs(leftFrame[index] - rightFrame[index]) >= this.pixelDeltaThreshold) {
-                    changedPixels += 1;
-                }
-            }
-
-            return changedPixels;
-        }
-
-        resetDetectionState() {
-            this.frameHistory = [];
-            this.previousFrame = null;
+        resetDetectionState(resetStatus = true) {
             this.changedBits.fill(0);
             this.currentChangedPixels = 0;
-            this.currentRawChangedPixels = 0;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
+
+            if (resetStatus) {
+                this.analysisStatus = 'waiting';
+                this.analysisMessage = 'Waiting for the recorder detector...';
+            }
+        }
+
+        analysisUrl() {
+            return this.root.dataset.analysisUrl || '';
+        }
+
+        csrfToken() {
+            return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
         }
 
         sessionUrlBase() {

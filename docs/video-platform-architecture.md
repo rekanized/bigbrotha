@@ -124,7 +124,7 @@ Current behavior includes:
 - RTSP profile refresh from ONVIF.
 - per-profile RTSP connection testing.
 - preview capture and preview display.
-- recording mode, retention, movement threshold, and painted motion-mask editing over the live feed.
+- recording mode, retention, movement threshold, and painted motion-mask editing over the live feed. The editor sends its draft mask and threshold to an authenticated backend analysis endpoint, which runs the real recorder detector against the latest closed rolling-buffer segment and returns the exact qualifying activity cells; the browser-transcoded WebRTC picture is display-only and no longer makes recording decisions.
 - recent recording queue and retention status directly in the editor.
 - latest preview thumbnail directly in each fleet row.
 

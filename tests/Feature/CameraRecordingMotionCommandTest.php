@@ -195,6 +195,46 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertNotNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
     }
 
+    public function test_detector_exposes_the_filtered_activity_cells_used_by_the_motion_editor(): void
+    {
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-brief-local')]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Backyard',
+            'local_ip' => '192.168.1.89',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream18',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'recording_motion_trigger_pixels' => 3,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 16,
+                'runs' => [[0, 15]],
+            ],
+        ]);
+        $segmentPath = storage_path('app/private/test-motion-editor-buffer.mkv');
+        File::ensureDirectoryExists(dirname($segmentPath));
+        File::put($segmentPath, 'brief-motion-0');
+
+        try {
+            $motion = app(RecordingMotionDetectorService::class)->detectClip($camera, $segmentPath);
+        } finally {
+            File::delete($segmentPath);
+        }
+
+        $this->assertTrue($motion['detected']);
+        $this->assertSame(8, $motion['changed_pixels']);
+        $this->assertEqualsCanonicalizing([0, 1, 4, 5], $motion['changed_indexes']);
+    }
+
     public function test_it_ignores_isolated_single_pixel_changes_inside_the_mask(): void
     {
         config()->set('queue.default', 'sync');

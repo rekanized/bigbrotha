@@ -873,6 +873,7 @@
                         @php($motionPreRollSeconds = max(0, min(30, (int) ($form['recording_motion_pre_roll_seconds'] ?? config('recording.motion.pre_roll_seconds', 8)))))
                         @php($motionPostTriggerSeconds = max(1, min(60, (int) ($form['recording_motion_post_trigger_seconds'] ?? config('recording.motion.post_trigger_seconds', 20)))))
                         @php($motionSessionUrlBase = $selectedCameraId ? route('camera-fleet.motion-editor-session', ['camera' => $selectedCameraId]) : '')
+                        @php($motionAnalysisUrl = $selectedCameraId ? route('camera-fleet.motion-editor-analysis', ['camera' => $selectedCameraId]) : '')
 
                         <div class="camera-form-grid">
                             <label class="field-stack">
@@ -941,21 +942,12 @@
                                     class="motion-editor"
                                     data-motion-editor
                                     data-session-url-base="{{ $motionSessionUrlBase }}"
+                                    data-analysis-url="{{ $motionAnalysisUrl }}"
+                                    data-analysis-interval-ms="{{ max(1000, (int) config('recording.motion.segment_seconds', 4) * 1000) }}"
                                     data-whep-player-script-url="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}"
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
-                                    data-pixel-delta-threshold="{{ config('recording.motion.pixel_delta_threshold', 18) }}"
-                                    data-isolated-pixel-radius="{{ config('recording.motion.isolated_pixel_radius', 1) }}"
-                                    data-minimum-cluster-pixels="{{ config('recording.motion.minimum_cluster_pixels', 3) }}"
-                                    data-cluster-bonus-min-size="{{ config('recording.motion.cluster_bonus_min_size', 3) }}"
                                     data-cluster-bonus-multiplier="{{ config('recording.motion.cluster_bonus_multiplier', 2) }}"
-                                    data-artifact-widespread-activity-ratio="{{ config('recording.motion.artifact_widespread_activity_ratio', 0.55) }}"
-                                    data-artifact-luminance-mean-delta="{{ config('recording.motion.artifact_luminance_mean_delta', 6.0) }}"
-                                    data-artifact-luminance-direction-ratio="{{ config('recording.motion.artifact_luminance_direction_ratio', 0.9) }}"
-                                    data-artifact-luminance-coverage-ratio="{{ config('recording.motion.artifact_luminance_coverage_ratio', 0.5) }}"
-                                    data-artifact-luminance-pixel-delta="{{ config('recording.motion.artifact_luminance_pixel_delta', 4) }}"
-                                    data-refresh-spike-window-frames="{{ config('recording.motion.persistence_window_frames', 2) }}"
-                                    data-refresh-spike-activity-ratio="{{ config('recording.motion.refresh_spike_activity_ratio', 0.85) }}"
                                     wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($form['recording_rtsp_path'] ?? '')) }}"
                                     wire:ignore
                                 >
@@ -987,7 +979,7 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber cells are changed right now after isolated speckles and 2-pixel pairs are removed. Red cells mean enough effective trigger pixels are active to start recording, with dense clusters counting extra.</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber and red cells come from the recorder's backend detector running against its latest closed buffer segment—not from the browser-transcoded preview. Red means this exact mask and threshold qualify the segment for recording. Unsaved mask edits are tested as a draft and take effect for automatic recording after Save changes.</p>
 
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">

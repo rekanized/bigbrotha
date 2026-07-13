@@ -3606,6 +3606,14 @@ body.live-wall-focus-mode {
     background: hsla(33 83% 42% / 0.9);
 }
 
+.motion-editor__status-badge[data-state='waiting'] {
+    background: #505050;
+}
+
+.motion-editor__status-badge[data-state='error'] {
+    background: #9B1C1C;
+}
+
 .motion-editor__toolbar,
 .motion-editor__stats {
     display: grid;

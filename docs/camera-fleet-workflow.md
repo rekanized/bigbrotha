@@ -137,9 +137,9 @@ Current behavior:
 
 1. each camera can stay off, record continuously, or record only on movement.
 2. movement recording now uses a painted motion mask stored as a low-resolution grid instead of a single rectangle.
-3. operators paint or erase that mask over a live stream preview, and the initial state starts with the full viewport selected.
+3. operators paint or erase that mask over a live stream preview, and the initial state starts with the full viewport selected. The preview video is display-only: the activity overlay and recorder state come from the backend recorder detector evaluating the latest closed rolling-buffer segment with the current draft mask and threshold.
 4. the movement threshold is an effective trigger-pixel count over the selected mask; connected clusters receive bonus weight.
-5. full-frame refreshes, decoder-startup churn, and coherent exposure or infrared-mode changes are rejected before the painted mask can start an event.
+5. full-frame refreshes, decoder-startup churn, and coherent exposure or infrared-mode changes are rejected before the painted mask can start an event. Because the modal now calls the same detector on the same recorder buffer, those rejected artifacts no longer flash a false browser-side `Recording` state.
 6. each camera now stores an explicit live-feed RTSP path and an explicit recording RTSP path, and those two values may be identical.
 7. retention is currently enforced per camera in whole days, with the default workflow set to one day.
 
