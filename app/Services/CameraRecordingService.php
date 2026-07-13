@@ -1711,11 +1711,6 @@ class CameraRecordingService
      */
     private function preferredMotionCaptureSource(Camera $camera, array $source): array
     {
-        if (!(bool) config('recording.motion.use_relay_source', false)
-            && !$this->motionCaptureMatchesLiveProfile($camera, $source)) {
-            return $source;
-        }
-
         return $this->resolveBufferedRecordingSource(
             $camera,
             is_numeric($source['index'] ?? null) ? (int) $source['index'] : null,
@@ -2056,26 +2051,6 @@ class CameraRecordingService
         clearstatcache(true, $directory);
 
         return is_dir($directory) && is_writable($directory);
-    }
-
-    /**
-     * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
-     */
-    private function motionCaptureMatchesLiveProfile(Camera $camera, array $source): bool
-    {
-        $liveSelection = $this->liveStreams->selectedWebRtcSource($camera);
-
-        if ($liveSelection === null) {
-            return false;
-        }
-
-        $liveIndex = is_numeric($liveSelection['index'] ?? null) ? (int) $liveSelection['index'] : null;
-        $sourceIndex = is_numeric($source['index'] ?? null) ? (int) $source['index'] : null;
-
-        return $liveIndex !== null
-            && $sourceIndex !== null
-            && $liveIndex === $sourceIndex
-            && $sourceIndex > 0;
     }
 
     private function temporaryPlaybackFile(string $directory, string $prefix): ?string

@@ -9,7 +9,10 @@
 
         @php
             $assetBase = rtrim(request()->getBaseUrl(), '/');
-            $stylesheetVersion = filemtime(public_path('css/pages/simplified-theme.css'));
+            $stylesheetVersion = max(
+                filemtime(public_path('css/pages/simplified-theme.css')),
+                filemtime(public_path('css/pages/mobile.css')),
+            );
         @endphp
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">

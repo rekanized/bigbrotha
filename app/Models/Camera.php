@@ -278,7 +278,7 @@ class Camera extends Model
     }
 
     /**
-     * @return array{quality: string, rate_control: string, bitrate_kbps: int|null}
+     * @return array{quality: string, rate_control: string, bitrate_kbps: int|null, force_video_transcode: bool}
      */
     public function liveTranscodeSettings(): array
     {
@@ -305,6 +305,7 @@ class Camera extends Model
             'quality' => $quality,
             'rate_control' => $rateControl,
             'bitrate_kbps' => $bitrateKbps,
+            'force_video_transcode' => filter_var($settings['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL),
         ];
     }
 

@@ -380,7 +380,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame(13, (int) $recording->started_at?->diffInSeconds($recording->ended_at));
     }
 
-    public function test_it_uses_the_direct_camera_path_by_default_when_motion_recording_profile_selection_is_automatic(): void
+    public function test_it_uses_the_canonical_source_relay_when_motion_recording_profile_selection_is_automatic(): void
     {
         config()->set('queue.default', 'sync');
         config()->set('recording.motion.grid_width', 4);
@@ -388,7 +388,6 @@ class CameraRecordingMotionCommandTest extends TestCase
         config()->set('recording.motion.pre_roll_seconds', 2);
         config()->set('recording.motion.analysis_seconds', 3);
         config()->set('recording.motion.post_trigger_seconds', 4);
-        config()->set('recording.motion.use_relay_source', false);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
         config()->set('mediamtx.auth.reader_pass', 'relay-pass');
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
@@ -439,7 +438,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
         $this->assertFileExists($inputLogPath);
         $this->assertSame(
-            'rtsp://192.168.1.69:554/stream1',
+            'rtsp://internal-reader:relay-pass@127.0.0.1:8554/camera-'.$camera->id.'-source',
             trim((string) File::get($inputLogPath)),
         );
     }
@@ -452,7 +451,6 @@ class CameraRecordingMotionCommandTest extends TestCase
         config()->set('recording.motion.pre_roll_seconds', 2);
         config()->set('recording.motion.analysis_seconds', 3);
         config()->set('recording.motion.post_trigger_seconds', 4);
-        config()->set('recording.motion.use_relay_source', true);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
         config()->set('mediamtx.auth.reader_pass', 'relay-pass');
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
@@ -1038,7 +1036,6 @@ class CameraRecordingMotionCommandTest extends TestCase
 
     public function test_it_uses_the_resolved_source_index_for_motion_source_paths_when_selection_is_automatic(): void
     {
-        config()->set('recording.motion.use_relay_source', true);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
         config()->set('mediamtx.auth.reader_pass', 'relay-pass');
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');
@@ -1120,7 +1117,6 @@ class CameraRecordingMotionCommandTest extends TestCase
 
     public function test_it_uses_the_shared_source_relay_for_motion_capture_when_the_recording_source_matches_the_live_profile(): void
     {
-        config()->set('recording.motion.use_relay_source', false);
         config()->set('mediamtx.auth.reader_user', 'internal-reader');
         config()->set('mediamtx.auth.reader_pass', 'relay-pass');
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://127.0.0.1:8554');

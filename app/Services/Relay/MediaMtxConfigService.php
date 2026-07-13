@@ -468,12 +468,17 @@ class MediaMtxConfigService
     private function buildRunOnDemandCommand(string $ffmpegBinary, array $definition): string
     {
         return $definition['mode'] === 'source'
-            ? $this->buildSourceRunOnDemandCommand($ffmpegBinary, $definition['authenticated_uri'], $definition['transport'])
+            ? $this->buildSourceRunOnDemandCommand(
+                $ffmpegBinary,
+                $definition['authenticated_uri'],
+                $definition['transport'],
+                $definition['live_transcode'] ?? [],
+            )
             : $this->buildLiveRunOnDemandCommand(
                 $ffmpegBinary,
                 $definition['profile'],
-                $definition['authenticated_uri'],
-                $definition['transport'],
+                $this->internalReaderUrl($definition['source_path']),
+                'tcp',
                 $definition['live_transcode'] ?? [],
             );
     }
@@ -491,7 +496,7 @@ class MediaMtxConfigService
         $inputFflags = trim((string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'));
         $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
-        $transcodeVideo = $this->shouldTranscodeVideo($profile);
+        $transcodeVideo = $this->shouldTranscodeVideo($profile, $transcodeOverrides);
         $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
         $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
         $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
@@ -574,7 +579,7 @@ class MediaMtxConfigService
         return implode(' ', $command);
     }
 
-    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport): string
+    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, array $transcodeOverrides = []): string
     {
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
         $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
@@ -599,7 +604,12 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) ? '1' : '0'),
+            escapeshellarg(
+                config('ffmpeg.recording.use_wallclock_timestamps', true)
+                && !filter_var($transcodeOverrides['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
+                    ? '1'
+                    : '0'
+            ),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -653,9 +663,10 @@ class MediaMtxConfigService
     /**
      * @param  array<string, string|null>  $profile
      */
-    private function shouldTranscodeVideo(array $profile): bool
+    private function shouldTranscodeVideo(array $profile, array $transcodeOverrides = []): bool
     {
         return !$this->shouldCopyVideo($profile)
+            || filter_var($transcodeOverrides['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
             || (bool) config('mediamtx.transcode.force_video_transcode', false);
     }
 
@@ -752,7 +763,6 @@ class MediaMtxConfigService
 
         $arguments[] = '-crf';
         $arguments[] = escapeshellarg((string) $transcodeOptions['crf']);
-
         return $arguments;
     }
 
@@ -1022,6 +1032,19 @@ class MediaMtxConfigService
         }
 
         return 'rtsp://'.$publisherUser.':'.$publisherPass.'@'.substr($baseUrl, strlen('rtsp://')).'/'.$path;
+    }
+
+    private function internalReaderUrl(string $path): string
+    {
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url'), '/');
+        $readerUser = rawurlencode((string) config('mediamtx.auth.reader_user', 'internal-reader'));
+        $readerPass = rawurlencode((string) config('mediamtx.auth.reader_pass', ''));
+
+        if ($readerUser === '' || $readerPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
+            return $baseUrl.'/'.$path;
+        }
+
+        return 'rtsp://'.$readerUser.':'.$readerPass.'@'.substr($baseUrl, strlen('rtsp://')).'/'.$path;
     }
 
     /**

@@ -71,7 +71,6 @@ return [
 
     'motion' => [
         'segmenter_enabled' => filter_var(env('CAMERA_MOTION_SEGMENTER_ENABLED', true), FILTER_VALIDATE_BOOL),
-        'use_relay_source' => filter_var(env('CAMERA_MOTION_USE_RELAY_SOURCE', false), FILTER_VALIDATE_BOOL),
         'segment_seconds' => max(2, (int) env('CAMERA_MOTION_SEGMENT_SECONDS', 4)),
         'runtime_dir' => env('CAMERA_MOTION_RUNTIME_DIR', storage_path('app/private/motion-recorders')),
         'idle_buffer_seconds' => max(30, (int) env('CAMERA_MOTION_IDLE_BUFFER_SECONDS', 180)),

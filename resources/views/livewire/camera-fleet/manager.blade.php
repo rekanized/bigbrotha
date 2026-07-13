@@ -820,6 +820,15 @@
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
                         </label>
+
+                        <label class="field-stack">
+                            <span>Video compatibility</span>
+                            <span><input type="checkbox" wire:model="form.live_transcode_force_video"> Always normalize video through H.264</span>
+                            <small class="probe-note">Use for camera bitstreams that are nominally H.264 but still freeze or lose keyframes in browsers. This costs additional relay CPU.</small>
+                            @error('form.live_transcode_force_video')
+                                <small class="field-error">{{ $message }}</small>
+                            @enderror
+                        </label>
                     </div>
 
                     <p class="probe-note">These settings affect only the live-wall relay. Recordings and the raw RTSP source path stay untouched.</p>

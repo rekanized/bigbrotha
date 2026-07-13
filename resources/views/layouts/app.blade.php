@@ -9,7 +9,10 @@
 
         @php
             $assetBase = rtrim(request()->getBaseUrl(), '/');
-            $stylesheetVersion = filemtime(public_path('css/pages/simplified-theme.css'));
+            $stylesheetVersion = max(
+                filemtime(public_path('css/pages/simplified-theme.css')),
+                filemtime(public_path('css/pages/mobile.css')),
+            );
         @endphp
 
         <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
@@ -52,6 +55,7 @@
         @stack('styles')
     </head>
     <body class="app-body @yield('body_class')">
+        <a class="skip-link" href="#main-content">Skip to main content</a>
         @php
             $bodyClass = trim($__env->yieldContent('body_class'));
             $layoutMode = trim($__env->yieldContent('layout_mode'));
@@ -85,7 +89,10 @@
                         </div>
 
                         <section class="rail-section">
-                            @include('layouts.partials.sidebar-navigation')
+                            @include('layouts.partials.sidebar-navigation', [
+                                'navigationIdSuffix' => 'desktop',
+                                'navigationAriaLabel' => 'Primary navigation',
+                            ])
                         </section>
 
                     </div>
@@ -93,6 +100,32 @@
             @endif
 
             <div class="app-content{{ $isImmersiveLayout ? ' app-content--immersive' : '' }}">
+                @unless ($isImmersiveLayout)
+                    <details class="mobile-navigation page-card">
+                        <summary class="mobile-navigation__summary">
+                            <span class="mobile-navigation__brand">
+                                <span class="mobile-navigation__mark" aria-hidden="true">
+                                    <img src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
+                                </span>
+                                <span class="mobile-navigation__copy">
+                                    <strong>{{ config('app.name', 'Bigbrotha') }}</strong>
+                                    <small>{{ $pageTitle !== '' ? $pageTitle : 'Operator workspace' }}</small>
+                                </span>
+                            </span>
+                            <span class="mobile-navigation__toggle" aria-hidden="true">
+                                <span></span><span></span><span></span>
+                            </span>
+                        </summary>
+
+                        <div class="mobile-navigation__panel">
+                            @include('layouts.partials.sidebar-navigation', [
+                                'navigationIdSuffix' => 'mobile',
+                                'navigationAriaLabel' => 'Mobile primary navigation',
+                            ])
+                        </div>
+                    </details>
+                @endunless
+
                 @unless ($isImmersiveLayout || $hideWorkspaceHero)
                     <header class="workspace-hero workspace-hero--compact page-card">
                         <div class="workspace-hero__body">
@@ -127,7 +160,7 @@
                     </header>
                 @endunless
 
-                <main class="app-main{{ $isImmersiveLayout ? ' app-main--immersive' : '' }}">
+                <main id="main-content" class="app-main{{ $isImmersiveLayout ? ' app-main--immersive' : '' }}" tabindex="-1">
                     @yield('content')
                 </main>
             </div>

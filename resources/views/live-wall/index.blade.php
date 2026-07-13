@@ -237,6 +237,16 @@
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
                                     <a class="live-wall-wall-switcher__menu-link" href="{{ route('recordings.index') }}" wire:navigate>Recordings</a>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('recordings.timeline') }}" wire:navigate>Timeline review</a>
+                                    @if (auth()->user()?->isAdmin() || !\App\Models\User::query()->where('is_admin', true)->exists())
+                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.users.index') }}" wire:navigate>Operator access</a>
+                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
+                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
+                                    @endif
+                                    <form method="POST" action="{{ route('logout') }}">
+                                        @csrf
+                                        <button class="live-wall-wall-switcher__menu-link live-wall-wall-switcher__menu-button" type="submit">Sign out</button>
+                                    </form>
                                 </div>
                             </div>
                         </details>

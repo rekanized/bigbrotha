@@ -210,6 +210,7 @@ class Manager extends Component
             'live_transcode_quality' => $camera->liveTranscodeSettings()['quality'],
             'live_transcode_rate_control' => $camera->liveTranscodeSettings()['rate_control'],
             'live_transcode_bitrate_kbps' => $camera->liveTranscodeSettings()['bitrate_kbps'],
+            'live_transcode_force_video' => $camera->liveTranscodeSettings()['force_video_transcode'],
         ];
         $this->probeEndpointUrl = $camera->onvifEndpoint() ?? '';
         $this->probeResponse = [];
@@ -264,6 +265,7 @@ class Manager extends Component
             'form.live_transcode_quality' => ['required', Rule::in(Camera::LIVE_TRANSCODE_QUALITY_OPTIONS)],
             'form.live_transcode_rate_control' => ['required', Rule::in(Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS)],
             'form.live_transcode_bitrate_kbps' => ['nullable', 'integer', 'between:250,20000'],
+            'form.live_transcode_force_video' => ['boolean'],
         ]);
 
         $validator->after(function ($validator): void {
@@ -718,6 +720,7 @@ class Manager extends Component
             'live_transcode_quality' => Camera::LIVE_TRANSCODE_QUALITY_DEFAULT,
             'live_transcode_rate_control' => Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT,
             'live_transcode_bitrate_kbps' => null,
+            'live_transcode_force_video' => false,
         ];
     }
 
@@ -785,7 +788,7 @@ class Manager extends Component
 
     /**
      * @param  array<string, mixed>  $values
-     * @return array{quality: string, rate_control: string, bitrate_kbps?: int}|null
+     * @return array{quality: string, rate_control: string, bitrate_kbps?: int, force_video_transcode?: bool}|null
      */
     private function normalizedLiveTranscodeSettings(array $values): ?array
     {
@@ -802,6 +805,7 @@ class Manager extends Component
         }
 
         $bitrateKbps = $this->nullableInteger($values['live_transcode_bitrate_kbps'] ?? null);
+        $forceVideoTranscode = (bool) ($values['live_transcode_force_video'] ?? false);
 
         if ($bitrateKbps !== null) {
             $bitrateKbps = max(250, min(20000, $bitrateKbps));
@@ -809,7 +813,8 @@ class Manager extends Component
 
         if ($quality === Camera::LIVE_TRANSCODE_QUALITY_DEFAULT
             && $rateControl === Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT
-            && $bitrateKbps === null) {
+            && $bitrateKbps === null
+            && !$forceVideoTranscode) {
             return null;
         }
 
@@ -820,6 +825,10 @@ class Manager extends Component
 
         if ($bitrateKbps !== null) {
             $settings['bitrate_kbps'] = $bitrateKbps;
+        }
+
+        if ($forceVideoTranscode) {
+            $settings['force_video_transcode'] = true;
         }
 
         return $settings;

@@ -394,6 +394,8 @@ class LiveWallStreamTest extends TestCase
             ->assertOk()
             ->assertSee(route('live-wall.index', ['wall' => $wallTwo->slug]), false)
             ->assertSee(route('live-wall.index', ['wall' => $wallOne->slug]), false)
+            ->assertSee(route('recordings.timeline'), false)
+            ->assertSee('Sign out')
             ->assertSee('Wall 2 of 3');
     }
 

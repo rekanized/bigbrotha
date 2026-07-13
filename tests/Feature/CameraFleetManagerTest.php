@@ -43,6 +43,7 @@ class CameraFleetManagerTest extends TestCase
             ->set('form.live_transcode_quality', Camera::LIVE_TRANSCODE_QUALITY_QUALITY)
             ->set('form.live_transcode_rate_control', Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR)
             ->set('form.live_transcode_bitrate_kbps', 3500)
+            ->set('form.live_transcode_force_video', true)
             ->call('saveCamera');
 
         $camera = Camera::query()->firstOrFail();
@@ -60,6 +61,7 @@ class CameraFleetManagerTest extends TestCase
         $this->assertSame(Camera::LIVE_TRANSCODE_QUALITY_QUALITY, $camera->metadata['live_transcode']['quality']);
         $this->assertSame(Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR, $camera->metadata['live_transcode']['rate_control']);
         $this->assertSame(3500, $camera->metadata['live_transcode']['bitrate_kbps']);
+        $this->assertTrue($camera->metadata['live_transcode']['force_video_transcode']);
         $this->assertCount(1, $camera->rtspProfiles());
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id));
         $this->assertDirectoryExists(storage_path('app/private/cameras/'.$camera->id.'/previews'));
@@ -71,6 +73,7 @@ class CameraFleetManagerTest extends TestCase
             ->assertSet('form.live_transcode_quality', Camera::LIVE_TRANSCODE_QUALITY_QUALITY)
             ->assertSet('form.live_transcode_rate_control', Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR)
             ->assertSet('form.live_transcode_bitrate_kbps', 3500)
+            ->assertSet('form.live_transcode_force_video', true)
             ->set('form.name', 'Front Gate')
             ->call('saveCamera')
             ->call('toggleEnabled', $camera->id);

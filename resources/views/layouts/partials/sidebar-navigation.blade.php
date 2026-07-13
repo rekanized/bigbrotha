@@ -75,13 +75,15 @@
         ],
     ] : [];
     $adminNavigationActive = collect($adminNavigation)->contains(fn (array $item): bool => $item['active']);
+    $navigationIdSuffix = $navigationIdSuffix ?? 'default';
+    $navigationAriaLabel = $navigationAriaLabel ?? 'Primary navigation';
 @endphp
 
-<nav class="sidebar-nav" aria-label="Primary">
+<nav class="sidebar-nav" aria-label="{{ $navigationAriaLabel }}">
     <div class="sidebar-nav__links">
         @foreach ($navigation as $section)
-            <section class="sidebar-nav__section" aria-labelledby="sidebar-section-{{ \Illuminate\Support\Str::slug($section['label']) }}">
-                <p class="sidebar-nav__section-title" id="sidebar-section-{{ \Illuminate\Support\Str::slug($section['label']) }}">{{ $section['label'] }}</p>
+            <section class="sidebar-nav__section" aria-labelledby="sidebar-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">
+                <p class="sidebar-nav__section-title" id="sidebar-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">{{ $section['label'] }}</p>
 
                 <div class="sidebar-nav__section-links">
                     @foreach ($section['items'] as $item)

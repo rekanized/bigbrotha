@@ -106,12 +106,12 @@
 
                     @foreach ($queueSummary as $row)
                         <div class="data-table__row queue-monitor__summary-row" wire:key="queue-summary-{{ $row['queue'] }}">
-                            <div>
+                            <div data-label="Queue">
                                 <strong>{{ $row['queue'] }}</strong>
                             </div>
-                            <div>{{ $row['pending_count'] }}</div>
-                            <div>{{ $row['failed_count'] }}</div>
-                            <div>
+                            <div data-label="Pending">{{ $row['pending_count'] }}</div>
+                            <div data-label="Failed">{{ $row['failed_count'] }}</div>
+                            <div data-label="Next job">
                                 @if ($row['next_job_label'])
                                     <strong>{{ $row['next_job_label'] }}</strong>
                                     <p>{{ $row['next_available_label'] }}</p>
@@ -119,7 +119,7 @@
                                     <span class="queue-monitor__muted">No pending jobs</span>
                                 @endif
                             </div>
-                            <div>
+                            <div data-label="Status">
                                 <span class="status-pill status-pill--{{ $row['status_tone'] }}">{{ $row['status_label'] }}</span>
                             </div>
                         </div>
@@ -153,16 +153,16 @@
 
                     @foreach ($upcomingJobs as $job)
                         <div class="data-table__row queue-monitor__jobs-row" wire:key="queue-job-{{ $job['id'] }}">
-                            <div>
+                            <div data-label="Queue">
                                 <strong>{{ $job['queue'] }}</strong>
                             </div>
-                            <div>
+                            <div data-label="Job">
                                 <strong>{{ $job['job_label'] }}</strong>
                                 <p>{{ $job['job_class'] }}</p>
                             </div>
-                            <div>{{ $job['attempts'] }}</div>
-                            <div>{{ $job['available_at_label'] }}</div>
-                            <div>
+                            <div data-label="Attempts">{{ $job['attempts'] }}</div>
+                            <div data-label="Release time">{{ $job['available_at_label'] }}</div>
+                            <div data-label="State">
                                 <span class="status-pill status-pill--{{ $job['status_tone'] }}">{{ $job['status_label'] }}</span>
                             </div>
                         </div>
@@ -217,15 +217,15 @@
 
                     @foreach ($failedJobs as $job)
                         <div class="data-table__row queue-monitor__failed-row" wire:key="failed-job-{{ $job['id'] }}">
-                            <div>
+                            <div data-label="Queue">
                                 <strong>{{ $job['queue'] }}</strong>
                             </div>
-                            <div>
+                            <div data-label="Job">
                                 <strong>{{ $job['job_label'] }}</strong>
                                 <p>{{ $job['job_class'] }}</p>
                                 <p class="queue-monitor__muted">Connection: {{ $job['connection'] }}</p>
                             </div>
-                            <div>
+                            <div data-label="Failure">
                                 <strong>{{ $job['exception_excerpt'] }}</strong>
                                 <p class="queue-monitor__muted">Failed at {{ $job['failed_at_label'] }}</p>
 
@@ -236,7 +236,7 @@
                                     </details>
                                 @endif
                             </div>
-                            <div>
+                            <div data-label="Retry state">
                                 <span class="status-pill status-pill--{{ $job['retry_status_tone'] }}">{{ $job['retry_status_label'] }}</span>
                                 <p>{{ $job['retry_summary'] }}</p>
 
@@ -244,7 +244,7 @@
                                     <p class="queue-monitor__muted">Next automatic retry after {{ $job['next_retry_label'] }}</p>
                                 @endif
                             </div>
-                            <div>
+                            <div data-label="Actions">
                                 <div class="queue-monitor__action-stack">
                                     <button class="button button--soft queue-monitor__action-button" type="button" wire:click="retryFailedJob({{ $job['id'] }})" wire:loading.attr="disabled" wire:target="retryFailedJob({{ $job['id'] }})">
                                         <span class="button__content">

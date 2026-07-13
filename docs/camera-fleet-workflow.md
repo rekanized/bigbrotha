@@ -55,9 +55,13 @@ Each row currently shows:
 
 Use `View / edit` to open the modal editor.
 
+On narrow touch screens, the desktop rail is replaced by a compact navigation drawer, fleet cards become single-column, long endpoints wrap inside their cards, and camera actions expand to full-width touch targets. The editor consumes the available dynamic viewport height, respects device safe areas, keeps its section navigator horizontally scrollable, and retains the sticky save/cancel footer without causing page-level horizontal overflow.
+
 ## Camera Editor Modal
 
 The modal is the main management surface for a selected camera.
+
+The Live relay transcoding section can force an otherwise H.264 camera through browser-safe H.264 normalization. Use this for camera encoders that advertise H.264 but still produce unstable browser timing or incompatible access units. Compatibility mode reads the canonical source with the camera's native RTP timestamps and leaves RTP fragmentation to MediaMTX.
 
 It supports:
 

@@ -23,6 +23,9 @@ class MediaMtxConfigServiceTest extends TestCase
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
         config()->set('mediamtx.webrtc.local_tcp_address', '');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'reader-pass');
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://relay:8554');
 
         $camera = Camera::query()->create([
             'name' => 'Audio Camera',
@@ -59,8 +62,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
         $this->assertStringContainsString('-sn', $liveBlock);
         $this->assertStringContainsString('-dn', $liveBlock);
-        $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $liveBlock);
-        $this->assertStringNotContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
+        $this->assertStringContainsString("-i 'rtsp://internal-reader:reader-pass@relay:8554/camera-{$camera->id}-source-profile-0'", $liveBlock);
+        $this->assertStringNotContainsString('rtsp://192.168.1.91:554/minor', $liveBlock);
         $this->assertStringContainsString('-c:v copy', $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
         $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
@@ -184,6 +187,49 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-b:v', $config);
         $this->assertStringContainsString("-fps_mode 'cfr'", $liveBlock);
         $this->assertStringContainsString("-r '15'", $liveBlock);
+    }
+
+    public function test_build_config_can_force_normalization_for_problematic_h264_sources(): void
+    {
+        $binaryDirectory = storage_path('framework/testing');
+        $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-forced-h264-test';
+
+        File::ensureDirectoryExists($binaryDirectory);
+        File::put($ffmpegBinary, "#!/usr/bin/env bash\nexit 0\n");
+        chmod($ffmpegBinary, 0755);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Unstable H264 Camera',
+            'local_ip' => '192.168.1.98',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/main',
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'metadata' => [
+                'live_transcode' => ['force_video_transcode' => true],
+                'rtsp_profiles' => [[
+                    'name' => 'MainStream',
+                    'video_codec' => 'h264',
+                    'uri' => 'rtsp://192.168.1.98:554/main',
+                ]],
+            ],
+        ]);
+
+        $liveBlock = $this->pathBlock(
+            app(MediaMtxConfigService::class)->buildConfig(),
+            'camera-'.$camera->id.'-live',
+        );
+
+        $this->assertStringContainsString('-c:v libx264', $liveBlock);
+        $sourceBlock = $this->pathBlock(
+            app(MediaMtxConfigService::class)->buildConfig(),
+            'camera-'.$camera->id.'-source-profile-0',
+        );
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $sourceBlock);
+        $this->assertStringNotContainsString('slice-max-size', $liveBlock);
+        $this->assertStringNotContainsString('-c:v copy', $liveBlock);
     }
 
     public function test_build_config_can_use_nvidia_hardware_acceleration_for_hevc_live_transcoding(): void
@@ -329,7 +375,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('-crf', $liveBlock);
     }
 
-    public function test_live_run_on_demand_uses_the_camera_rtsp_uri_instead_of_a_relay_reader_url(): void
+    public function test_live_run_on_demand_uses_the_canonical_source_relay_instead_of_opening_a_second_camera_session(): void
     {
         $binaryDirectory = storage_path('framework/testing');
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-mediamtx-local-reader-test';
@@ -342,6 +388,8 @@ class MediaMtxConfigServiceTest extends TestCase
         config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://app:8554');
         config()->set('mediamtx.rtsp.publish_base_url', 'rtsp://127.0.0.1:8554');
         config()->set('mediamtx.rtsp.local_internal_base_url', 'rtsp://127.0.0.1:8554');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'reader-pass');
 
         $camera = Camera::query()->create([
             'name' => 'Docker Relay Camera',
@@ -368,9 +416,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $config = app(MediaMtxConfigService::class)->buildConfig();
         $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
-        $this->assertStringContainsString("-i 'rtsp://192.168.1.94:554/minor'", $liveBlock);
-        $this->assertStringNotContainsString('rtsp://internal-reader:', $liveBlock);
-        $this->assertStringNotContainsString("camera-{$camera->id}-source-profile-0", $liveBlock);
+        $this->assertStringContainsString("-i 'rtsp://internal-reader:reader-pass@app:8554/camera-{$camera->id}-source-profile-0'", $liveBlock);
+        $this->assertStringNotContainsString('rtsp://192.168.1.94:554/minor', $liveBlock);
     }
 
     private function pathBlock(string $config, string $path): string
