@@ -321,6 +321,8 @@ class MotionRecordingSegmenterService
             '-copyinkf',
             '-max_muxing_queue_size',
             (string) config('ffmpeg.recording.max_muxing_queue_size', 1024),
+            '-flush_packets',
+            '1',
             '-f',
             'segment',
             '-segment_time',
@@ -335,6 +337,8 @@ class MotionRecordingSegmenterService
             '1',
             '-segment_format',
             $this->segmentFormat(),
+            '-segment_format_options',
+            'flush_packets=1',
             $this->outputPattern($camera),
         ];
 

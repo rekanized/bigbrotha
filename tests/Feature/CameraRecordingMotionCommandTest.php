@@ -62,6 +62,38 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertNull($camera->fresh()->recording_last_motion_at);
     }
 
+    public function test_motion_segmenter_flushes_packets_into_the_active_matroska_segment(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+
+        Camera::query()->create([
+            'name' => 'Live motion preview',
+            'local_ip' => '192.168.1.67',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 60,
+        ]);
+
+        $argumentLog = storage_path('app/private/test-binaries/ffmpeg-motion-args.log');
+        File::delete($argumentLog);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner-log-args')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertFileExists($argumentLog);
+        $arguments = (string) File::get($argumentLog);
+
+        $this->assertStringContainsString("-flush_packets\n1\n", $arguments);
+        $this->assertStringContainsString("-segment_format_options\nflush_packets=1\n", $arguments);
+    }
+
     public function test_it_ignores_single_frame_refresh_spikes_in_hevc_motion_segments(): void
     {
         config()->set('queue.default', 'sync');

@@ -11,14 +11,15 @@ trait BuildsFakeRecordingFfmpegBinary
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
 
-        $rollingMotionScript = static fn (string $profile, bool $logInput = false): string => str_replace(
-            ['__PROFILE__', '__LOG_INPUT__'],
-            [$profile, $logInput ? '1' : '0'],
+        $rollingMotionScript = static fn (string $profile, bool $logInput = false, bool $logArgs = false): string => str_replace(
+            ['__PROFILE__', '__LOG_INPUT__', '__LOG_ARGS__'],
+            [$profile, $logInput ? '1' : '0', $logArgs ? '1' : '0'],
             <<<'BASH'
 #!/usr/bin/env bash
 set -e
 profile="__PROFILE__"
 log_input="__LOG_INPUT__"
+log_args="__LOG_ARGS__"
 
 arg_has() {
     local needle="$1"
@@ -211,6 +212,12 @@ if [[ "$log_input" == "1" ]]; then
     done
 fi
 
+if [[ "$log_args" == "1" ]]; then
+    args_log="$(dirname "$0")/ffmpeg-motion-args.log"
+    printf '%s\n' "$@" >> "$args_log"
+    printf '%s\n' '---' >> "$args_log"
+fi
+
 if arg_has 'rawvideo' "$@"; then
     input="$(find_input "$@" || true)"
     contents=""
@@ -382,6 +389,7 @@ BASH,
             'motion-quiet' => $rollingMotionScript('quiet'),
             'motion-corner' => $rollingMotionScript('corner'),
             'motion-corner-log-input' => $rollingMotionScript('corner', true),
+            'motion-corner-log-args' => $rollingMotionScript('corner', false, true),
             'motion-late' => $rollingMotionScript('corner'),
             'motion-preroll-only' => $rollingMotionScript('preroll-only'),
             'motion-brief-local' => $rollingMotionScript('brief-motion'),

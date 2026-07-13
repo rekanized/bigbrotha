@@ -150,4 +150,65 @@ class CameraFleetMotionEditorAnalysisTest extends TestCase
             ->assertJsonPath('decision.detected', false)
             ->assertJsonPath('message', 'Save this camera in motion mode before testing the recorder decision.');
     }
+
+    public function test_it_waits_until_the_active_segment_contains_confirmed_frames(): void
+    {
+        $operator = User::factory()->create();
+        $camera = Camera::query()->create([
+            'name' => 'Side gate',
+            'local_ip' => '192.168.1.82',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'recording_motion_trigger_pixels' => 4,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 16,
+                'runs' => [[0, 15]],
+            ],
+        ]);
+        $segmentPath = storage_path('app/private/test-motion-editor-unconfirmed-buffer.mkv');
+        File::ensureDirectoryExists(dirname($segmentPath));
+        File::put($segmentPath, 'partial-live-buffer');
+
+        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock) use ($segmentPath): void {
+            $mock->shouldReceive('closedSegmentsSince')->once()->andReturn([
+                [
+                    'path' => $segmentPath,
+                    'started_at' => now()->utc()->subSecond(),
+                    'ended_at' => now()->utc()->addSeconds(4),
+                ],
+            ]);
+        });
+        $this->mock(RecordingMotionDetectorService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('detectPreviewClip')->once()->andReturn([
+                'detected' => false,
+                'activity_ratio' => 0.0,
+                'changed_pixels' => 0,
+                'selected_pixels' => 16,
+                'frame_count' => 2,
+                'changed_indexes' => [],
+            ]);
+        });
+
+        try {
+            $this->actingAs($operator)
+                ->postJson(route('camera-fleet.motion-editor-analysis', ['camera' => $camera->id]), [
+                    'mask' => $camera->recordingMotionMask(),
+                    'trigger_pixels' => 4,
+                ])
+                ->assertOk()
+                ->assertJsonPath('status', 'waiting')
+                ->assertJsonPath('decision.detected', false)
+                ->assertJsonPath('message', 'Waiting for the live recorder segment to contain confirmed frames.');
+        } finally {
+            File::delete($segmentPath);
+        }
+    }
 }

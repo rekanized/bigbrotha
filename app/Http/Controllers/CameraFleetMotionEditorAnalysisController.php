@@ -127,6 +127,16 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             }
 
             $motion = $detector->detectPreviewClip($analysisCamera, $snapshotPath);
+
+            if ((int) $motion['frame_count'] < 3) {
+                return $this->waitingResponse(
+                    'Waiting for the live recorder segment to contain confirmed frames.',
+                    $selectedPixels,
+                    $triggerPixels,
+                    $settingsSaved,
+                    $state?->active_recording_id !== null,
+                );
+            }
         } catch (Throwable $exception) {
             report($exception);
 
