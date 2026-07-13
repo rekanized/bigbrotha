@@ -351,6 +351,48 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertEqualsCanonicalizing([0, 1, 4, 5], $motion['changed_indexes']);
     }
 
+    public function test_live_preview_treats_an_incomplete_active_snapshot_as_waiting(): void
+    {
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-preview-eof')]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Incomplete live preview',
+            'local_ip' => '192.168.1.92',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream21',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'recording_motion_trigger_pixels' => 3,
+        ]);
+        $segmentPath = storage_path('app/private/test-motion-editor-incomplete-live.mkv');
+        File::ensureDirectoryExists(dirname($segmentPath));
+        File::put($segmentPath, 'incomplete-live-snapshot');
+
+        try {
+            $motion = app(RecordingMotionDetectorService::class)->detectPreviewClip($camera, $segmentPath);
+            $closedClipException = null;
+
+            try {
+                app(RecordingMotionDetectorService::class)->detectClip($camera, $segmentPath);
+            } catch (\RuntimeException $exception) {
+                $closedClipException = $exception;
+            }
+        } finally {
+            File::delete($segmentPath);
+        }
+
+        $this->assertFalse($motion['detected']);
+        $this->assertSame(0, $motion['frame_count']);
+        $this->assertSame([], $motion['changed_indexes']);
+        $this->assertInstanceOf(\RuntimeException::class, $closedClipException);
+        $this->assertStringContainsString('End of file', $closedClipException->getMessage());
+    }
+
     public function test_it_ignores_isolated_single_pixel_changes_inside_the_mask(): void
     {
         config()->set('queue.default', 'sync');

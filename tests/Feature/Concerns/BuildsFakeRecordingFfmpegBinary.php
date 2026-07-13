@@ -399,6 +399,12 @@ BASH,
             'motion-refresh-glitch' => $rollingMotionScript('refresh-glitch'),
             'motion-global-luminance-shift' => $rollingMotionScript('global-luminance-shift'),
             'motion-widespread-refresh' => $rollingMotionScript('widespread-refresh'),
+            'motion-preview-eof' => <<<'BASH'
+#!/usr/bin/env bash
+set -e
+printf '%s\n' 'snapshot.mkv: End of file' >&2
+exit 1
+BASH,
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash
 set -e

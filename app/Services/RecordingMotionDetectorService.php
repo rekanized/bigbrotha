@@ -141,6 +141,17 @@ class RecordingMotionDetectorService
         if (! $process->isSuccessful()) {
             $message = trim($process->getErrorOutput() ?: $process->getOutput());
 
+            if ($requirePreviewLookahead && $this->isIncompleteLivePreview($message)) {
+                return [
+                    'detected' => false,
+                    'activity_ratio' => 0.0,
+                    'changed_pixels' => 0,
+                    'selected_pixels' => $selectedPixels,
+                    'frame_count' => 0,
+                    'changed_indexes' => [],
+                ];
+            }
+
             throw new RuntimeException($message !== ''
                 ? 'Unable to evaluate motion for this camera. '.$message
                 : 'Unable to evaluate motion for this camera.');
@@ -287,6 +298,26 @@ class RecordingMotionDetectorService
             'frame_count' => $frameCount,
             'changed_indexes' => $peakChangedIndexes,
         ];
+    }
+
+    private function isIncompleteLivePreview(string $message): bool
+    {
+        $message = strtolower($message);
+
+        foreach ([
+            'end of file',
+            'ebml header parsing failed',
+            'file ended prematurely',
+            'invalid data found when processing input',
+            'packet corrupt',
+            'truncating packet',
+        ] as $fragment) {
+            if (str_contains($message, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isFrameRefreshArtifact(
