@@ -190,7 +190,7 @@ Implications:
 - H.264 is copied into a review MP4 only when ffprobe confirms strictly increasing video DTS values. Cameras that repeat or omit DTS values are normalized through the CFR H.264 path instead; this safety gate now applies to both durable review generation and emergency request-time playback.
 - recording and review commands map only the first optional audio stream (`0:a:0?`) so multi-audio cameras do not unexpectedly expand a clip or produce an ambiguous browser playback asset.
 - WebRTC relay audio uses asynchronous resampling with a bounded hard-compensation threshold before Opus encoding, which absorbs camera clock drift while keeping the browser-facing audio timeline anchored at zero.
-- Cameras with nominally H.264 output can opt into per-camera live video normalization. Compatibility mode retains native source timestamps and lets MediaMTX fragment H.264 NAL units for RTP; encoder-side slicing is intentionally avoided because MediaMTX rejects access units containing more than 50 NAL units. Recordings continue to consume the canonical source stream without the browser-facing re-encode.
+- Cameras with nominally H.264 output can opt into per-camera live stream normalization. Compatibility mode retains native source timestamps, rebuilds backward or bursty AAC clocks into continuous sample-counted 48 kHz Opus timestamps, and lets MediaMTX fragment H.264 NAL units for RTP; encoder-side slicing is intentionally avoided because MediaMTX rejects access units containing more than 50 NAL units. Recordings continue to consume the canonical source stream without the browser-facing re-encode.
 
 ## Recording Playback Tradeoff
 

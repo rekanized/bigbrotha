@@ -229,6 +229,7 @@ class MediaMtxConfigServiceTest extends TestCase
         );
         $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $sourceBlock);
         $this->assertStringNotContainsString('slice-max-size', $liveBlock);
+        $this->assertStringContainsString("-af 'aresample=48000:async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB'", $liveBlock);
         $this->assertStringNotContainsString('-c:v copy', $liveBlock);
     }
 

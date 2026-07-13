@@ -61,7 +61,7 @@ On narrow touch screens, the desktop rail is replaced by a compact navigation dr
 
 The modal is the main management surface for a selected camera.
 
-The Live relay transcoding section can force an otherwise H.264 camera through browser-safe H.264 normalization. Use this for camera encoders that advertise H.264 but still produce unstable browser timing or incompatible access units. Compatibility mode reads the canonical source with the camera's native RTP timestamps and leaves RTP fragmentation to MediaMTX.
+The Live relay transcoding section can force an otherwise H.264 camera through browser-safe H.264 normalization. Use this for camera encoders that advertise H.264 but still produce unstable browser timing or incompatible access units. Compatibility mode reads the canonical source with the camera's native RTP timestamps, leaves RTP fragmentation to MediaMTX, and rebuilds erratic camera audio clocks into continuous 48 kHz Opus timestamps.
 
 It supports:
 

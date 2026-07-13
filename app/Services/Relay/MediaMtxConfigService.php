@@ -500,7 +500,10 @@ class MediaMtxConfigService
         $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
         $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
         $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
-        $audioResample = trim((string) config('ffmpeg.live.audio_resample', 'aresample=async=1000:min_hard_comp=0.100:first_pts=0'));
+        $forceCompatibilityNormalization = filter_var($transcodeOverrides['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL);
+        $audioResample = $forceCompatibilityNormalization
+            ? 'aresample=48000:async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB'
+            : trim((string) config('ffmpeg.live.audio_resample', 'aresample=async=1000:min_hard_comp=0.100:first_pts=0'));
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
