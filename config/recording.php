@@ -81,6 +81,7 @@ return [
         'post_trigger_seconds' => max(1, (int) env('CAMERA_MOTION_POST_TRIGGER_SECONDS', 20)),
         'analysis_seconds' => max(3, (int) env('CAMERA_MOTION_ANALYSIS_SECONDS', 5)),
         'analysis_fps' => max(1, (int) env('CAMERA_MOTION_ANALYSIS_FPS', 3)),
+        'editor_poll_interval_ms' => max(500, (int) env('CAMERA_MOTION_EDITOR_POLL_INTERVAL_MS', 650)),
         'grid_width' => max(32, (int) env('CAMERA_MOTION_ANALYSIS_WIDTH', 160)),
         'grid_height' => max(18, (int) env('CAMERA_MOTION_ANALYSIS_HEIGHT', 90)),
         'pixel_delta_threshold' => max(1, (int) env('CAMERA_MOTION_PIXEL_DELTA_THRESHOLD', 18)),

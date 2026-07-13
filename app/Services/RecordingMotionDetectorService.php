@@ -71,11 +71,27 @@ class RecordingMotionDetectorService
     }
 
     /**
+     * Analyze a snapshot of the currently-written recorder segment. Transitions
+     * without enough future frames are withheld until refresh-spike rejection can
+     * make the same confident decision as the closed-segment recorder pass.
+     *
+     * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
+     */
+    public function detectPreviewClip(Camera $camera, string $absolutePath): array
+    {
+        return $this->detectFromInput($camera, ['-i', $absolutePath], null, true);
+    }
+
+    /**
      * @param  array<int, string>  $inputArguments
      * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
      */
-    private function detectFromInput(Camera $camera, array $inputArguments, ?int $expectedDurationSeconds = null): array
-    {
+    private function detectFromInput(
+        Camera $camera,
+        array $inputArguments,
+        ?int $expectedDurationSeconds = null,
+        bool $requireCompleteLookahead = false,
+    ): array {
         $ffmpegBinary = $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
 
         if ($ffmpegBinary === null) {
@@ -198,7 +214,11 @@ class RecordingMotionDetectorService
             $frames[] = substr($output, $frameIndex * $frameSize, $frameSize);
         }
 
-        for ($frameIndex = 1; $frameIndex < $frameCount; $frameIndex++) {
+        $lastFrameIndex = $requireCompleteLookahead
+            ? $frameCount - 1 - $refreshSpikeWindowFrames
+            : $frameCount - 1;
+
+        for ($frameIndex = 1; $frameIndex <= $lastFrameIndex; $frameIndex++) {
             $changedIndexes = $this->filterIsolatedChangedIndexes(
                 $this->changedIndexes(
                     $frames[$frameIndex - 1],

@@ -101,6 +101,8 @@
             this.analysisTimer = null;
             this.analysisAbortController = null;
             this.analysisInFlight = false;
+            this.analysisPending = false;
+            this.analysisRevision = 0;
             this.analysisStatus = 'waiting';
             this.analysisMessage = 'Waiting for the recorder detector...';
             this.settingsSaved = true;
@@ -109,7 +111,7 @@
             this.isSaving = false;
             this.tool = 'paint';
             this.clusterBonusMultiplier = Math.max(0, Number.parseInt(root.dataset.clusterBonusMultiplier || '2', 10) || 2);
-            this.analysisIntervalMs = Math.max(1000, Number.parseInt(root.dataset.analysisIntervalMs || '4000', 10) || 4000);
+            this.analysisIntervalMs = Math.max(500, Number.parseInt(root.dataset.analysisIntervalMs || '650', 10) || 650);
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
             this.gridHeight = Math.max(1, Number.parseInt(root.dataset.gridHeight || '90', 10) || 90);
             this.totalPixels = this.gridWidth * this.gridHeight;
@@ -316,6 +318,7 @@
 
         handleResetMaskClick() {
             this.maskBits.fill(1);
+            this.markAnalysisDraftChanged();
             this.resetDetectionState();
             this.renderMask();
             this.renderActivity();
@@ -325,6 +328,7 @@
 
         handleClearMaskClick() {
             this.maskBits.fill(0);
+            this.markAnalysisDraftChanged();
             this.resetDetectionState();
             this.renderMask();
             this.renderActivity();
@@ -340,8 +344,7 @@
 
         handleTriggerPixelsInput() {
             this.refreshTriggerPixelsUi();
-            this.settingsSaved = false;
-            this.queueAnalysis(250);
+            this.markAnalysisDraftChanged(150);
         }
 
         handleProfileChange() {
@@ -409,8 +412,7 @@
 
             this.renderMask();
             this.refreshMetrics();
-            this.settingsSaved = false;
-            this.queueAnalysis(350);
+            this.markAnalysisDraftChanged(200);
         }
 
         gridPointFromEvent(event) {
@@ -651,12 +653,19 @@
         }
 
         async requestRecorderAnalysis() {
-            if (!document.body.contains(this.root) || this.analysisInFlight || this.analysisUrl() === '') {
+            if (!document.body.contains(this.root) || this.analysisUrl() === '') {
+                return;
+            }
+
+            if (this.analysisInFlight) {
+                this.analysisPending = true;
+
                 return;
             }
 
             this.analysisInFlight = true;
             this.analysisAbortController = new AbortController();
+            const requestedRevision = this.analysisRevision;
 
             try {
                 const response = await fetch(this.analysisUrl(), {
@@ -679,7 +688,11 @@
                     throw new Error(typeof payload?.message === 'string' ? payload.message : 'Recorder analysis failed.');
                 }
 
-                this.applyRecorderAnalysis(payload);
+                if (requestedRevision === this.analysisRevision) {
+                    this.applyRecorderAnalysis(payload);
+                } else {
+                    this.analysisPending = true;
+                }
             } catch (error) {
                 if (error?.name !== 'AbortError') {
                     this.analysisStatus = 'error';
@@ -693,9 +706,25 @@
                 this.analysisAbortController = null;
 
                 if (document.body.contains(this.root)) {
-                    this.queueAnalysis();
+                    if (this.analysisPending) {
+                        this.analysisPending = false;
+                        this.queueAnalysis(0);
+                    } else {
+                        this.queueAnalysis();
+                    }
                 }
             }
+        }
+
+        markAnalysisDraftChanged(delay = 0) {
+            this.analysisRevision += 1;
+            this.settingsSaved = false;
+
+            if (this.analysisInFlight) {
+                this.analysisPending = true;
+            }
+
+            this.queueAnalysis(delay);
         }
 
         applyRecorderAnalysis(payload) {

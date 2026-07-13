@@ -9,6 +9,8 @@ use App\Services\RecordingMotionDetectorService;
 use App\Services\RecordingMotionMaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -79,12 +81,14 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             );
         }
 
-        $segments = $segmenter->closedSegmentsSince($camera, null, true);
+        // Include the currently-written segment. A private snapshot gives ffmpeg a
+        // stable file while keeping the editor on the recorder's canonical feed.
+        $segments = $segmenter->closedSegmentsSince($camera, null, false);
         $segment = $segments === [] ? null : end($segments);
 
         if (! is_array($segment)) {
             return $this->waitingResponse(
-                'Waiting for a closed segment from the rolling motion recorder.',
+                'Waiting for a segment from the rolling motion recorder.',
                 $selectedPixels,
                 $triggerPixels,
                 $settingsSaved,
@@ -96,7 +100,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
 
         if ($segment['ended_at']->lt(now()->utc()->subSeconds($maximumSegmentAgeSeconds))) {
             return $this->waitingResponse(
-                'Waiting for a current closed segment from the rolling motion recorder.',
+                'Waiting for a current segment from the rolling motion recorder.',
                 $selectedPixels,
                 $triggerPixels,
                 $settingsSaved,
@@ -104,27 +108,50 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             );
         }
 
+        $snapshotPath = null;
+
         try {
-            $motion = $detector->detectClip($analysisCamera, $segment['path']);
+            $snapshotDirectory = storage_path('app/private/ffmpeg-temp/motion-editor');
+            File::ensureDirectoryExists($snapshotDirectory);
+            $extension = trim((string) pathinfo($segment['path'], PATHINFO_EXTENSION)) ?: 'mkv';
+            $snapshotPath = $snapshotDirectory.'/camera-'.(int) $camera->getKey().'-'.Str::uuid().'.'.$extension;
+
+            if (! @copy($segment['path'], $snapshotPath) || ! is_file($snapshotPath) || filesize($snapshotPath) < 1) {
+                return $this->waitingResponse(
+                    'Waiting for the live recorder segment to contain video.',
+                    $selectedPixels,
+                    $triggerPixels,
+                    $settingsSaved,
+                    $state?->active_recording_id !== null,
+                );
+            }
+
+            $motion = $detector->detectPreviewClip($analysisCamera, $snapshotPath);
         } catch (Throwable $exception) {
             report($exception);
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'The recorder could not analyze the latest closed motion segment.',
+                'message' => 'The recorder could not analyze the live motion segment.',
             ], Response::HTTP_SERVICE_UNAVAILABLE);
+        } finally {
+            if (is_string($snapshotPath)) {
+                File::delete($snapshotPath);
+            }
         }
 
         return response()->json([
             'status' => 'ready',
             'message' => $motion['detected']
-                ? 'The recorder detector qualifies motion in this segment.'
-                : 'The recorder detector does not qualify motion in this segment.',
+                ? 'The live recorder detector qualifies motion in this segment.'
+                : 'The live recorder detector does not qualify motion in this segment.',
             'settings_saved' => $settingsSaved,
             'recording_event_active' => $state?->active_recording_id !== null,
             'segment' => [
                 'started_at' => $segment['started_at']->toIso8601String(),
                 'ended_at' => $segment['ended_at']->toIso8601String(),
+                'sampled_at' => now()->utc()->toIso8601String(),
+                'live' => true,
             ],
             'decision' => [
                 'detected' => (bool) $motion['detected'],

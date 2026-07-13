@@ -943,7 +943,7 @@
                                     data-motion-editor
                                     data-session-url-base="{{ $motionSessionUrlBase }}"
                                     data-analysis-url="{{ $motionAnalysisUrl }}"
-                                    data-analysis-interval-ms="{{ max(1000, (int) config('recording.motion.segment_seconds', 4) * 1000) }}"
+                                    data-analysis-interval-ms="{{ (int) config('recording.motion.editor_poll_interval_ms', 650) }}"
                                     data-whep-player-script-url="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}"
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
@@ -979,7 +979,7 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber and red cells come from the recorder's backend detector running against its latest closed buffer segment—not from the browser-transcoded preview. Red means this exact mask and threshold qualify the segment for recording. Unsaved mask edits are tested as a draft and take effect for automatic recording after Save changes.</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber and red cells come from near-live snapshots of the recorder's current buffer—not from the browser-transcoded preview. The backend waits only long enough to reject codec refresh spikes, then red means this exact mask and threshold would qualify the segment for recording. Unsaved mask edits are tested as a draft and take effect for automatic recording after Save changes.</p>
 
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">

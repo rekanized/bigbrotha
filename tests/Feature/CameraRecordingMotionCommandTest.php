@@ -235,6 +235,90 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertEqualsCanonicalizing([0, 1, 4, 5], $motion['changed_indexes']);
     }
 
+    public function test_live_preview_waits_for_future_frames_before_exposing_a_transition(): void
+    {
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.persistence_window_frames', 2);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-brief-local')]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Backyard live preview',
+            'local_ip' => '192.168.1.90',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream19',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'recording_motion_trigger_pixels' => 3,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 16,
+                'runs' => [[0, 15]],
+            ],
+        ]);
+        $segmentPath = storage_path('app/private/test-motion-editor-live-lookahead.mkv');
+        File::ensureDirectoryExists(dirname($segmentPath));
+        File::put($segmentPath, 'brief-motion-live');
+
+        try {
+            $closedSegment = app(RecordingMotionDetectorService::class)->detectClip($camera, $segmentPath);
+            $liveSnapshot = app(RecordingMotionDetectorService::class)->detectPreviewClip($camera, $segmentPath);
+        } finally {
+            File::delete($segmentPath);
+        }
+
+        $this->assertTrue($closedSegment['detected']);
+        $this->assertFalse($liveSnapshot['detected']);
+        $this->assertSame(3, $liveSnapshot['frame_count']);
+        $this->assertSame([], $liveSnapshot['changed_indexes']);
+    }
+
+    public function test_live_preview_exposes_motion_as_soon_as_lookahead_is_available(): void
+    {
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.persistence_window_frames', 1);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-brief-local')]);
+
+        $camera = Camera::query()->create([
+            'name' => 'Backyard confirmed preview',
+            'local_ip' => '192.168.1.91',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream20',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'recording_motion_trigger_pixels' => 3,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 16,
+                'runs' => [[0, 15]],
+            ],
+        ]);
+        $segmentPath = storage_path('app/private/test-motion-editor-live-confirmed.mkv');
+        File::ensureDirectoryExists(dirname($segmentPath));
+        File::put($segmentPath, 'brief-motion-live');
+
+        try {
+            $motion = app(RecordingMotionDetectorService::class)->detectPreviewClip($camera, $segmentPath);
+        } finally {
+            File::delete($segmentPath);
+        }
+
+        $this->assertTrue($motion['detected']);
+        $this->assertSame(8, $motion['changed_pixels']);
+        $this->assertEqualsCanonicalizing([0, 1, 4, 5], $motion['changed_indexes']);
+    }
+
     public function test_it_ignores_isolated_single_pixel_changes_inside_the_mask(): void
     {
         config()->set('queue.default', 'sync');
