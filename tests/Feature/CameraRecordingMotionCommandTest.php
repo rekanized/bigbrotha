@@ -263,7 +263,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         ]);
         $segmentPath = storage_path('app/private/test-motion-editor-live-lookahead.mkv');
         File::ensureDirectoryExists(dirname($segmentPath));
-        File::put($segmentPath, 'brief-motion-live');
+        File::put($segmentPath, 'unconfirmed-motion-live');
 
         try {
             $closedSegment = app(RecordingMotionDetectorService::class)->detectClip($camera, $segmentPath);
@@ -274,7 +274,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $this->assertTrue($closedSegment['detected']);
         $this->assertFalse($liveSnapshot['detected']);
-        $this->assertSame(3, $liveSnapshot['frame_count']);
+        $this->assertSame(2, $liveSnapshot['frame_count']);
         $this->assertSame([], $liveSnapshot['changed_indexes']);
     }
 
@@ -282,7 +282,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         config()->set('recording.motion.grid_width', 4);
         config()->set('recording.motion.grid_height', 4);
-        config()->set('recording.motion.persistence_window_frames', 1);
+        config()->set('recording.motion.persistence_window_frames', 2);
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-brief-local')]);
 
         $camera = Camera::query()->create([

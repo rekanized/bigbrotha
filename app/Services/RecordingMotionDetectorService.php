@@ -72,8 +72,9 @@ class RecordingMotionDetectorService
 
     /**
      * Analyze a snapshot of the currently-written recorder segment. Transitions
-     * without enough future frames are withheld until refresh-spike rejection can
-     * make the same confident decision as the closed-segment recorder pass.
+     * without a future frame are withheld until refresh-spike rejection can
+     * confirm them. All configured lookahead frames that are already available
+     * are still used.
      *
      * @return array{detected: bool, activity_ratio: float, changed_pixels: int, selected_pixels: int, frame_count: int, changed_indexes: array<int, int>}
      */
@@ -90,7 +91,7 @@ class RecordingMotionDetectorService
         Camera $camera,
         array $inputArguments,
         ?int $expectedDurationSeconds = null,
-        bool $requireCompleteLookahead = false,
+        bool $requirePreviewLookahead = false,
     ): array {
         $ffmpegBinary = $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
 
@@ -214,8 +215,8 @@ class RecordingMotionDetectorService
             $frames[] = substr($output, $frameIndex * $frameSize, $frameSize);
         }
 
-        $lastFrameIndex = $requireCompleteLookahead
-            ? $frameCount - 1 - $refreshSpikeWindowFrames
+        $lastFrameIndex = $requirePreviewLookahead
+            ? $frameCount - 2
             : $frameCount - 1;
 
         for ($frameIndex = 1; $frameIndex <= $lastFrameIndex; $frameIndex++) {

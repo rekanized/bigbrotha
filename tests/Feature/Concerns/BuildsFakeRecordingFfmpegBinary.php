@@ -61,6 +61,10 @@ emit_brief_motion_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
+emit_unconfirmed_motion_frame() {
+    printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\000\000\377\377\000\000\000\000\000\000\000\000\000\000'
+}
+
 emit_isolated_pixel_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
@@ -219,6 +223,8 @@ if arg_has 'rawvideo' "$@"; then
         emit_motion_frame
     elif [[ "$contents" == brief-motion* ]]; then
         emit_brief_motion_frame
+    elif [[ "$contents" == unconfirmed-motion* ]]; then
+        emit_unconfirmed_motion_frame
     elif [[ "$contents" == isolated-pixel* ]]; then
         emit_isolated_pixel_frame
     elif [[ "$contents" == adjacent-pair* ]]; then

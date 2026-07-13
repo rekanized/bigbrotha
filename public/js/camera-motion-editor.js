@@ -731,6 +731,15 @@
             const decision = payload.decision && typeof payload.decision === 'object' ? payload.decision : {};
             const changedIndexes = Array.isArray(decision.changed_indexes) ? decision.changed_indexes : [];
 
+            if (payload.status === 'waiting' && this.analysisStatus === 'ready') {
+                this.analysisMessage = typeof payload.message === 'string' ? payload.message : this.analysisMessage;
+                this.settingsSaved = payload.settings_saved === true;
+                this.recordingEventActive = payload.recording_event_active === true;
+                this.refreshMetrics();
+
+                return;
+            }
+
             this.changedBits.fill(0);
 
             changedIndexes.forEach((value) => {
