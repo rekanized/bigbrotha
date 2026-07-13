@@ -12,12 +12,24 @@ cd "$APP_ROOT"
 mkdir -p \
     bootstrap/cache \
     storage/app/private/bootstrap \
+    storage/app/private/continuous-recorders \
     storage/app/private/ffmpeg-temp \
     storage/app/private/mediamtx \
+    storage/app/private/motion-recorders \
     storage/framework/cache/data \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs
+
+normalize_recording_runtime_permissions() {
+    for runtime_path in \
+        storage/app/private/continuous-recorders \
+        storage/app/private/motion-recorders
+    do
+        chown -R www-data:www-data "$runtime_path"
+        find "$runtime_path" -type d -exec chmod 2775 {} +
+    done
+}
 
 mkdir -p "$(dirname "$APP_KEY_FILE")"
 chmod 700 "$(dirname "$APP_KEY_FILE")" 2>/dev/null || true
@@ -31,6 +43,24 @@ case "$(basename "$start_command")" in
             storage/app/private/mediamtx \
             storage/framework \
             storage/logs
+        normalize_recording_runtime_permissions
+        ;;
+    run-background|run-worker|run-scheduler)
+        chown www-data:www-data \
+            bootstrap/cache \
+            storage \
+            storage/app \
+            storage/app/private \
+            storage/app/private/bootstrap \
+            storage/app/private/ffmpeg-temp \
+            storage/app/private/mediamtx \
+            storage/framework \
+            storage/framework/cache \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/logs
+        normalize_recording_runtime_permissions
         ;;
     *)
         chown www-data:www-data \

@@ -220,7 +220,8 @@ Container notes:
 
 - the published app image includes Nginx, PHP-FPM, Supervisor, ffmpeg, ffprobe, and MediaMTX.
 - the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then supervises unprivileged Nginx and PHP-FPM processes.
-- the `background` container supervises one Laravel scheduler plus exactly `CAMERA_RECORDING_WORKER_PROCESSES` queue workers; its health check validates both roles and the configured worker count.
+- the `background` container supervises one Laravel scheduler plus exactly `CAMERA_RECORDING_WORKER_PROCESSES` queue workers; its health check validates both roles, the configured worker count, writable nested recorder runtime directories, and every enabled persistent camera recorder process.
+- app and background startup repair ownership and directory modes throughout the persistent continuous and motion recorder runtime trees before unprivileged recording processes start, including runtime paths left behind by older root-run maintenance commands.
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.
 - Nginx in the `app` container serves the operator UI and proxies `/__webrtc/` traffic to `relay`.
 - `./docker/compose.sh` wraps the default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.

@@ -273,8 +273,14 @@ class MotionRecordingSegmenterService
         }
 
         File::ensureDirectoryExists($this->runtimeDirectory());
+        File::ensureDirectoryExists($this->cameraDirectory($camera));
+        @chmod($this->runtimeDirectory(), 02775);
+        @chmod($this->cameraDirectory($camera), 02775);
         File::deleteDirectory($this->segmentDirectory($camera));
         File::ensureDirectoryExists($this->segmentDirectory($camera));
+        @chmod($this->segmentDirectory($camera), 02775);
+        File::append($this->logPath($camera), '');
+        @chmod($this->logPath($camera), 0664);
 
         $command = [
             $ffmpegBinary,
@@ -351,6 +357,7 @@ class MotionRecordingSegmenterService
 
         if ($pid > 0) {
             File::put($this->pidPath($camera), (string) $pid);
+            @chmod($this->pidPath($camera), 0664);
         }
 
         File::put($this->metaPath($camera), json_encode([
@@ -360,6 +367,7 @@ class MotionRecordingSegmenterService
             'output_pattern' => $this->outputPattern($camera),
             'started_at' => now()->utc()->toIso8601String(),
         ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        @chmod($this->metaPath($camera), 0664);
     }
 
     private function pid(Camera $camera): ?int

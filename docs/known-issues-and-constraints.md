@@ -139,6 +139,8 @@ Current expectations:
 - a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
 - the repository Docker stack satisfies those requirements with separate scheduler and worker process groups inside the `background` container.
+- the background health check also verifies that nested motion and continuous runtime directories remain writable and that every eligible persistent camera recorder process is alive; a fresh scheduler heartbeat alone is not sufficient for a healthy recording container.
+- container startup recursively repairs the owner and group-writable setgid directory modes under `storage/app/private/motion-recorders` and `storage/app/private/continuous-recorders`. This recovers runtime trees left owned by root after older maintenance commands were run with `docker exec` without `--user www-data`.
 - if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and recreate `background` so Supervisor starts the requested process count.
 - the scheduler remains a scheduling loop only; it is not a fallback worker supervisor.
 - the scheduler runs a bounded failed-job retry sweep, so entries in `failed_jobs` are automatically requeued after the configured cooldown until `QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES` is reached; terminal rows are retained for `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` (24 hours by default) for operator inspection and are then pruned automatically. Long recording, preview, review-asset, and retention commands run as overlap-protected background scheduler events so they cannot block retry and pruning sweeps. The Admin settings queue panel shows the recorded exception excerpt and current retry state for each failed row.
@@ -155,6 +157,7 @@ The Docker runtime runs Nginx, PHP-FPM, scheduler, and queue worker processes as
 Current expectations:
 
 - shared Laravel runtime paths such as `storage/logs` and `storage/app/private/ffmpeg-temp` must remain group-writable across both users.
+- persistent recorder subdirectories under `storage/app/private/motion-recorders` and `storage/app/private/continuous-recorders` must remain writable by `www-data`; root-owned mode-0755 camera directories can leave the scheduler and workers healthy while every ffmpeg segmenter exits with `Permission denied`.
 - if `storage/logs/laravel.log` becomes owner-only, `php artisan schedule:run` can fail in an earlier scheduled task before `camera-recordings:tick` runs, which stalls new recordings even when the queue workers are healthy.
 - if review playback or review-asset generation reports `Permission denied` in `storage/app/private/ffmpeg-temp`, inspect directory modes under that tree before changing recorder logic.
 

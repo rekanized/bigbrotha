@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Camera;
+use App\Services\MotionRecordingSegmenterService;
 use App\Services\RuntimeHeartbeatService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -9,6 +11,7 @@ use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class RecordingContainerHealthCommandTest extends TestCase
@@ -154,6 +157,38 @@ class RecordingContainerHealthCommandTest extends TestCase
 
         $this->assertSame(1, $exitCode);
         $this->assertStringContainsString('Recording tick heartbeat is stale', Artisan::output());
+    }
+
+    public function test_scheduler_healthcheck_fails_when_an_enabled_motion_recorder_process_is_missing(): void
+    {
+        $this->writeBootstrapMarker();
+        app(RuntimeHeartbeatService::class)->touchScheduler('test');
+        app(RuntimeHeartbeatService::class)->touchRecordingTick('test');
+
+        $camera = Camera::query()->create([
+            'name' => 'Garage',
+            'local_ip' => '192.168.1.68',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 60,
+        ]);
+
+        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock) use ($camera): void {
+            $mock->shouldReceive('enabled')->once()->andReturnTrue();
+            $mock->shouldReceive('isRunning')->once()->withArgs(
+                fn (Camera $candidate): bool => $candidate->is($camera),
+            )->andReturnFalse();
+        });
+
+        $exitCode = Artisan::call('camera-recordings:healthcheck', ['role' => 'scheduler']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('Managed recorder processes are not running for camera ID: '.$camera->id, Artisan::output());
     }
 
     private function writeBootstrapMarker(): void

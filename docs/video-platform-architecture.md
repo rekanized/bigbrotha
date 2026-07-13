@@ -17,6 +17,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Docker Compose deployments are image-first by default through one published `rekanized/bigbrotha-app` image, while repository-local builds use `docker-compose.build.yml` as an override.
 - The Dockerfile downloads MediaMTX 1.19.2 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
 - The `background` container uses Supervisor to run one scheduler and the queue-worker count configured by `CAMERA_RECORDING_WORKER_PROCESSES`.
+- Container startup recursively normalizes ownership and shared directory modes inside the persistent motion and continuous recorder runtime trees before Supervisor starts unprivileged work. The background health check also validates nested runtime writability and requires a live persistent recorder process for every eligible camera.
 - PostgreSQL 18 persists its version-specific `PGDATA` beneath a named volume mounted at `/var/lib/postgresql`.
 - The `app` container supervises unprivileged Nginx and PHP-FPM processes on container port 8080; its health probe traverses both through Laravel's `/up` endpoint, while an unhealthy relay does not prevent the operator UI from starting.
 

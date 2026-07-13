@@ -79,4 +79,16 @@ class DockerRuntimeConfigurationTest extends TestCase
             $this->assertTrue($process->isSuccessful(), $script.': '.$process->getErrorOutput());
         }
     }
+
+    public function test_container_startup_repairs_persistent_recorder_runtime_permissions(): void
+    {
+        $entrypoint = file_get_contents(base_path('docker/entrypoint.sh'));
+
+        $this->assertIsString($entrypoint);
+        $this->assertStringContainsString('normalize_recording_runtime_permissions', $entrypoint);
+        $this->assertStringContainsString('storage/app/private/continuous-recorders', $entrypoint);
+        $this->assertStringContainsString('storage/app/private/motion-recorders', $entrypoint);
+        $this->assertStringContainsString('chown -R www-data:www-data "$runtime_path"', $entrypoint);
+        $this->assertStringContainsString('find "$runtime_path" -type d -exec chmod 2775 {} +', $entrypoint);
+    }
 }

@@ -2,11 +2,15 @@
 
 namespace App\Services;
 
+use App\Models\Camera;
+use FilesystemIterator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use Throwable;
 
 class RecordingContainerHealthService
@@ -14,6 +18,8 @@ class RecordingContainerHealthService
     public function __construct(
         private readonly RecordingWorkerService $workers,
         private readonly RuntimeHeartbeatService $heartbeats,
+        private readonly ContinuousRecordingSegmenterService $continuousRecorders,
+        private readonly MotionRecordingSegmenterService $motionRecorders,
     ) {
     }
 
@@ -47,6 +53,7 @@ class RecordingContainerHealthService
         if ($role === 'scheduler') {
             $checks[] = $this->checkSchedulerHeartbeat();
             $checks[] = $this->checkRecordingTickHeartbeat();
+            $checks[] = $this->checkManagedRecorderProcesses();
         }
 
         $failed = array_values(array_filter($checks, static fn (array $check): bool => !$check['ok']));
@@ -110,7 +117,9 @@ class RecordingContainerHealthService
                 continue;
             }
 
-            $checks[] = $this->checkWritableDirectory($name, $path);
+            $checks[] = $role === 'scheduler' && in_array($name, ['motion_runtime', 'continuous_runtime'], true)
+                ? $this->checkWritableDirectoryTree($name, $path)
+                : $this->checkWritableDirectory($name, $path);
         }
 
         return $checks;
@@ -219,6 +228,46 @@ class RecordingContainerHealthService
     }
 
     /**
+     * @return array{name: string, ok: bool, message: string}
+     */
+    private function checkManagedRecorderProcesses(): array
+    {
+        if (!Schema::hasTable('cameras')) {
+            return $this->ok('managed_recorders', 'Cameras table is not available yet; skipping managed recorder process checks.');
+        }
+
+        $missingCameraIds = [];
+
+        Camera::query()
+            ->where('is_enabled', true)
+            ->where('supports_rtsp', true)
+            ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
+            ->orderBy('id')
+            ->each(function (Camera $camera) use (&$missingCameraIds): void {
+                $running = match ($camera->recording_mode) {
+                    Camera::RECORDING_MODE_CONTINUOUS => !$this->continuousRecorders->enabled()
+                        || $this->continuousRecorders->isRunning($camera),
+                    Camera::RECORDING_MODE_MOTION => !$this->motionRecorders->enabled()
+                        || $this->motionRecorders->isRunning($camera),
+                    default => true,
+                };
+
+                if (!$running) {
+                    $missingCameraIds[] = (int) $camera->getKey();
+                }
+            });
+
+        if ($missingCameraIds !== []) {
+            return $this->fail(
+                'managed_recorders',
+                'Managed recorder processes are not running for camera ID'.(count($missingCameraIds) === 1 ? '' : 's').': '.implode(', ', $missingCameraIds).'.',
+            );
+        }
+
+        return $this->ok('managed_recorders', 'All enabled persistent camera recorder processes are running.');
+    }
+
+    /**
      * @param  array{path: string, exists: bool, updated_at: Carbon|null, age_seconds: int|null}  $status
      * @return array{name: string, ok: bool, message: string}
      */
@@ -314,6 +363,42 @@ class RecordingContainerHealthService
         } catch (Throwable $exception) {
             return $this->fail($name, 'Unable to validate writable directory '.$path.': '.$exception->getMessage());
         }
+    }
+
+    /**
+     * @return array{name: string, ok: bool, message: string}
+     */
+    private function checkWritableDirectoryTree(string $name, string $path): array
+    {
+        $rootCheck = $this->checkWritableDirectory($name, $path);
+
+        if (!$rootCheck['ok']) {
+            return $rootCheck;
+        }
+
+        try {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::SELF_FIRST,
+            );
+
+            foreach ($iterator as $entry) {
+                if (!$entry->isDir() || $entry->isLink()) {
+                    continue;
+                }
+
+                $directory = $entry->getPathname();
+                clearstatcache(true, $directory);
+
+                if (!is_writable($directory)) {
+                    return $this->fail($name, 'Nested recording runtime directory is not writable: '.$directory.'.');
+                }
+            }
+        } catch (Throwable $exception) {
+            return $this->fail($name, 'Unable to validate recording runtime directory tree '.$path.': '.$exception->getMessage());
+        }
+
+        return $this->ok($name, 'Recording runtime directory tree is writable: '.$path.'.');
     }
 
     private function bootstrapMarkerPath(): string

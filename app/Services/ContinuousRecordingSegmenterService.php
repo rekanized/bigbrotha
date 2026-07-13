@@ -259,6 +259,10 @@ class ContinuousRecordingSegmenterService
 
         File::ensureDirectoryExists($this->runtimeDirectory());
         File::ensureDirectoryExists($this->recordingDirectory($camera));
+        @chmod($this->runtimeDirectory(), 02775);
+        @chmod($this->recordingDirectory($camera), 02775);
+        File::append($this->logPath($camera), '');
+        @chmod($this->logPath($camera), 0664);
 
         $command = array_merge([
             $ffmpegBinary,
@@ -335,6 +339,7 @@ class ContinuousRecordingSegmenterService
 
         if ($pid > 0) {
             File::put($this->pidPath($camera), (string) $pid);
+            @chmod($this->pidPath($camera), 0664);
         }
 
         File::put($this->metaPath($camera), json_encode([
@@ -344,6 +349,7 @@ class ContinuousRecordingSegmenterService
             'output_pattern' => $this->outputPattern($camera),
             'started_at' => now()->utc()->toIso8601String(),
         ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        @chmod($this->metaPath($camera), 0664);
     }
 
     private function pid(Camera $camera): ?int
