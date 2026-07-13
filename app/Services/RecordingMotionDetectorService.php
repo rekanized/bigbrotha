@@ -13,8 +13,7 @@ class RecordingMotionDetectorService
 
     public function __construct(
         private readonly RecordingMotionMaskService $maskService,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array{authenticated_uri: string, transport: string}  $source
@@ -121,7 +120,7 @@ class RecordingMotionDetectorService
         $process->setTimeout(max($analysisSeconds, (int) ($expectedDurationSeconds ?? 0)) + 15);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             $message = trim($process->getErrorOutput() ?: $process->getOutput());
 
             throw new RuntimeException($message !== ''
@@ -162,6 +161,26 @@ class RecordingMotionDetectorService
         $minimumClusterPixels = max(3, (int) config('recording.motion.minimum_cluster_pixels', 3));
         $clusterBonusMinSize = max(3, (int) config('recording.motion.cluster_bonus_min_size', 3));
         $clusterBonusMultiplier = max(0, (int) config('recording.motion.cluster_bonus_multiplier', 2));
+        $artifactWidespreadActivityRatio = max(
+            0.1,
+            min(1.0, (float) config('recording.motion.artifact_widespread_activity_ratio', 0.55))
+        );
+        $artifactLuminanceMeanDelta = max(
+            1.0,
+            min(255.0, (float) config('recording.motion.artifact_luminance_mean_delta', 6.0))
+        );
+        $artifactLuminanceDirectionRatio = max(
+            0.5,
+            min(1.0, (float) config('recording.motion.artifact_luminance_direction_ratio', 0.9))
+        );
+        $artifactLuminanceCoverageRatio = max(
+            0.1,
+            min(1.0, (float) config('recording.motion.artifact_luminance_coverage_ratio', 0.5))
+        );
+        $artifactLuminancePixelDelta = max(
+            1,
+            min($pixelDeltaThreshold, (int) config('recording.motion.artifact_luminance_pixel_delta', 4))
+        );
         $refreshSpikeWindowFrames = max(1, (int) config('recording.motion.persistence_window_frames', 2));
         $refreshSpikeActivityRatio = max(
             $activityThreshold,
@@ -178,10 +197,10 @@ class RecordingMotionDetectorService
         for ($frameIndex = 1; $frameIndex < $frameCount; $frameIndex++) {
             $changedIndexes = $this->filterIsolatedChangedIndexes(
                 $this->changedIndexes(
-                $frames[$frameIndex - 1],
-                $frames[$frameIndex],
-                $selectedIndexes,
-                $pixelDeltaThreshold,
+                    $frames[$frameIndex - 1],
+                    $frames[$frameIndex],
+                    $selectedIndexes,
+                    $pixelDeltaThreshold,
                 ),
                 $gridWidth,
                 $gridHeight,
@@ -201,16 +220,28 @@ class RecordingMotionDetectorService
                 continue;
             }
 
+            if ($this->isFrameRefreshArtifact(
+                $frames[$frameIndex - 1],
+                $frames[$frameIndex],
+                $frameSize,
+                $pixelDeltaThreshold,
+                $artifactWidespreadActivityRatio,
+                $artifactLuminanceMeanDelta,
+                $artifactLuminanceDirectionRatio,
+                $artifactLuminanceCoverageRatio,
+                $artifactLuminancePixelDelta,
+            )) {
+                continue;
+            }
+
             if ($this->isIsolatedRefreshSpike(
                 $frames,
                 $frameIndex,
-                $selectedIndexes,
                 $frameSize,
                 $pixelDeltaThreshold,
                 $activityThreshold,
                 $refreshSpikeActivityRatio,
                 $refreshSpikeWindowFrames,
-                $selectedPixels,
             )) {
                 continue;
             }
@@ -223,27 +254,69 @@ class RecordingMotionDetectorService
 
         return [
             'detected' => $detected,
-            'activity_ratio' => round($peakChangedPixels / $selectedPixels, 4),
+            'activity_ratio' => round(min(1.0, $peakChangedPixels / $selectedPixels), 4),
             'changed_pixels' => $peakChangedPixels,
             'selected_pixels' => $selectedPixels,
             'frame_count' => $frameCount,
         ];
     }
 
+    private function isFrameRefreshArtifact(
+        string $leftFrame,
+        string $rightFrame,
+        int $frameSize,
+        int $pixelDeltaThreshold,
+        float $widespreadActivityRatio,
+        float $luminanceMeanDelta,
+        float $luminanceDirectionRatio,
+        float $luminanceCoverageRatio,
+        int $luminancePixelDelta,
+    ): bool {
+        $changedPixels = 0;
+        $luminanceChangedPixels = 0;
+        $absoluteDelta = 0;
+        $signedDelta = 0;
+
+        for ($index = 0; $index < $frameSize; $index++) {
+            $delta = ord($rightFrame[$index]) - ord($leftFrame[$index]);
+            $absoluteDelta += abs($delta);
+            $signedDelta += $delta;
+
+            if (abs($delta) >= $pixelDeltaThreshold) {
+                $changedPixels++;
+            }
+
+            if (abs($delta) >= $luminancePixelDelta) {
+                $luminanceChangedPixels++;
+            }
+        }
+
+        if (($changedPixels / $frameSize) >= $widespreadActivityRatio) {
+            return true;
+        }
+
+        $meanAbsoluteDelta = $absoluteDelta / $frameSize;
+
+        if ($meanAbsoluteDelta < $luminanceMeanDelta
+            || ($luminanceChangedPixels / $frameSize) < $luminanceCoverageRatio
+            || $absoluteDelta < 1) {
+            return false;
+        }
+
+        return (abs($signedDelta) / $absoluteDelta) >= $luminanceDirectionRatio;
+    }
+
     /**
      * @param  array<int, string>  $frames
-     * @param  array<int, int>  $selectedIndexes
      */
     private function isIsolatedRefreshSpike(
         array $frames,
         int $frameIndex,
-        array $selectedIndexes,
         int $frameSize,
         int $pixelDeltaThreshold,
         float $activityThreshold,
         float $refreshSpikeActivityRatio,
         int $refreshSpikeWindowFrames,
-        int $selectedPixels,
     ): bool {
         $previousFrame = $frames[$frameIndex - 1] ?? null;
         $currentFrame = $frames[$frameIndex] ?? null;
@@ -368,7 +441,7 @@ class RecordingMotionDetectorService
 
                     $neighborIndex = ($neighborY * $gridWidth) + $neighborX;
 
-                    if (!isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
+                    if (! isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
                         continue;
                     }
 
@@ -453,7 +526,7 @@ class RecordingMotionDetectorService
 
                     $neighborIndex = ($neighborY * $gridWidth) + $neighborX;
 
-                    if (!isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
+                    if (! isset($changedLookup[$neighborIndex]) || isset($visited[$neighborIndex])) {
                         continue;
                     }
 
@@ -465,5 +538,4 @@ class RecordingMotionDetectorService
 
         return $clusterSize;
     }
-
 }

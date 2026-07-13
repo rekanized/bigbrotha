@@ -109,6 +109,11 @@
             this.minimumClusterPixels = Math.max(3, Number.parseInt(root.dataset.minimumClusterPixels || '3', 10) || 3);
             this.clusterBonusMinSize = Math.max(3, Number.parseInt(root.dataset.clusterBonusMinSize || '3', 10) || 3);
             this.clusterBonusMultiplier = Math.max(0, Number.parseInt(root.dataset.clusterBonusMultiplier || '2', 10) || 2);
+            this.artifactWidespreadActivityRatio = Math.max(0.1, Math.min(1, Number.parseFloat(root.dataset.artifactWidespreadActivityRatio || '0.55') || 0.55));
+            this.artifactLuminanceMeanDelta = Math.max(1, Math.min(255, Number.parseFloat(root.dataset.artifactLuminanceMeanDelta || '6') || 6));
+            this.artifactLuminanceDirectionRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.artifactLuminanceDirectionRatio || '0.9') || 0.9));
+            this.artifactLuminanceCoverageRatio = Math.max(0.1, Math.min(1, Number.parseFloat(root.dataset.artifactLuminanceCoverageRatio || '0.5') || 0.5));
+            this.artifactLuminancePixelDelta = Math.max(1, Math.min(this.pixelDeltaThreshold, Number.parseInt(root.dataset.artifactLuminancePixelDelta || '4', 10) || 4));
             this.refreshSpikeWindowFrames = Math.max(1, Number.parseInt(root.dataset.refreshSpikeWindowFrames || '2', 10) || 2);
             this.refreshSpikeActivityRatio = Math.max(0.5, Math.min(1, Number.parseFloat(root.dataset.refreshSpikeActivityRatio || '0.85') || 0.85));
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
@@ -801,7 +806,7 @@
                 };
             }
 
-            if (this.isIsolatedRefreshSpike(currentIndex)) {
+            if (this.isFrameRefreshArtifact(previousFrame, currentFrame) || this.isIsolatedRefreshSpike(currentIndex)) {
                 return {
                     bits: new Uint8Array(this.totalPixels),
                     changedPixels: 0,
@@ -950,6 +955,41 @@
             }
 
             return clusterSize;
+        }
+
+        isFrameRefreshArtifact(leftFrame, rightFrame) {
+            let changedPixels = 0;
+            let luminanceChangedPixels = 0;
+            let absoluteDelta = 0;
+            let signedDelta = 0;
+
+            for (let index = 0; index < this.totalPixels; index += 1) {
+                const delta = rightFrame[index] - leftFrame[index];
+                absoluteDelta += Math.abs(delta);
+                signedDelta += delta;
+
+                if (Math.abs(delta) >= this.pixelDeltaThreshold) {
+                    changedPixels += 1;
+                }
+
+                if (Math.abs(delta) >= this.artifactLuminancePixelDelta) {
+                    luminanceChangedPixels += 1;
+                }
+            }
+
+            if ((changedPixels / this.totalPixels) >= this.artifactWidespreadActivityRatio) {
+                return true;
+            }
+
+            const meanAbsoluteDelta = absoluteDelta / this.totalPixels;
+
+            if (meanAbsoluteDelta < this.artifactLuminanceMeanDelta
+                || (luminanceChangedPixels / this.totalPixels) < this.artifactLuminanceCoverageRatio
+                || absoluteDelta < 1) {
+                return false;
+            }
+
+            return (Math.abs(signedDelta) / absoluteDelta) >= this.artifactLuminanceDirectionRatio;
         }
 
         isIsolatedRefreshSpike(currentIndex) {

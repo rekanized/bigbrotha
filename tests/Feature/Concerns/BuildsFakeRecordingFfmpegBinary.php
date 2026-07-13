@@ -81,6 +81,14 @@ emit_refresh_glitch_frame() {
     printf '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
 }
 
+emit_global_luminance_shift_frame() {
+    printf '\040\040\040\040\040\040\040\040\040\040\040\040\040\040\040\040\100\100\100\100\100\100\100\100\050\050\050\050\050\050\050\050\100\100\100\100\100\100\100\100\050\050\050\050\050\050\050\050'
+}
+
+emit_widespread_refresh_frame() {
+    printf '\000\000\000\000\000\000\000\000\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\000\000\000\000\000\000\000\000\377\377\377\377\377\377\377\377\000\000\000\000\000\000\000\000'
+}
+
 write_segments() {
     local pattern="$1"
     local stamp="$2"
@@ -126,6 +134,26 @@ write_segments() {
                 case "$index" in
                     4|5|6)
                         label="adjacent-pair"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
+            global-luminance-shift)
+                case "$index" in
+                    4|5|6)
+                        label="global-luminance-shift"
+                        ;;
+                    *)
+                        label="quiet"
+                        ;;
+                esac
+                ;;
+            widespread-refresh)
+                case "$index" in
+                    4|5|6)
+                        label="widespread-refresh"
                         ;;
                     *)
                         label="quiet"
@@ -199,6 +227,10 @@ if arg_has 'rawvideo' "$@"; then
         emit_clustered_triplet_frame
     elif [[ "$contents" == refresh-glitch* ]]; then
         emit_refresh_glitch_frame
+    elif [[ "$contents" == global-luminance-shift* ]]; then
+        emit_global_luminance_shift_frame
+    elif [[ "$contents" == widespread-refresh* ]]; then
+        emit_widespread_refresh_frame
     else
         emit_quiet_frame
     fi
@@ -351,6 +383,8 @@ BASH,
             'motion-adjacent-pair' => $rollingMotionScript('adjacent-pair'),
             'motion-clustered-triplet' => $rollingMotionScript('clustered-triplet'),
             'motion-refresh-glitch' => $rollingMotionScript('refresh-glitch'),
+            'motion-global-luminance-shift' => $rollingMotionScript('global-luminance-shift'),
+            'motion-widespread-refresh' => $rollingMotionScript('widespread-refresh'),
             'capture-fails' => <<<'BASH'
 #!/usr/bin/env bash
 set -e

@@ -2,12 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\GenerateRecordingReviewAssetsJob;
 use App\Models\Camera;
+use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
+use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
+use App\Services\CameraStorageService;
 use App\Services\MotionRecordingSegmenterService;
 use App\Services\RecordingMotionDetectorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -96,6 +101,60 @@ class CameraRecordingMotionCommandTest extends TestCase
         $camera = Camera::query()->firstOrFail();
 
         $this->assertNull($camera->fresh()->recording_last_motion_at);
+    }
+
+    public function test_it_ignores_persistent_global_luminance_shifts(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+
+        Camera::query()->create([
+            'name' => 'Exposure Switching Yard',
+            'local_ip' => '192.168.1.93',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream22',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-global-luminance-shift')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+        $this->assertNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
+    public function test_it_ignores_persistent_widespread_pixel_refreshes(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+
+        Camera::query()->create([
+            'name' => 'Block Refresh Yard',
+            'local_ip' => '192.168.1.94',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream23',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-widespread-refresh')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertDatabaseCount('camera_recordings', 0);
+        $this->assertNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
     }
 
     public function test_it_still_detects_brief_localized_motion_segments(): void
@@ -251,6 +310,45 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $this->assertDatabaseCount('camera_recordings', 1);
         $this->assertNotNull(Camera::query()->firstOrFail()->fresh()->recording_last_motion_at);
+    }
+
+    public function test_it_caps_the_stored_activity_ratio_for_weighted_motion_clusters(): void
+    {
+        config()->set('queue.default', 'sync');
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        config()->set('recording.motion.cluster_bonus_min_size', 3);
+        config()->set('recording.motion.cluster_bonus_multiplier', 2);
+
+        Camera::query()->create([
+            'name' => 'Bounded Motion Score Yard',
+            'local_ip' => '192.168.1.95',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream24',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_retention_days' => 1,
+            'motion_sensitivity' => 25,
+            'recording_motion_trigger_pixels' => 4,
+            'recording_motion_mask' => [
+                'version' => 1,
+                'grid_width' => 4,
+                'grid_height' => 4,
+                'selected_pixels' => 4,
+                'runs' => [
+                    [0, 1],
+                    [4, 5],
+                ],
+            ],
+        ]);
+
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-clustered-triplet')]);
+
+        Artisan::call('camera-recordings:tick');
+
+        $this->assertSame('1.0000', CameraRecording::query()->firstOrFail()->motion_score);
     }
 
     public function test_it_ignores_motion_outside_the_selected_mask(): void
@@ -882,7 +980,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
     public function test_it_prunes_old_motion_buffer_segments_after_a_retryable_staged_clip_exists(): void
     {
-        $now = \Illuminate\Support\Carbon::create(2026, 4, 10, 19, 5, 0, 'UTC');
+        $now = Carbon::create(2026, 4, 10, 19, 5, 0, 'UTC');
 
         $this->travelTo($now);
 
@@ -902,7 +1000,7 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'motion_sensitivity' => 25,
             ]);
 
-            $scheduledFor = \Illuminate\Support\Carbon::create(2026, 4, 10, 15, 21, 53, 'UTC');
+            $scheduledFor = Carbon::create(2026, 4, 10, 15, 21, 53, 'UTC');
             $eventStartedAt = $scheduledFor->copy();
             $finalizeAfter = $scheduledFor->copy()->addSeconds(40);
             $coveredUntil = $scheduledFor->copy()->addSeconds(44);
@@ -916,7 +1014,7 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'message' => 'Unable to verify the uploaded file on the active camera storage disk.',
             ]);
 
-            \App\Models\CameraMotionState::query()->create([
+            CameraMotionState::query()->create([
                 'camera_id' => $camera->id,
                 'active_recording_id' => $recording->id,
                 'event_started_at' => $eventStartedAt,
@@ -924,7 +1022,7 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'finalize_after' => $finalizeAfter,
             ]);
 
-            $storage = app(\App\Services\CameraStorageService::class);
+            $storage = app(CameraStorageService::class);
             $fileName = $scheduledFor->format('Ymd_His').'-motion.'.config('recording.extension', 'mkv');
             $absolutePath = $storage->recordingAbsolutePath($camera, $scheduledFor, $fileName);
             $relativePath = $storage->recordingRelativePathFromAbsolute($absolutePath);
@@ -938,13 +1036,13 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'generated_at' => $now->toIso8601String(),
             ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
 
-            $storage = \Mockery::mock(\App\Services\CameraStorageService::class, [app(\App\Services\ApplicationSettingsService::class)])
+            $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
                 ->makePartial();
             $storage->shouldReceive('finalizeStagedWrite')
                 ->once()
                 ->with($relativePath, $absolutePath)
                 ->andThrow(new \RuntimeException('Unable to verify the uploaded file on the active camera storage disk.'));
-            $this->app->instance(\App\Services\CameraStorageService::class, $storage);
+            $this->app->instance(CameraStorageService::class, $storage);
 
             $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
             $segmenter->shouldReceive('syncCamera')
@@ -962,7 +1060,7 @@ class CameraRecordingMotionCommandTest extends TestCase
                 ->once()
                 ->with(
                     \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
-                    \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof \Illuminate\Support\Carbon
+                    \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof Carbon
                         && $keepFrom->equalTo($now->copy()->subSeconds(180))),
                     false,
                 )
@@ -1099,7 +1197,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
-                \Mockery::type(\Illuminate\Support\Carbon::class),
+                \Mockery::type(Carbon::class),
                 true,
             )
             ->andReturn(0);
@@ -1183,7 +1281,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
-                \Mockery::type(\Illuminate\Support\Carbon::class),
+                \Mockery::type(Carbon::class),
                 true,
             )
             ->andReturn(0);
@@ -1219,7 +1317,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'motion_sensitivity' => 25,
         ]);
 
-        $eventStartedAt = \Illuminate\Support\Carbon::create(2026, 4, 10, 15, 0, 0, 'UTC')->startOfSecond();
+        $eventStartedAt = Carbon::create(2026, 4, 10, 15, 0, 0, 'UTC')->startOfSecond();
         $rolloverStartedAt = $eventStartedAt->copy()->addSeconds(180);
         $previousSegment = [
             'path' => storage_path('app/private/motion-recorders/camera-'.$camera->id.'/segments/20260410_145956-buffer.mkv'),
@@ -1241,7 +1339,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'message' => 'Motion is still active in the rolling segment buffer.',
         ]);
 
-        \App\Models\CameraMotionState::query()->create([
+        CameraMotionState::query()->create([
             'camera_id' => $camera->id,
             'active_recording_id' => $activeRecording->id,
             'event_started_at' => $eventStartedAt,
@@ -1249,7 +1347,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             'finalize_after' => $rolloverStartedAt->copy()->addSeconds(20),
         ]);
 
-        $storage = app(\App\Services\CameraStorageService::class);
+        $storage = app(CameraStorageService::class);
         $stagedPath = $storage->recordingAbsolutePath(
             $camera,
             $eventStartedAt,
@@ -1273,13 +1371,13 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->andReturn([$currentSegment]);
         $segmenter->shouldReceive('segmentsForWindow')
             ->twice()
-            ->with(\Mockery::type(Camera::class), \Mockery::type(\Illuminate\Support\Carbon::class), \Mockery::type(\Illuminate\Support\Carbon::class), false)
+            ->with(\Mockery::type(Camera::class), \Mockery::type(Carbon::class), \Mockery::type(Carbon::class), false)
             ->andReturn([$previousSegment], []);
         $segmenter->shouldReceive('pruneSegments')
             ->once()
             ->with(
                 \Mockery::on(fn (Camera $resolvedCamera): bool => $resolvedCamera->is($camera)),
-                \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof \Illuminate\Support\Carbon
+                \Mockery::on(fn ($keepFrom): bool => $keepFrom instanceof Carbon
                     && $keepFrom->equalTo($rolloverStartedAt)),
                 false,
             )
@@ -1306,7 +1404,7 @@ class CameraRecordingMotionCommandTest extends TestCase
             ->where('camera_id', $camera->id)
             ->whereKeyNot($activeRecording->id)
             ->sole();
-        $motionState = \App\Models\CameraMotionState::query()->where('camera_id', $camera->id)->firstOrFail();
+        $motionState = CameraMotionState::query()->where('camera_id', $camera->id)->firstOrFail();
 
         $this->assertSame([
             'started' => true,
@@ -1324,7 +1422,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertTrue($motionState->event_started_at?->equalTo($rolloverStartedAt));
         $this->assertTrue($motionState->finalize_after?->equalTo($currentSegment['ended_at']->copy()->addSeconds(20)));
 
-        Queue::assertPushed(\App\Jobs\GenerateRecordingReviewAssetsJob::class, function (\App\Jobs\GenerateRecordingReviewAssetsJob $job) use ($activeRecording): bool {
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, function (GenerateRecordingReviewAssetsJob $job) use ($activeRecording): bool {
             return $job->recordingId === $activeRecording->id;
         });
     }

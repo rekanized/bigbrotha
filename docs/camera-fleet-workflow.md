@@ -138,9 +138,10 @@ Current behavior:
 1. each camera can stay off, record continuously, or record only on movement.
 2. movement recording now uses a painted motion mask stored as a low-resolution grid instead of a single rectangle.
 3. operators paint or erase that mask over a live stream preview, and the initial state starts with the full viewport selected.
-4. the movement threshold is the percentage of selected mask pixels that must change before a clip is recorded.
-5. each camera now stores an explicit live-feed RTSP path and an explicit recording RTSP path, and those two values may be identical.
-6. retention is currently enforced per camera in whole days, with the default workflow set to one day.
+4. the movement threshold is an effective trigger-pixel count over the selected mask; connected clusters receive bonus weight.
+5. full-frame refreshes, decoder-startup churn, and coherent exposure or infrared-mode changes are rejected before the painted mask can start an event.
+6. each camera now stores an explicit live-feed RTSP path and an explicit recording RTSP path, and those two values may be identical.
+7. retention is currently enforced per camera in whole days, with the default workflow set to one day.
 
 The first implementation prioritizes reliability and resource control: the recorder writes short direct-to-disk segments with ffmpeg stream copy instead of buffering or re-encoding in PHP.
 

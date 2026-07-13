@@ -176,7 +176,8 @@ Implications:
 
 - it is intentionally basic pixel-change detection, not object classification.
 - the configured area is stored as painted mask coordinates on a normalized motion grid instead of as one rectangle.
-- the threshold is the percentage of selected mask pixels that must change between sampled frames before recording starts.
+- the threshold is an effective trigger-pixel count over the selected mask. Connected clusters receive bonus weight, while the stored activity ratio is still bounded to `0..1`.
+- camera-wide changes are treated as feed artifacts before mask evaluation: transitions affecting most of the full frame, coherent exposure or infrared-mode shifts covering most of the image, and short flip-and-recover refreshes do not start an event. These gates are intentionally camera-agnostic and configurable through the `CAMERA_MOTION_ARTIFACT_*` environment values.
 - motion mode now depends on a persistent per-camera rolling buffer of short closed segments, not a one-shot buffered capture window.
 - the first detected motion segment opens the event, pre-roll is recovered from the buffered segments before that point, and the event stays open while later motion segments keep resetting the quiet post-trigger deadline.
 - long-running stitched motion events now roll over onto a new recording once they reach the configured `recording.motion.max_stitched_seconds` limit; the handoff happens on the next closed buffered-segment boundary so a continuously active camera produces multiple bounded clips instead of one unbounded event.
