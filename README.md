@@ -215,7 +215,7 @@ Container notes:
 
 - the published app image includes Nginx, PHP-FPM, Supervisor, ffmpeg, ffprobe, and MediaMTX.
 - the image owns fixed production defaults and dispatches one built-in health check to the app, background, or relay probe based on the running role, keeping Compose focused on topology and deployment-specific values.
-- the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, syncs relay config, and then supervises unprivileged Nginx and PHP-FPM processes.
+- the `app` container waits for PostgreSQL, ensures `APP_KEY`, persists it at `./.docker-state/app.key`, applies pending Laravel migrations, warms safe Laravel runtime caches, syncs relay config, and then supervises unprivileged Nginx and PHP-FPM processes. Configuration is intentionally not cached because database-backed authentication and storage secrets remain dynamic.
 - the `background` container supervises one Laravel scheduler plus exactly `CAMERA_RECORDING_WORKER_PROCESSES` queue workers; its health check validates both roles, the configured worker count, writable nested recorder runtime directories, and every enabled persistent camera recorder process.
 - app and background startup repair ownership and directory modes throughout the persistent continuous and motion recorder runtime trees before unprivileged recording processes start, including runtime paths left behind by older root-run maintenance commands.
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.

@@ -55,7 +55,7 @@ Each row currently shows:
 
 Use `View / edit` to open the modal editor.
 
-On narrow touch screens, the desktop rail is replaced by a compact navigation drawer, fleet cards become single-column, long endpoints wrap inside their cards, and camera actions expand to full-width touch targets. The editor consumes the available dynamic viewport height, respects device safe areas, keeps its section navigator horizontally scrollable, and retains the sticky save/cancel footer without causing page-level horizontal overflow.
+On narrow touch screens, the shared global header switches its desktop links to a compact navigation drawer, fleet cards become single-column, long endpoints wrap inside their cards, and camera actions expand to full-width touch targets. The same header and active-route navigation remain present on Camera Fleet, recordings, Timeline Review, wall setup, admin screens, single-camera playback, and Live Wall. The editor consumes the available dynamic viewport height, respects device safe areas, keeps its section navigator horizontally scrollable, and retains the sticky save/cancel footer without causing page-level horizontal overflow.
 
 ## Camera Editor Modal
 

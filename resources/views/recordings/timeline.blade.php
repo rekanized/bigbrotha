@@ -6,6 +6,8 @@
 
 @section('hide_workspace_hero', 'true')
 
+@section('page_title', 'Timeline review')
+
 @section('content')
     @php
         $timelineCameraOptionsPayload = $timelineCameraOptions

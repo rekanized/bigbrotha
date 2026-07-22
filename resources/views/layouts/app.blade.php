@@ -12,6 +12,7 @@
             $stylesheetVersion = max(
                 filemtime(public_path('css/pages/simplified-theme.css')),
                 filemtime(public_path('css/pages/mobile.css')),
+                filemtime(public_path('css/components/global-header.css')),
             );
         @endphp
 
@@ -57,10 +58,8 @@
     <body class="app-body @yield('body_class')">
         <a class="skip-link" href="#main-content">Skip to main content</a>
         @php
-            $bodyClass = trim($__env->yieldContent('body_class'));
             $layoutMode = trim($__env->yieldContent('layout_mode'));
             $isImmersiveLayout = $layoutMode === 'immersive';
-            $showImmersiveRail = $isImmersiveLayout && trim($__env->yieldContent('show_immersive_rail')) === 'true';
             $hideWorkspaceHero = trim($__env->yieldContent('hide_workspace_hero')) === 'true';
             $currentUser = auth()->user();
             $pageTitle = trim($__env->yieldContent('page_title'));
@@ -74,58 +73,12 @@
             $pageActions = trim($__env->yieldContent('page_actions'));
         @endphp
 
-        <div class="app-shell{{ $isImmersiveLayout ? ' app-shell--immersive' : '' }}{{ $showImmersiveRail ? ' app-shell--with-immersive-rail' : '' }}">
-            @if (!$isImmersiveLayout || $showImmersiveRail)
-                <aside class="app-rail page-card{{ $showImmersiveRail ? ' app-rail--immersive-desktop-only' : '' }}">
-                    <div class="app-rail__inner">
-                        <div class="sidebar-brand">
-                            <div class="sidebar-brand__mark" aria-hidden="true">
-                                <img class="sidebar-brand__logo" src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
-                            </div>
-                            <div class="sidebar-brand__meta">
-                                <span class="sidebar-brand__eyebrow">Operator workspace</span>
-                                <span class="sidebar-brand__title">{{ config('app.name', 'Bigbrotha') }}</span>
-                            </div>
-                        </div>
+        @if ($currentUser)
+            @include('layouts.partials.global-header')
+        @endif
 
-                        <section class="rail-section">
-                            @include('layouts.partials.sidebar-navigation', [
-                                'navigationIdSuffix' => 'desktop',
-                                'navigationAriaLabel' => 'Primary navigation',
-                            ])
-                        </section>
-
-                    </div>
-                </aside>
-            @endif
-
-            <div class="app-content{{ $isImmersiveLayout ? ' app-content--immersive' : '' }}">
-                @unless ($isImmersiveLayout)
-                    <details class="mobile-navigation page-card">
-                        <summary class="mobile-navigation__summary">
-                            <span class="mobile-navigation__brand">
-                                <span class="mobile-navigation__mark" aria-hidden="true">
-                                    <img src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
-                                </span>
-                                <span class="mobile-navigation__copy">
-                                    <strong>{{ config('app.name', 'Bigbrotha') }}</strong>
-                                    <small>{{ $pageTitle !== '' ? $pageTitle : 'Operator workspace' }}</small>
-                                </span>
-                            </span>
-                            <span class="mobile-navigation__toggle" aria-hidden="true">
-                                <span></span><span></span><span></span>
-                            </span>
-                        </summary>
-
-                        <div class="mobile-navigation__panel">
-                            @include('layouts.partials.sidebar-navigation', [
-                                'navigationIdSuffix' => 'mobile',
-                                'navigationAriaLabel' => 'Mobile primary navigation',
-                            ])
-                        </div>
-                    </details>
-                @endunless
-
+        <div class="app-shell app-shell--global{{ $isImmersiveLayout ? ' app-shell--immersive' : '' }}">
+            <div class="app-content app-content--global{{ $isImmersiveLayout ? ' app-content--immersive' : '' }}">
                 @unless ($isImmersiveLayout || $hideWorkspaceHero)
                     <header class="workspace-hero workspace-hero--compact page-card">
                         <div class="workspace-hero__body">
@@ -133,29 +86,13 @@
                                 <h1 class="workspace-topbar__title workspace-topbar__title--compact">{{ $pageTitle !== '' ? $pageTitle : 'Camera control room' }}</h1>
                             </div>
 
-                            <div class="workspace-hero__utility workspace-hero__utility--compact">
-                                @if ($pageActions !== '')
+                            @if ($pageActions !== '')
+                                <div class="workspace-hero__utility workspace-hero__utility--compact">
                                     <div class="workspace-topbar__controls">
                                         @yield('page_actions')
                                     </div>
-                                @endif
-
-                                @if ($currentUser)
-                                    <div class="workspace-topbar__auth workspace-topbar__auth--compact">
-                                        <div class="operator-chip" aria-label="Current operator">
-                                            <span class="operator-chip__avatar">{{ $currentUserInitials }}</span>
-                                            <span class="operator-chip__meta">
-                                                <strong>{{ $currentUser->name }}</strong>
-                                            </span>
-                                        </div>
-
-                                        <form method="POST" action="{{ route('logout') }}">
-                                            @csrf
-                                            <button class="button button--soft" type="submit">Sign out</button>
-                                        </form>
-                                    </div>
-                                @endif
-                            </div>
+                                </div>
+                            @endif
                         </div>
                     </header>
                 @endunless
@@ -166,6 +103,9 @@
             </div>
         </div>
 
+        @if ($currentUser)
+            <script src="{{ $assetBase }}/js/global-header.js?v={{ filemtime(public_path('js/global-header.js')) }}" defer data-navigate-once></script>
+        @endif
         @livewireScripts
         @stack('scripts')
     </body>

@@ -10,6 +10,7 @@
 @import url('../base/typography.css');
 @import url('../layout/app-shell.css');
 @import url('../components/topbar.css');
+@import url('../components/global-header.css');
 @import url('../components/panel.css');
 @import url('../components/button.css');
 @import url('./auth.css');

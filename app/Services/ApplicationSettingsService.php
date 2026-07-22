@@ -4,11 +4,9 @@ namespace App\Services;
 
 use App\Models\AppSetting;
 use DateTimeInterface;
-use DateTimeZone;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Throwable;
 
@@ -27,6 +25,8 @@ class ApplicationSettingsService
      * @var array<string, mixed>|null
      */
     private ?array $loadedNetworkStorage = null;
+
+    public function __construct(private readonly ApplicationSettingStore $settingStore) {}
 
     public function apply(): void
     {
@@ -61,7 +61,7 @@ class ApplicationSettingsService
 
     public function saveAppTimezone(string $timezone): void
     {
-        if (!array_key_exists($timezone, $this->timezoneOptions())) {
+        if (! array_key_exists($timezone, $this->timezoneOptions())) {
             throw new InvalidArgumentException('The selected timezone is not supported by the admin settings page.');
         }
 
@@ -70,6 +70,7 @@ class ApplicationSettingsService
             ['value' => $timezone],
         );
 
+        $this->settingStore->forget();
         $this->loadedSettings = null;
         $this->apply();
     }
@@ -102,7 +103,7 @@ class ApplicationSettingsService
     {
         $record = $this->networkStorageRecord();
 
-        if (!(bool) ($record['enabled'] ?? false)) {
+        if (! (bool) ($record['enabled'] ?? false)) {
             return null;
         }
 
@@ -152,12 +153,13 @@ class ApplicationSettingsService
                 $preserveExistingPassword,
             );
 
+            $this->settingStore->forget();
             $this->loadedNetworkStorage = null;
 
             return;
         }
 
-        if (!$setting->exists) {
+        if (! $setting->exists) {
             $setting->value = null;
         }
 
@@ -167,12 +169,13 @@ class ApplicationSettingsService
 
         if ($normalizedPassword !== null) {
             $setting->network_storage_password = $normalizedPassword;
-        } elseif (!$preserveExistingPassword) {
+        } elseif (! $preserveExistingPassword) {
             $setting->network_storage_password = null;
         }
 
         $setting->save();
 
+        $this->settingStore->forget();
         $this->loadedNetworkStorage = null;
     }
 
@@ -183,7 +186,7 @@ class ApplicationSettingsService
 
     public function formatDateTime(?DateTimeInterface $value, string $format = 'Y-m-d H:i:s', bool $includeTimezone = true): ?string
     {
-        if (!$value instanceof DateTimeInterface) {
+        if (! $value instanceof DateTimeInterface) {
             return null;
         }
 
@@ -195,7 +198,7 @@ class ApplicationSettingsService
 
     public function formatTimeRange(?DateTimeInterface $start, ?DateTimeInterface $end, string $format = 'H:i:s', bool $includeTimezone = true): ?string
     {
-        if (!$start instanceof DateTimeInterface || !$end instanceof DateTimeInterface) {
+        if (! $start instanceof DateTimeInterface || ! $end instanceof DateTimeInterface) {
             return null;
         }
 
@@ -217,7 +220,7 @@ class ApplicationSettingsService
 
     public function parseStoredTimestamp(?string $value): ?Carbon
     {
-        if (!is_string($value) || trim($value) === '') {
+        if (! is_string($value) || trim($value) === '') {
             return null;
         }
 
@@ -243,7 +246,7 @@ class ApplicationSettingsService
 
     public function parseDisplayDateTimeToUtc(mixed $value): ?Carbon
     {
-        if (!is_string($value) || trim($value) === '') {
+        if (! is_string($value) || trim($value) === '') {
             return null;
         }
 
@@ -330,19 +333,10 @@ class ApplicationSettingsService
             return $this->loadedSettings;
         }
 
-        if (!$this->settingsTableExists()) {
-            return $this->loadedSettings = [];
-        }
+        $settings = $this->settingStore->plainValues();
+        unset($settings[self::SETTING_NETWORK_STORAGE]);
 
-        try {
-            return $this->loadedSettings = AppSetting::query()
-                ->where('key', '!=', self::SETTING_NETWORK_STORAGE)
-                ->pluck('value', 'key')
-                ->map(fn (mixed $value): string => (string) $value)
-                ->all();
-        } catch (Throwable) {
-            return $this->loadedSettings = [];
-        }
+        return $this->loadedSettings = $settings;
     }
 
     /**
@@ -354,19 +348,8 @@ class ApplicationSettingsService
             return $this->loadedNetworkStorage;
         }
 
-        if (!$this->settingsTableExists()) {
-            return $this->loadedNetworkStorage = [
-                'enabled' => false,
-                'path' => null,
-                'username' => null,
-                'password' => null,
-            ];
-        }
-
         try {
-            $setting = AppSetting::query()
-                ->where('key', self::SETTING_NETWORK_STORAGE)
-                ->first();
+            $setting = $this->settingStore->find(self::SETTING_NETWORK_STORAGE);
 
             return $this->loadedNetworkStorage = [
                 'enabled' => (bool) ($setting?->getRawOriginal('network_storage_enabled') ?? false),
@@ -386,7 +369,7 @@ class ApplicationSettingsService
 
     private function nullableString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -440,11 +423,13 @@ class ApplicationSettingsService
                 'network_storage_password' => $passwordToStore,
                 'updated_at' => now(),
             ]);
+
+        $this->settingStore->forget();
     }
 
     private function resolveStoredNetworkStoragePassword(?AppSetting $setting): ?string
     {
-        if (!$setting instanceof AppSetting) {
+        if (! $setting instanceof AppSetting) {
             return null;
         }
 
@@ -467,7 +452,7 @@ class ApplicationSettingsService
     {
         $decoded = base64_decode($value, true);
 
-        if (!is_string($decoded) || $decoded === '') {
+        if (! is_string($decoded) || $decoded === '') {
             return false;
         }
 
@@ -477,14 +462,5 @@ class ApplicationSettingsService
             && is_string($payload['iv'] ?? null)
             && is_string($payload['value'] ?? null)
             && is_string($payload['mac'] ?? null);
-    }
-
-    private function settingsTableExists(): bool
-    {
-        try {
-            return Schema::hasTable('app_settings');
-        } catch (Throwable) {
-            return false;
-        }
     }
 }

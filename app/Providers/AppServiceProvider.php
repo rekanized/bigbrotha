@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\ApplicationSettingsService;
+use App\Services\ApplicationSettingStore;
 use App\Services\AuthenticationSettingsService;
 use App\Services\Relay\MediaMtxPathStatusService;
 use App\Services\RuntimeHeartbeatService;
@@ -25,7 +26,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->scoped(MediaMtxPathStatusService::class, static fn (): MediaMtxPathStatusService => new MediaMtxPathStatusService());
+        $this->app->scoped(ApplicationSettingStore::class, static fn (): ApplicationSettingStore => new ApplicationSettingStore);
+        $this->app->scoped(MediaMtxPathStatusService::class, static fn (): MediaMtxPathStatusService => new MediaMtxPathStatusService);
 
         $this->app->singleton(FFProbe::class, function ($app) {
             $config = $app['config']->get('ffmpeg');
@@ -61,7 +63,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->normalizeSharedRuntimePaths();
+        if ($this->app->runningInConsole()) {
+            $this->normalizeSharedRuntimePaths();
+        }
+
         $this->registerWorkerHeartbeatHooks();
 
         $settings = $this->app->make(ApplicationSettingsService::class);
@@ -128,12 +133,12 @@ class AppServiceProvider extends ServiceProvider
             return;
         }
 
-        if (is_file($path) && !is_writable($path) && is_dir($directory) && is_writable($directory)) {
+        if (is_file($path) && ! is_writable($path) && is_dir($directory) && is_writable($directory)) {
             @rename($path, $path.'.locked-'.date('YmdHis'));
             clearstatcache(true, $path);
         }
 
-        if (!is_file($path) && is_dir($directory) && is_writable($directory)) {
+        if (! is_file($path) && is_dir($directory) && is_writable($directory)) {
             $handle = @fopen($path, 'ab');
 
             if (is_resource($handle)) {
@@ -148,7 +153,7 @@ class AppServiceProvider extends ServiceProvider
 
     private function registerWorkerHeartbeatHooks(): void
     {
-        if (!$this->isRecordingWorkerConsoleProcess()) {
+        if (! $this->isRecordingWorkerConsoleProcess()) {
             return;
         }
 

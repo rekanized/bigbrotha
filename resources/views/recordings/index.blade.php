@@ -10,12 +10,6 @@
 
 @section('page_lead', 'Search saved recording segments, inspect recorder outcomes, and jump into the dedicated timeline review page when you need synchronized scrubbing across recorded cameras.')
 
-@section('page_actions')
-    <a class="button button--primary" href="{{ route('recordings.timeline') }}" wire:navigate>Open timeline review</a>
-    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-    <a class="button button--soft" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
-@endsection
-
 @section('content')
     <div class="recording-browser">
         <section class="screen-card screen-card--accent screen-summary-strip">
@@ -195,9 +189,6 @@
 
                             <div class="probe-actions">
                                 <a class="button button--primary" href="{{ route('recordings.show', ['recording' => $recording]) }}" wire:navigate>{{ $recording->status === 'recorded' ? 'Open playback' : 'Open details' }}</a>
-                                @if ($camera)
-                                    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                                @endif
                                 @if ($recording->status === 'recorded' && $recording->relative_path)
                                     <a class="button button--soft" href="{{ route('recordings.download', ['recording' => $recording]) }}">Download file</a>
                                 @endif

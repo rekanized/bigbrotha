@@ -126,4 +126,41 @@ class DockerRuntimeConfigurationTest extends TestCase
         $this->assertStringContainsString('chown -R www-data:www-data "$runtime_path"', $entrypoint);
         $this->assertStringContainsString('find "$runtime_path" -type d -exec chmod 2775 {} +', $entrypoint);
     }
+
+    public function test_production_runtime_warms_safe_caches_without_persisting_database_backed_secrets(): void
+    {
+        $entrypoint = file_get_contents(base_path('docker/entrypoint.sh'));
+
+        $this->assertIsString($entrypoint);
+        $this->assertStringContainsString('warm_runtime_caches', $entrypoint);
+        $this->assertStringContainsString('php artisan config:clear', $entrypoint);
+        $this->assertStringContainsString('php artisan event:cache', $entrypoint);
+        $this->assertStringContainsString('php artisan route:cache', $entrypoint);
+        $this->assertStringContainsString('php artisan view:cache', $entrypoint);
+        $this->assertStringNotContainsString('php artisan optimize', $entrypoint);
+    }
+
+    public function test_production_http_and_php_runtime_enable_compression_and_bounded_caches(): void
+    {
+        $nginx = file_get_contents(base_path('docker/nginx/nginx.conf'));
+        $site = file_get_contents(base_path('docker/nginx/default.conf'));
+        $php = file_get_contents(base_path('docker/php-production.ini'));
+        $fpm = file_get_contents(base_path('docker/php-fpm-production.conf'));
+
+        $this->assertIsString($nginx);
+        $this->assertIsString($site);
+        $this->assertIsString($php);
+        $this->assertIsString($fpm);
+        $this->assertStringContainsString('gzip on;', $nginx);
+        $this->assertStringContainsString('gzip_vary on;', $nginx);
+        $this->assertStringContainsString('open_file_cache max=1000', $nginx);
+        $this->assertStringContainsString('^/css/.*\.css$', $site);
+        $this->assertStringContainsString('expires -1;', $site);
+        $this->assertStringContainsString('^/(?:img|js)/', $site);
+        $this->assertStringContainsString('expires 1h;', $site);
+        $this->assertStringContainsString('opcache.validate_timestamps = Off', $php);
+        $this->assertStringContainsString('realpath_cache_size = 4096K', $php);
+        $this->assertStringContainsString('pm.max_children = 8', $fpm);
+        $this->assertStringContainsString('pm.max_requests = 500', $fpm);
+    }
 }

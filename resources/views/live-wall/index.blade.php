@@ -4,9 +4,9 @@
 
 @section('layout_mode', 'immersive')
 
-@section('show_immersive_rail', 'true')
-
 @section('body_class', 'page-live-wall')
+
+@section('page_title', 'Live wall')
 
 @section('content')
     @php
@@ -215,7 +215,7 @@
                                 <div class="live-wall-wall-switcher__mobile-panel-header">
                                     <span class="live-wall-wall-switcher__mobile-eyebrow">Wall controls</span>
                                     <strong class="live-wall-wall-switcher__wall-name">{{ $selectedWall->name }}</strong>
-                                    <span>Volume and navigation shortcuts</span>
+                                    <span>Volume and wall configuration</span>
                                 </div>
 
                                 <label class="live-wall-wall-switcher__volume live-wall-wall-switcher__volume--mobile" aria-label="Live wall volume">
@@ -234,19 +234,7 @@
                                 </label>
 
                                 <div class="live-wall-wall-switcher__mobile-links">
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Wall tiles</a>
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('recordings.index') }}" wire:navigate>Recordings</a>
-                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('recordings.timeline') }}" wire:navigate>Timeline review</a>
-                                    @if (auth()->user()?->isAdmin() || !\App\Models\User::query()->where('is_admin', true)->exists())
-                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.users.index') }}" wire:navigate>Operator access</a>
-                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
-                                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
-                                    @endif
-                                    <form method="POST" action="{{ route('logout') }}">
-                                        @csrf
-                                        <button class="live-wall-wall-switcher__menu-link live-wall-wall-switcher__menu-button" type="submit">Sign out</button>
-                                    </form>
+                                    <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Configure wall tiles</a>
                                 </div>
                             </div>
                         </details>

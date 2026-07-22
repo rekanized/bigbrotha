@@ -10,11 +10,6 @@
 
 @section('page_lead', 'Review local accounts, approved Google sign-in emails, authenticated operators, and admin access from one admin screen.')
 
-@section('page_actions')
-    <a class="button button--soft" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
-    <a class="button button--soft" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
-@endsection
-
 @section('content')
     <div class="screen-grid">
         @if (session('status') || session('status_error'))

@@ -12,6 +12,14 @@ Do not add:
 
 Use Blade, standard CSS under `public/css`, and plain JavaScript only when necessary.
 
+## Operator Header And Mobile Layout
+
+- Authenticated operator views use `resources/views/layouts/app.blade.php` and its single global header. Do not add page-specific application navigation to individual views.
+- Primary link definitions, admin authorization, and active-route behavior live in `resources/views/layouts/partials/primary-navigation.blade.php`; desktop and mobile header variants must continue to render from that same source.
+- `public/css/components/global-header.css` owns header breakpoints, safe-area offsets, the mobile drawer, and the reduced immersive viewport below the sticky header.
+- Live Wall may keep its bottom wall/audio control dock, but general application links and sign-out belong only to the global header.
+- Login and first-launch setup remain intentionally outside the authenticated operator header because operator navigation is not available before authentication and onboarding.
+
 ## HTTP Access Restriction
 
 `App\Http\Middleware\RestrictWebsiteIp` is now driven by `WEBSITE_ALLOWED_IPS`.
@@ -130,6 +138,13 @@ If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are
 - An existing PostgreSQL 18 deployment started with the old child mount stores its real cluster in an anonymous parent volume. Do not recreate that database container until `docker/migrate-postgres-18-volume.sh` has created a logical backup and copied the stopped cluster into the named `db-data` volume.
 - The migration script deliberately retains both the logical backup and the original anonymous source volume. Remove the old volume only after application-level verification and an appropriate retention period.
 - Use `docker/rotate-db-password.sh` to replace an inherited default database password and recreate all dependent services with the new credential.
+
+## Production Runtime Caching
+
+- Container startup caches Laravel events, routes, and compiled Blade views, but deliberately clears the configuration cache. Database-backed authentication and network-storage secrets must not be persisted into `bootstrap/cache/config.php`.
+- Production OPcache disables timestamp validation because application code is immutable inside a tagged image. PHP or Blade source changes therefore require recreating the app and background containers from the new image; clearing Laravel caches inside an old container is not a supported code-deployment path.
+- CSS responses use conditional revalidation so nested no-build `@import` files cannot remain stale after a deployment. Versioned JavaScript and images may remain fresh in the browser for one hour.
+- The audit-log listing index is created concurrently on PostgreSQL. Initial deployment can spend extra time in the migration while existing audit history is indexed, but routine audit writes remain available.
 
 ## Recording Worker Requirements
 
@@ -342,7 +357,7 @@ If the player stays on `Loading secure stream…`, check these in order:
 7. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
 8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
 9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://app:8080/relay/auth/mediamtx`; Nginx listens inside `app` on port `8080`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
-10. if the browser still appears to run old PHP or Blade behavior after cache clears, reload PHP-FPM only as a last resort for stale OPcache.
+10. if the browser still appears to run old PHP or Blade behavior, confirm the app and background containers were recreated from the intended immutable image tag; production OPcache intentionally does not poll source timestamps.
 
 ## Nginx Reverse Proxy Requirements
 

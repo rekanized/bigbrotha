@@ -145,6 +145,31 @@ class AuditLoggingTest extends TestCase
         $this->assertDatabaseCount('audit_logs', 1);
     }
 
+    public function test_it_can_suppress_a_single_automatic_heartbeat_audit_without_suppressing_later_updates(): void
+    {
+        $camera = $this->createCamera();
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_PROCESSING,
+            'scheduled_for' => Carbon::create(2026, 4, 10, 11, 0, 0, 'UTC'),
+            'started_at' => Carbon::create(2026, 4, 10, 11, 0, 0, 'UTC'),
+            'message' => 'Motion event started.',
+        ]);
+
+        $recording->suppressNextAuditEvent('updated')->update([
+            'message' => 'Motion heartbeat refreshed.',
+        ]);
+
+        $this->assertSame(0, $recording->auditLogs()->where('event', 'updated')->count());
+
+        $recording->update([
+            'message' => 'Operator-significant update.',
+        ]);
+
+        $this->assertSame(1, $recording->auditLogs()->where('event', 'updated')->count());
+    }
+
     private function createCamera(): Camera
     {
         return Camera::query()->create([

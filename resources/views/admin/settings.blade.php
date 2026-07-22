@@ -10,11 +10,6 @@
 
 @section('page_lead', 'Manage operator-facing application settings and verify recorder runtime prerequisites without touching deployment config files.')
 
-@section('page_actions')
-    <a class="button button--soft" href="{{ route('admin.audit-logs.index') }}" wire:navigate>Audit log</a>
-    <a class="button button--soft" href="{{ route('recordings.index') }}" wire:navigate>Recordings</a>
-@endsection
-
 @section('content')
     <div class="screen-grid">
         @if (session('status'))

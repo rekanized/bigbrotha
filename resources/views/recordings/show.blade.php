@@ -12,9 +12,6 @@
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('recordings.index') }}" wire:navigate>Back to browser</a>
-    @if ($camera)
-        <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-    @endif
     @if ($playbackAvailable)
         <a class="button button--primary" href="{{ route('recordings.download', ['recording' => $recording]) }}">Download file</a>
     @endif

@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\AppSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class AuthenticationSettingsService
@@ -33,11 +32,13 @@ class AuthenticationSettingsService
      */
     private ?array $loadedSettings = null;
 
+    public function __construct(private readonly ApplicationSettingStore $settingStore) {}
+
     public function apply(): void
     {
         $google = $this->googleConfiguration();
 
-        if (!$google['configured']) {
+        if (! $google['configured']) {
             return;
         }
 
@@ -52,7 +53,7 @@ class AuthenticationSettingsService
             return $this->booleanSetting(self::SETTING_SETUP_COMPLETE, false);
         }
 
-        if (!$this->settingsTableExists()) {
+        if (! $this->settingStore->available()) {
             return false;
         }
 
@@ -69,7 +70,7 @@ class AuthenticationSettingsService
             return $this->booleanSetting(self::SETTING_MANUAL_AUTH_ENABLED, false);
         }
 
-        if (!$this->settingsTableExists()) {
+        if (! $this->settingStore->available()) {
             return false;
         }
 
@@ -169,6 +170,7 @@ class AuthenticationSettingsService
             $this->storePlainSetting(self::SETTING_SETUP_COMPLETE, '1');
         }
 
+        $this->settingStore->forget();
         $this->loadedSettings = null;
         $this->apply();
     }
@@ -180,7 +182,7 @@ class AuthenticationSettingsService
 
     public function localAdminExists(): bool
     {
-        if (!$this->settingsTableExists()) {
+        if (! $this->settingStore->available()) {
             return false;
         }
 
@@ -196,7 +198,7 @@ class AuthenticationSettingsService
 
     public function googleAdminExists(): bool
     {
-        if (!$this->settingsTableExists()) {
+        if (! $this->settingStore->available()) {
             return false;
         }
 
@@ -253,18 +255,7 @@ class AuthenticationSettingsService
             return $this->loadedSettings;
         }
 
-        if (!$this->settingsTableExists()) {
-            return $this->loadedSettings = [];
-        }
-
-        try {
-            return $this->loadedSettings = AppSetting::query()
-                ->pluck('value', 'key')
-                ->map(fn (mixed $value): string => is_string($value) ? $value : '')
-                ->all();
-        } catch (Throwable) {
-            return $this->loadedSettings = [];
-        }
+        return $this->loadedSettings = $this->settingStore->plainValues();
     }
 
     private function storePlainSetting(string $key, ?string $value): void
@@ -304,21 +295,12 @@ class AuthenticationSettingsService
 
     private function nullableString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
-    }
-
-    private function settingsTableExists(): bool
-    {
-        try {
-            return Schema::hasTable('app_settings');
-        } catch (Throwable) {
-            return false;
-        }
     }
 }

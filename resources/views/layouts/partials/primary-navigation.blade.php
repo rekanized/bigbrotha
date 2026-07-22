@@ -17,9 +17,9 @@
                     'label' => 'Timeline Review',
                     'icon' => 'TR',
                     'symbol' => 'timeline',
-                    'caption' => 'Wall-based synchronized recorded playback',
+                    'caption' => 'Synchronized recorded playback across cameras',
                     'href' => route('recordings.timeline'),
-                    'active' => request()->routeIs('recordings.timeline'),
+                    'active' => request()->routeIs('recordings.timeline', 'recordings.timeline.*'),
                 ],
                 [
                     'label' => 'Live Wall',
@@ -38,7 +38,7 @@
                     'label' => 'Camera Fleet',
                     'icon' => 'CF',
                     'symbol' => 'videocam',
-                    'caption' => 'Probe endpoints, save cameras, and manage stream defaults',
+                    'caption' => 'Probe endpoints, save cameras, and manage streams',
                     'href' => route('camera-fleet.index'),
                     'active' => request()->routeIs('camera-fleet.*'),
                 ],
@@ -57,13 +57,13 @@
     $adminNavigation = $canAccessAdminNavigation ? [
         [
             'label' => 'Operator access',
-            'caption' => 'Local accounts, approved Google emails, operators, and admin access',
+            'caption' => 'Accounts, approved emails, and administrator access',
             'href' => route('admin.users.index'),
             'active' => request()->routeIs('admin.users.*'),
         ],
         [
             'label' => 'Application settings',
-            'caption' => 'Display timezone and future operator settings',
+            'caption' => 'Authentication, storage, timezone, and queue settings',
             'href' => route('admin.settings.index'),
             'active' => request()->routeIs('admin.settings.*'),
         ],
@@ -77,29 +77,30 @@
     $adminNavigationActive = collect($adminNavigation)->contains(fn (array $item): bool => $item['active']);
     $navigationIdSuffix = $navigationIdSuffix ?? 'default';
     $navigationAriaLabel = $navigationAriaLabel ?? 'Primary navigation';
+    $expandActiveGroup = $expandActiveGroup ?? false;
 @endphp
 
-<nav class="sidebar-nav" aria-label="{{ $navigationAriaLabel }}">
-    <div class="sidebar-nav__links">
+<nav class="primary-navigation" aria-label="{{ $navigationAriaLabel }}">
+    <div class="primary-navigation__links">
         @foreach ($navigation as $section)
-            <section class="sidebar-nav__section" aria-labelledby="sidebar-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">
-                <p class="sidebar-nav__section-title" id="sidebar-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">{{ $section['label'] }}</p>
+            <section class="primary-navigation__section" aria-labelledby="primary-navigation-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">
+                <p class="primary-navigation__section-title" id="primary-navigation-section-{{ $navigationIdSuffix }}-{{ \Illuminate\Support\Str::slug($section['label']) }}">{{ $section['label'] }}</p>
 
-                <div class="sidebar-nav__section-links">
+                <div class="primary-navigation__section-links">
                     @foreach ($section['items'] as $item)
                         <a
-                            class="sidebar-link{{ $item['active'] ? ' sidebar-link--active' : '' }}"
+                            class="primary-navigation__link{{ $item['active'] ? ' primary-navigation__link--active' : '' }}"
                             href="{{ $item['href'] }}"
                             wire:navigate
                             @if ($item['active']) aria-current="page" @endif
                         >
-                            <span class="sidebar-link__icon" aria-hidden="true">
-                                <span class="sidebar-link__abbr">{{ $item['icon'] }}</span>
-                                <span class="sidebar-link__symbol material-symbols-rounded">{{ $item['symbol'] }}</span>
+                            <span class="primary-navigation__icon" aria-hidden="true">
+                                <span class="primary-navigation__abbr">{{ $item['icon'] }}</span>
+                                <span class="primary-navigation__symbol material-symbols-rounded">{{ $item['symbol'] }}</span>
                             </span>
-                            <span class="sidebar-link__content">
-                                <span class="sidebar-link__label">{{ $item['label'] }}</span>
-                                <small class="sidebar-link__caption">{{ $item['caption'] }}</small>
+                            <span class="primary-navigation__content">
+                                <span class="primary-navigation__label">{{ $item['label'] }}</span>
+                                <small class="primary-navigation__caption">{{ $item['caption'] }}</small>
                             </span>
                         </a>
                     @endforeach
@@ -108,31 +109,31 @@
         @endforeach
 
         @if ($adminNavigation !== [])
-            <details class="sidebar-group{{ $adminNavigationActive ? ' sidebar-group--active' : '' }}" @if ($adminNavigationActive) open @endif>
-                <summary class="sidebar-group__summary">
-                    <span class="sidebar-link sidebar-link--summary{{ $adminNavigationActive ? ' sidebar-link--active' : '' }}">
-                        <span class="sidebar-link__icon" aria-hidden="true">
-                            <span class="sidebar-link__abbr">AD</span>
-                            <span class="sidebar-link__symbol material-symbols-rounded">admin_panel_settings</span>
+            <details class="primary-navigation__group{{ $adminNavigationActive ? ' primary-navigation__group--active' : '' }}" @if ($adminNavigationActive && $expandActiveGroup) open @endif>
+                <summary class="primary-navigation__group-summary">
+                    <span class="primary-navigation__link primary-navigation__link--summary{{ $adminNavigationActive ? ' primary-navigation__link--active' : '' }}">
+                        <span class="primary-navigation__icon" aria-hidden="true">
+                            <span class="primary-navigation__abbr">AD</span>
+                            <span class="primary-navigation__symbol material-symbols-rounded">admin_panel_settings</span>
                         </span>
-                        <span class="sidebar-link__content">
-                            <span class="sidebar-link__label">Admin</span>
-                            <small class="sidebar-link__caption">Users, application settings, and operator-wide controls</small>
+                        <span class="primary-navigation__content">
+                            <span class="primary-navigation__label">Admin</span>
+                            <small class="primary-navigation__caption">Users, settings, queues, and audit controls</small>
                         </span>
-                        <span class="sidebar-group__chevron material-symbols-rounded" aria-hidden="true">expand_more</span>
+                        <span class="primary-navigation__chevron material-symbols-rounded" aria-hidden="true">expand_more</span>
                     </span>
                 </summary>
 
-                <div class="sidebar-group__links">
+                <div class="primary-navigation__group-links">
                     @foreach ($adminNavigation as $item)
                         <a
-                            class="sidebar-sublink{{ $item['active'] ? ' sidebar-sublink--active' : '' }}"
+                            class="primary-navigation__sublink{{ $item['active'] ? ' primary-navigation__sublink--active' : '' }}"
                             href="{{ $item['href'] }}"
                             wire:navigate
                             @if ($item['active']) aria-current="page" @endif
                         >
-                            <span class="sidebar-sublink__label">{{ $item['label'] }}</span>
-                            <small class="sidebar-sublink__caption">{{ $item['caption'] }}</small>
+                            <span class="primary-navigation__sublink-label">{{ $item['label'] }}</span>
+                            <small class="primary-navigation__sublink-caption">{{ $item['caption'] }}</small>
                         </a>
                     @endforeach
                 </div>

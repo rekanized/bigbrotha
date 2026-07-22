@@ -12,7 +12,6 @@
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Back to wall</a>
-    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
 @endsection
 
 @section('content')
@@ -109,13 +108,11 @@
                         @endif
                     </div>
 
-                    <div class="wall-tile__actions">
-                        @if (is_array($liveSelection))
+                    @if (is_array($liveSelection))
+                        <div class="wall-tile__actions">
                             <a class="button button--soft" href="{{ route('live-wall.relay', ['camera' => $camera, 'profileIndex' => $liveSelection['index'] ?? null]) }}" target="_blank" rel="noreferrer">Open relay</a>
-                        @endif
-
-                        <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Manage camera</a>
-                    </div>
+                        </div>
+                    @endif
                 </div>
             </aside>
         </div>

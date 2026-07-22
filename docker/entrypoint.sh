@@ -250,10 +250,20 @@ run_app_bootstrap() {
     gosu www-data php artisan migrate --force
     mark_database_initialized
 
+    warm_runtime_caches
     gosu www-data php artisan relay:sync
 
     touch "$APP_BOOTSTRAP_MARKER"
     chown www-data:www-data "$APP_BOOTSTRAP_MARKER"
+}
+
+warm_runtime_caches() {
+    # Database-backed operator settings include secrets and may change at runtime,
+    # so intentionally do not persist the merged configuration to config.php.
+    gosu www-data php artisan config:clear
+    gosu www-data php artisan event:cache
+    gosu www-data php artisan route:cache
+    gosu www-data php artisan view:cache
 }
 
 wait_for_database() {
@@ -295,6 +305,7 @@ case "$(basename "$start_command")" in
         ;;
     run-background|run-worker|run-scheduler)
         wait_for_app_bootstrap
+        warm_runtime_caches
         ;;
 esac
 

@@ -25,8 +25,7 @@ class RecordingController extends Controller
     public function __construct(
         private readonly ApplicationSettingsService $settings,
         private readonly RecordingTimelineReviewService $timelineReview,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): View
     {
@@ -75,15 +74,7 @@ class RecordingController extends Controller
 
         $summaryQuery = CameraRecording::query();
 
-        $summary = [
-            'total' => (clone $summaryQuery)->count(),
-            'recorded' => (clone $summaryQuery)->where('status', CameraRecording::STATUS_RECORDED)->count(),
-            'motion' => (clone $summaryQuery)
-                ->where('capture_mode', Camera::RECORDING_MODE_MOTION)
-                ->where('status', CameraRecording::STATUS_RECORDED)
-                ->count(),
-            'failed' => (clone $summaryQuery)->where('status', CameraRecording::STATUS_FAILED)->count(),
-        ];
+        $summary = $this->recordingSummary($summaryQuery);
 
         return view('recordings.index', [
             'recordings' => $recordings,
@@ -244,7 +235,7 @@ class RecordingController extends Controller
 
         $absolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording);
 
-        if ($absolutePath === null || !is_file($absolutePath)) {
+        if ($absolutePath === null || ! is_file($absolutePath)) {
             $reviewAssets->ensureQueued($recording, true);
             $absolutePath = null;
         }
@@ -346,16 +337,9 @@ class RecordingController extends Controller
         $this->applyReviewWindow($summaryQuery, $reviewWindowStart, $reviewWindowEnd);
 
         return [
-            'summary' => [
-                'total' => (clone $summaryQuery)->count(),
-                'recorded' => (clone $summaryQuery)->where('status', CameraRecording::STATUS_RECORDED)->count(),
-                'motion' => (clone $summaryQuery)
-                    ->where('capture_mode', Camera::RECORDING_MODE_MOTION)
-                    ->where('status', CameraRecording::STATUS_RECORDED)
-                    ->count(),
-                'failed' => (clone $summaryQuery)->where('status', CameraRecording::STATUS_FAILED)->count(),
+            'summary' => array_merge($this->recordingSummary($summaryQuery), [
                 'cameras' => $reviewTiles->count(),
-            ],
+            ]),
             'timelineCameraOptions' => $timelineCameraOptions,
             'timelineTicks' => $this->timelineTicks($reviewWindowStart, $reviewWindowEnd)->values()->all(),
             'reviewRangeLabel' => $this->settings->formatDateTime($reviewWindowStart, 'Y-m-d H:i')
@@ -393,6 +377,34 @@ class RecordingController extends Controller
                 'zoomScale' => $requestedZoom,
                 'timelineHours' => $timelineHours,
             ],
+        ];
+    }
+
+    /**
+     * @return array{total: int, recorded: int, motion: int, failed: int}
+     */
+    private function recordingSummary(Builder $query): array
+    {
+        $summary = (clone $query)
+            ->selectRaw(
+                'COUNT(*) AS total, '
+                .'SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS recorded, '
+                .'SUM(CASE WHEN capture_mode = ? AND status = ? THEN 1 ELSE 0 END) AS motion, '
+                .'SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS failed',
+                [
+                    CameraRecording::STATUS_RECORDED,
+                    Camera::RECORDING_MODE_MOTION,
+                    CameraRecording::STATUS_RECORDED,
+                    CameraRecording::STATUS_FAILED,
+                ],
+            )
+            ->first();
+
+        return [
+            'total' => (int) ($summary?->getAttribute('total') ?? 0),
+            'recorded' => (int) ($summary?->getAttribute('recorded') ?? 0),
+            'motion' => (int) ($summary?->getAttribute('motion') ?? 0),
+            'failed' => (int) ($summary?->getAttribute('failed') ?? 0),
         ];
     }
 
@@ -618,7 +630,7 @@ class RecordingController extends Controller
 
         return $reviewRecordings
             ->filter(function (mixed $recording) use ($cameraId, $windowStart, $windowEnd): bool {
-                if (!$recording instanceof CameraRecording || (int) $recording->camera_id !== $cameraId) {
+                if (! $recording instanceof CameraRecording || (int) $recording->camera_id !== $cameraId) {
                     return false;
                 }
 
@@ -700,7 +712,7 @@ class RecordingController extends Controller
      */
     private function resolveActiveCameraId(Collection $reviewTiles): int|string|null
     {
-        $activeTile = $reviewTiles->first(fn (array $tile): bool => !empty($tile['hasFocusSegment']));
+        $activeTile = $reviewTiles->first(fn (array $tile): bool => ! empty($tile['hasFocusSegment']));
 
         if (is_array($activeTile) && array_key_exists('cameraId', $activeTile)) {
             return $activeTile['cameraId'];
@@ -775,7 +787,7 @@ class RecordingController extends Controller
             'reviewStreamUrl' => $recording->relative_path ? route('recordings.review-stream', ['recording' => $recording]) : null,
             'streamUrl' => $recording->relative_path ? route('recordings.stream', ['recording' => $recording]) : null,
             'thumbnailUrl' => $reviewAssets->thumbnailDataUrl($recording),
-            'scrubSpriteUrl' => is_array($scrubSprite) && !empty($scrubSprite['relative_path']) && !empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
+            'scrubSpriteUrl' => is_array($scrubSprite) && ! empty($scrubSprite['relative_path']) && ! empty($scrubSprite['available']) ? route('recordings.preview-sprite', ['recording' => $recording]) : null,
             'scrubFrameCount' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_count'] ?? 0) : 0,
             'scrubFrameIntervalMs' => is_array($scrubSprite) ? ((int) ($scrubSprite['frame_interval_seconds'] ?? 0) * 1000) : 0,
             'scrubFrameWidth' => is_array($scrubSprite) ? (int) ($scrubSprite['frame_width'] ?? 0) : 0,
@@ -894,7 +906,7 @@ class RecordingController extends Controller
 
     private function validDateOrNull(mixed $value): ?string
     {
-        if (!is_string($value) || trim($value) === '') {
+        if (! is_string($value) || trim($value) === '') {
             return null;
         }
 
@@ -907,7 +919,7 @@ class RecordingController extends Controller
 
     private function validZoomScaleOrNull(mixed $value): ?float
     {
-        if (!is_numeric($value)) {
+        if (! is_numeric($value)) {
             return null;
         }
 
@@ -943,7 +955,7 @@ class RecordingController extends Controller
 
     private function durationSeconds(CameraRecording $recording): ?int
     {
-        if (!$recording->started_at instanceof Carbon || !$recording->ended_at instanceof Carbon) {
+        if (! $recording->started_at instanceof Carbon || ! $recording->ended_at instanceof Carbon) {
             return null;
         }
 

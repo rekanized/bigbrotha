@@ -10,11 +10,6 @@
 
 @section('page_lead', 'Build named live walls, choose which cameras are shown, and control tile orientation and span before operators open the wall.')
 
-@section('page_actions')
-    <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Live wall</a>
-    <a class="button button--primary" href="{{ route('camera-fleet.index') }}" wire:navigate>Camera fleet</a>
-@endsection
-
 @section('content')
     <livewire:live-wall.tiles-manager />
 @endsection

@@ -17,6 +17,9 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Docker Compose deployments are image-first by default through one published `rekanized/bigbrotha-app` image, while repository-local builds use `docker-compose.build.yml` as an override.
 - The Dockerfile downloads MediaMTX 1.19.2 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
 - The application image owns fixed production runtime defaults, a dedicated `run-relay` role, and one health-check dispatcher that selects the app, background, or relay probe. Compose is intentionally limited to topology, persistence, published ports, and deployment credentials.
+- App and background startup warm Laravel's event, route, and compiled-view caches. Configuration stays uncached because database-backed Google and SMB credentials are applied dynamically and must never be serialized into `bootstrap/cache/config.php`.
+- The production HTTP runtime enables gzip, bounded Nginx file metadata caching, PHP realpath caching, immutable-image OPcache, and a bounded dynamic PHP-FPM pool. CSS remains revalidation-based because the no-build stylesheet graph uses nested imports; versioned JavaScript and image assets receive a short browser freshness window.
+- Application and authentication settings share one request-scoped database snapshot, avoiding repeated schema probes and duplicate `app_settings` reads during provider bootstrap.
 - The `background` container uses Supervisor to run one scheduler and the queue-worker count configured by `CAMERA_RECORDING_WORKER_PROCESSES`.
 - Container startup recursively normalizes ownership and shared directory modes inside the persistent motion and continuous recorder runtime trees before Supervisor starts unprivileged work. The background health check also validates nested runtime writability and requires a live persistent recorder process for every eligible camera.
 - PostgreSQL 18 persists its version-specific `PGDATA` beneath a named volume mounted at `/var/lib/postgresql`.
@@ -28,9 +31,10 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - `simplified-theme.css` owns the import order for shared reset, typography, layout, component, authentication, and operator-screen foundations.
 - The operator UI has one fixed light appearance. It does not select a second theme from browser storage or the operating-system color preference, and it does not render an appearance switch.
 - New operator-facing styles must extend the simplified theme instead of adding another theme manifest or a page-level design override.
-- `public/css/pages/mobile.css` is imported by the simplified theme and owns the shared narrow-layout contract: the compact navigation drawer, coarse-pointer targets, safe-area spacing, form and card reflow, admin queue cards, responsive camera and wall editors, and mobile playback containment.
-- Authenticated non-immersive pages render both the desktop rail and a native `<details>` mobile navigation drawer from the same Blade navigation partial. Breakpoint CSS exposes exactly one of those navigation surfaces, while immersive Live Wall keeps its dedicated bottom control dock.
-- The shared layout exposes a keyboard skip link and a stable `#main-content` target. Navigation section IDs are suffixed per desktop or mobile instance so rendering both responsive variants does not create duplicate document IDs.
+- `public/css/pages/mobile.css` is imported by the simplified theme and owns the shared narrow-layout contract for coarse-pointer targets, safe-area spacing, form and card reflow, admin queue cards, responsive camera and wall editors, and mobile playback containment. `public/css/components/global-header.css` owns the responsive application-header contract.
+- Every authenticated Blade surface that extends `layouts.app`, including Timeline Review and immersive Live Wall, renders the same sticky global application header. Desktop links and the native `<details>` mobile drawer both come from `resources/views/layouts/partials/primary-navigation.blade.php`, so route labels, authorization, and active states cannot drift between view modes.
+- The Live Wall bottom dock is limited to wall switching, audio, and wall-configuration controls; application navigation, operator identity, and sign-out stay in the global header just as they do on every other authenticated screen.
+- The shared layout exposes a keyboard skip link and a stable `#main-content` target. Navigation section IDs are suffixed per desktop or mobile instance so rendering both responsive variants does not create duplicate document IDs. The mobile drawer closes after navigation, on Escape, and on outside interaction.
 
 ## Route Map
 
@@ -111,7 +115,7 @@ Current behavior:
 - the admin settings page now includes an authentication module for toggling local and Google auth, editing Google credentials, and running the live Google validation flow.
 - the admin operator-access page can create local operator accounts and reset local passwords for existing operators.
 - `App\Http\Controllers\Auth\LogoutController` destroys the Laravel session.
-- the top bar renders the authenticated operator name and sign-out action.
+- the global header renders the authenticated operator name and sign-out action on every authenticated operator view.
 - MediaMTX reads are not treated as public access; any authenticated Laravel operator session can bootstrap short-lived relay tokens.
 
 ## Camera Fleet UI
@@ -231,6 +235,8 @@ Current recording management behavior:
 - review-asset generation now also normalizes the durable recording itself into a browser-playable MP4 with audio before producing the low-resolution timeline preview assets, so the Recordings page and buffered review route can usually serve the saved recording directly instead of starting ffmpeg in the request path.
 - review normalization retains stream-copy speed for H.264 only when ffprobe reports strictly increasing video DTS packets; timestamp-unsafe H.264 is rebuilt as CFR H.264, and only the first optional audio stream is carried into the browser asset.
 - routine model lifecycle changes can now persist immutable `audit_logs` rows through a reusable Eloquent auditing trait, and recording status transitions use those database audit rows instead of emitting application-state `info` lines into `storage/logs/laravel.log`.
+- the default reverse-chronological audit listing is backed by a `(created_at DESC, id DESC)` index built concurrently on PostgreSQL, and repeated rolling-motion heartbeat updates do not create generic audit rows; real recording state transitions and later operator-significant updates remain audited.
+- recording summary counters are calculated with one conditional aggregate query instead of four separate count queries.
 - the Admin navigation now exposes an Audit log page with filters for subject type, actor type, source, event key, and free-text actor or IP search.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
 - the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.

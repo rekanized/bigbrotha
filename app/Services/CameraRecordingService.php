@@ -10,15 +10,15 @@ use App\Models\CameraRecording;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxPathNamer;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Process\Process;
@@ -38,8 +38,7 @@ class CameraRecordingService
         private readonly ContinuousRecordingSegmenterService $continuousSegmenter,
         private readonly MotionRecordingSegmenterService $motionSegmenter,
         private readonly MediaMtxPathNamer $pathNamer,
-    ) {
-    }
+    ) {}
 
     public function segmentDurationSeconds(): int
     {
@@ -235,7 +234,7 @@ class CameraRecordingService
             'message' => 'Queued by the continuous recorder watchdog.',
         ]);
 
-        if (!$recording->wasRecentlyCreated) {
+        if (! $recording->wasRecentlyCreated) {
             return null;
         }
 
@@ -319,7 +318,7 @@ class CameraRecordingService
 
         if ($configuredPath !== null) {
             foreach ($profiles as $index => $profile) {
-                if (!is_array($profile) || !$this->profileMatchesConfiguredRtspPath($configuredPath, $camera->rtspEndpoint($configuredPath), $profile)) {
+                if (! is_array($profile) || ! $this->profileMatchesConfiguredRtspPath($configuredPath, $camera->rtspEndpoint($configuredPath), $profile)) {
                     continue;
                 }
 
@@ -437,7 +436,7 @@ class CameraRecordingService
 
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return null;
         }
 
@@ -460,7 +459,7 @@ class CameraRecordingService
      */
     public function syncMotionRecorder(Camera $camera, ?CameraRecording $preferredRecording = null): array
     {
-        if (!$camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_MOTION) {
+        if (! $camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_MOTION) {
             $this->motionSegmenter->stop($camera);
 
             return [
@@ -591,7 +590,7 @@ class CameraRecordingService
             }
 
             if ($motion['detected']) {
-                if (!$activeRecording instanceof CameraRecording) {
+                if (! $activeRecording instanceof CameraRecording) {
                     $activeRecording = $this->startMotionRecordingEvent($camera, $state, $source, $segment, $motion, $preferredRecording, $rolloverStartedAt);
                     $started = true;
                 } else {
@@ -617,7 +616,7 @@ class CameraRecordingService
         if ($preferredRecording instanceof CameraRecording
             && $preferredRecording->capture_mode === Camera::RECORDING_MODE_MOTION
             && $preferredRecording->isPending()
-            && !$this->motionStateOwnsRecording($preferredRecording)) {
+            && ! $this->motionStateOwnsRecording($preferredRecording)) {
             $this->discardTransientMotionRecording($preferredRecording, 'Discarded a legacy queued motion row because no active motion event currently owns it.');
         }
 
@@ -633,13 +632,13 @@ class CameraRecordingService
         $recording->loadMissing('camera');
         $camera = $recording->camera;
 
-        if (!$camera instanceof Camera) {
+        if (! $camera instanceof Camera) {
             $this->markRecordingFailed($recording, 'The camera record is no longer available.');
 
             return;
         }
 
-        if (!$camera->hasRecordingEnabled()) {
+        if (! $camera->hasRecordingEnabled()) {
             if ($this->shouldDiscardTransientMotionRecording($recording)) {
                 $this->discardTransientMotionRecording($recording, 'Recording is no longer enabled for this camera.');
 
@@ -804,11 +803,11 @@ class CameraRecordingService
                     ->lockForUpdate()
                     ->first();
 
-                if (!$lockedRecording instanceof CameraRecording) {
+                if (! $lockedRecording instanceof CameraRecording) {
                     return false;
                 }
 
-                if (!$this->storage->deleteRecordingFile($lockedRecording->relative_path)) {
+                if (! $this->storage->deleteRecordingFile($lockedRecording->relative_path)) {
                     Log::warning('Skipped pruning a camera recording because the segment file could not be deleted.', [
                         'recording_id' => $lockedRecording->getKey(),
                         'relative_path' => $lockedRecording->relative_path,
@@ -847,7 +846,7 @@ class CameraRecordingService
                     ->lockForUpdate()
                     ->first();
 
-                if (!$lockedRecording instanceof CameraRecording || $lockedRecording->status !== CameraRecording::STATUS_RECORDED) {
+                if (! $lockedRecording instanceof CameraRecording || $lockedRecording->status !== CameraRecording::STATUS_RECORDED) {
                     return false;
                 }
 
@@ -895,7 +894,7 @@ class CameraRecordingService
                     ->lockForUpdate()
                     ->first();
 
-                if (!$lockedRecording instanceof CameraRecording
+                if (! $lockedRecording instanceof CameraRecording
                     || $lockedRecording->status !== CameraRecording::STATUS_FAILED
                     || $lockedRecording->relative_path === null
                     || $lockedRecording->message !== self::MISSING_STORAGE_RECONCILE_MESSAGE) {
@@ -1024,7 +1023,7 @@ class CameraRecordingService
         try {
             $process->run();
 
-            if (!$process->isSuccessful() || !is_file($bufferedPath)) {
+            if (! $process->isSuccessful() || ! is_file($bufferedPath)) {
                 Log::warning('Recorded playback buffer generation exited with an error.', [
                     'recording_id' => $recording->getKey(),
                     'camera_id' => $recording->camera_id,
@@ -1075,7 +1074,7 @@ class CameraRecordingService
 
         $process = $this->captureStreamCopyClip($source, $durationSeconds, $absolutePath);
 
-        if (!$process->isSuccessful() || !is_file($absolutePath)) {
+        if (! $process->isSuccessful() || ! is_file($absolutePath)) {
             $this->markRecordingFailed(
                 $recording,
                 $this->summarizeProcessFailure($process, 'Unable to write the recording segment.'),
@@ -1206,7 +1205,7 @@ class CameraRecordingService
         $message = 'Motion is still active in the rolling segment buffer. The trailing quiet window now expires at '
             .$segment['ended_at']->copy()->addSeconds($this->motionPostTriggerSeconds($camera))->format('Y-m-d H:i:s').' UTC.';
 
-        if ($recording->status !== CameraRecording::STATUS_PROCESSING || !$recording->started_at instanceof Carbon) {
+        if ($recording->status !== CameraRecording::STATUS_PROCESSING || ! $recording->started_at instanceof Carbon) {
             $this->markRecording($recording, CameraRecording::STATUS_PROCESSING, $message, [
                 'scheduled_for' => $scheduledFor,
                 'started_at' => $startedAt,
@@ -1217,6 +1216,10 @@ class CameraRecordingService
                 'motion_score' => max((float) ($recording->motion_score ?? 0), (float) $motion['activity_ratio']),
             ]);
         } else {
+            // This is a high-frequency heartbeat for the same motion event, not an
+            // operator-significant state change. Keep the row current without
+            // growing the audit table for every rolling segment.
+            $recording->suppressNextAuditEvent('updated');
             $recording->forceFill([
                 'source_profile_index' => $source['index'],
                 'motion_score' => max((float) ($recording->motion_score ?? 0), (float) $motion['activity_ratio']),
@@ -1248,7 +1251,7 @@ class CameraRecordingService
             ? $windowEndOverride->copy()->utc()->startOfSecond()
             : $this->motionWindowEnd($state);
 
-        if (!$windowStart instanceof Carbon || !$windowEnd instanceof Carbon || $windowEnd->lessThanOrEqualTo($windowStart)) {
+        if (! $windowStart instanceof Carbon || ! $windowEnd instanceof Carbon || $windowEnd->lessThanOrEqualTo($windowStart)) {
             return false;
         }
 
@@ -1272,7 +1275,7 @@ class CameraRecordingService
 
             $coveredUntil = end($segments)['ended_at'] ?? null;
 
-            if (!$coveredUntil instanceof Carbon || $coveredUntil->lessThan($windowEnd)) {
+            if (! $coveredUntil instanceof Carbon || $coveredUntil->lessThan($windowEnd)) {
                 return false;
             }
 
@@ -1289,7 +1292,7 @@ class CameraRecordingService
 
                 $process = $this->concatMotionSegments($segments, $absolutePath, $workspace.'/segments.ffconcat');
 
-                if (!$process->isSuccessful() || !is_file($absolutePath)) {
+                if (! $process->isSuccessful() || ! is_file($absolutePath)) {
                     if (is_file($absolutePath)) {
                         @unlink($absolutePath);
                         clearstatcache(true, $absolutePath);
@@ -1390,7 +1393,7 @@ class CameraRecordingService
 
     private function activeMotionRecording(CameraMotionState $state): ?CameraRecording
     {
-        if (!is_numeric($state->active_recording_id)) {
+        if (! is_numeric($state->active_recording_id)) {
             return null;
         }
 
@@ -1412,19 +1415,19 @@ class CameraRecordingService
     {
         $idleCutoff = now()->utc()->subSeconds($this->motionIdleBufferSeconds($camera));
 
-        if (!$activeRecording instanceof CameraRecording) {
+        if (! $activeRecording instanceof CameraRecording) {
             return $idleCutoff;
         }
 
         $windowStart = $this->motionWindowStart($state, $activeRecording);
 
-        if (!$windowStart instanceof Carbon) {
+        if (! $windowStart instanceof Carbon) {
             return $idleCutoff;
         }
 
         $windowEnd = $this->motionWindowEnd($state);
 
-        if (!$windowEnd instanceof Carbon) {
+        if (! $windowEnd instanceof Carbon) {
             return $windowStart;
         }
 
@@ -1459,7 +1462,7 @@ class CameraRecordingService
     ): ?Carbon {
         $windowStart = $this->motionWindowStart($state, $recording);
 
-        if (!$windowStart instanceof Carbon) {
+        if (! $windowStart instanceof Carbon) {
             return null;
         }
 
@@ -1475,19 +1478,19 @@ class CameraRecordingService
      */
     private function readyStagedMotionClip(string $absolutePath, Carbon $windowStart, Carbon $windowEnd): ?array
     {
-        if (!is_file($absolutePath)) {
+        if (! is_file($absolutePath)) {
             return null;
         }
 
         $metadataPath = $this->readyStagedMotionClipPath($absolutePath);
 
-        if (!is_file($metadataPath)) {
+        if (! is_file($metadataPath)) {
             return null;
         }
 
         $decoded = json_decode((string) file_get_contents($metadataPath), true);
 
-        if (!is_array($decoded)
+        if (! is_array($decoded)
             || ($decoded['window_start'] ?? null) !== $windowStart->toIso8601String()
             || ($decoded['window_end'] ?? null) !== $windowEnd->toIso8601String()) {
             return null;
@@ -1530,13 +1533,13 @@ class CameraRecordingService
 
     private function shouldDiscardBufferedMotionSegment(Throwable $exception, string $segmentPath): bool
     {
-        if (!is_string($segmentPath) || trim($segmentPath) === '') {
+        if (! is_string($segmentPath) || trim($segmentPath) === '') {
             return false;
         }
 
         $normalizedPath = str_replace('\\', '/', $segmentPath);
 
-        if (!str_contains($normalizedPath, '/motion-recorders/') || !str_contains(basename($normalizedPath), '-buffer.')) {
+        if (! str_contains($normalizedPath, '/motion-recorders/') || ! str_contains(basename($normalizedPath), '-buffer.')) {
             return false;
         }
 
@@ -1570,7 +1573,7 @@ class CameraRecordingService
         $this->safeLog('warning', 'Discarded an unreadable buffered motion segment.', [
             'camera_id' => $camera->getKey(),
             'segment_path' => $segmentPath,
-            'deleted' => $deleted || !is_file($segmentPath),
+            'deleted' => $deleted || ! is_file($segmentPath),
             'exception' => $exception::class,
             'message' => $exception->getMessage(),
         ]);
@@ -1600,7 +1603,7 @@ class CameraRecordingService
         File::ensureDirectoryExists(dirname($manifestPath));
         File::ensureDirectoryExists(dirname($absolutePath));
 
-        $manifestLines = ["ffconcat version 1.0"];
+        $manifestLines = ['ffconcat version 1.0'];
 
         foreach ($segments as $segment) {
             $manifestLines[] = "file '".str_replace("'", "'\\''", $segment['path'])."'";
@@ -1750,7 +1753,6 @@ class CameraRecordingService
             'base_url' => $internalBaseUrl,
         ];
     }
-
 
     /**
      * @return array<int, string>
@@ -1977,7 +1979,7 @@ class CameraRecordingService
     {
         $ffprobeBinary = $this->resolveBinary(config('ffmpeg.ffprobe.binaries', []));
 
-        if ($ffprobeBinary === null || !is_file($absolutePath)) {
+        if ($ffprobeBinary === null || ! is_file($absolutePath)) {
             return null;
         }
 
@@ -1997,7 +1999,7 @@ class CameraRecordingService
             $process->setTimeout(5);
             $process->run();
 
-            if (!$process->isSuccessful()) {
+            if (! $process->isSuccessful()) {
                 return null;
             }
 
@@ -2027,7 +2029,7 @@ class CameraRecordingService
 
         $systemTemporaryDirectory = rtrim(str_replace('\\', '/', sys_get_temp_dir()), '/');
 
-        if (!is_dir($systemTemporaryDirectory) || !is_writable($systemTemporaryDirectory)) {
+        if (! is_dir($systemTemporaryDirectory) || ! is_writable($systemTemporaryDirectory)) {
             throw new RuntimeException('Unable to prepare a writable temporary directory for buffered review playback.');
         }
 
@@ -2159,7 +2161,7 @@ class CameraRecordingService
         return $recording->capture_mode === Camera::RECORDING_MODE_MOTION
             && $recording->relative_path === null
             && $recording->status !== CameraRecording::STATUS_RECORDED
-            && !$this->motionStateOwnsRecording($recording);
+            && ! $this->motionStateOwnsRecording($recording);
     }
 
     private function acquireMotionRecordingState(Camera|int $camera, int $recordingId): bool
@@ -2186,7 +2188,7 @@ class CameraRecordingService
     {
         $payload = Cache::get($this->motionRecordingCacheKey($camera));
 
-        if (!is_array($payload) || (int) ($payload['recording_id'] ?? 0) !== $recordingId) {
+        if (! is_array($payload) || (int) ($payload['recording_id'] ?? 0) !== $recordingId) {
             return;
         }
 
@@ -2213,7 +2215,7 @@ class CameraRecordingService
 
     private function dispatchContinuousFollowUp(Camera $camera, Carbon $scheduledFor): void
     {
-        if (!$camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_CONTINUOUS) {
+        if (! $camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_CONTINUOUS) {
             return;
         }
 
@@ -2227,7 +2229,7 @@ class CameraRecordingService
             'message' => 'Queued immediately after the previous continuous segment.',
         ]);
 
-        if (!$recording->wasRecentlyCreated) {
+        if (! $recording->wasRecentlyCreated) {
             return;
         }
 
@@ -2315,7 +2317,7 @@ class CameraRecordingService
 
         $process = @proc_open($command, $descriptorSpec, $pipes, null);
 
-        if (!is_resource($process)) {
+        if (! is_resource($process)) {
             throw new RuntimeException('Unable to start ffmpeg for recorded playback.');
         }
 
@@ -2329,18 +2331,18 @@ class CameraRecordingService
             while (true) {
                 $read = [];
 
-                if (!feof($pipes[1])) {
+                if (! feof($pipes[1])) {
                     $read[] = $pipes[1];
                 }
 
-                if (!feof($pipes[2])) {
+                if (! feof($pipes[2])) {
                     $read[] = $pipes[2];
                 }
 
                 if ($read === []) {
                     $status = proc_get_status($process);
 
-                    if (!($status['running'] ?? false)) {
+                    if (! ($status['running'] ?? false)) {
                         break;
                     }
 
@@ -2370,7 +2372,7 @@ class CameraRecordingService
 
                     $status = proc_get_status($process);
 
-                    if (!($status['running'] ?? false)) {
+                    if (! ($status['running'] ?? false)) {
                         break;
                     }
 
@@ -2431,7 +2433,7 @@ class CameraRecordingService
 
             $exitCode = proc_close($process);
 
-            if ($exitCode !== 0 && !connection_aborted()) {
+            if ($exitCode !== 0 && ! connection_aborted()) {
                 Log::warning('Recorded playback remux exited with an error.', [
                     'recording_id' => $recording->getKey(),
                     'camera_id' => $recording->camera_id,
@@ -2445,7 +2447,7 @@ class CameraRecordingService
     {
         $parts = parse_url($uri);
 
-        if (!is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {
+        if (! is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {
             return $uri;
         }
 
@@ -2507,7 +2509,7 @@ class CameraRecordingService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

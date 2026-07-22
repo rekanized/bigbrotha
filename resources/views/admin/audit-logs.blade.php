@@ -10,11 +10,6 @@
 
 @section('page_lead', 'Review model changes, recording state transitions, and the actor context captured for each audited event.')
 
-@section('page_actions')
-    <a class="button button--soft" href="{{ route('admin.users.index') }}" wire:navigate>Operator access</a>
-    <a class="button button--soft" href="{{ route('admin.settings.index') }}" wire:navigate>Application settings</a>
-@endsection
-
 @section('content')
     <div class="screen-grid">
         <section class="screen-card screen-card--accent screen-summary-strip">
