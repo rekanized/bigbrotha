@@ -1,6 +1,6 @@
 body {
     font-family: var(--font-sans);
-    line-height: 1.6;
+    line-height: 1.5;
 }
 
 h1,
@@ -40,18 +40,6 @@ h3 {
     font-size: clamp(1.15rem, 2vw, 1.55rem);
     line-height: 1.12;
     letter-spacing: -0.02em;
-}
-
-p,
-li,
-small,
-span,
-strong,
-label,
-input,
-select,
-button {
-    font-size: 1rem;
 }
 
 strong {

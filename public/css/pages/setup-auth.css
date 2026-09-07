@@ -12,6 +12,24 @@
     width: min(1120px, 100%);
 }
 
+.setup-title {
+    margin: 0 0 8px;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    line-height: 1.2;
+}
+
+body.auth-page .screen-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-soft);
+}
+
+body.auth-page .auth-card__mark {
+    background: transparent;
+    padding: 0;
+}
+
 .auth-card--wide {
     width: min(560px, 100%);
 }
@@ -54,11 +72,19 @@
 }
 
 .auth-method-grid {
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    align-items: start;
+    gap: 16px;
 }
 
 .auth-method-card {
     align-items: start;
+}
+
+.auth-method-card .workflow-card__step {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .auth-method-card .form-select {
@@ -118,7 +144,7 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
     gap: 14px;
-    align-items: center;
+    align-items: end;
 }
 
 .notice--error {

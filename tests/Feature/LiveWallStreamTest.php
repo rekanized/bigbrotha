@@ -17,6 +17,53 @@ class LiveWallStreamTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_unconfigured_tiles_keep_their_identity_without_promising_a_retry(): void
+    {
+        $this->mockRelayProcess(running: true);
+        $camera = Camera::query()->create([
+            'name' => 'Unconfigured entrance', 'local_ip' => '192.168.1.91',
+            'supports_rtsp' => false, 'is_enabled' => true,
+        ]);
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id, 'position' => 1, 'orientation' => 'portrait',
+            'column_span' => 1, 'row_span' => 1, 'is_enabled' => true,
+        ]);
+        $this->actingAs(User::factory()->create())->get(route('live-wall.index'))
+            ->assertOk()
+            ->assertSee('Unconfigured entrance')
+            ->assertSee('data-orientation="portrait"', false)
+            ->assertSee('No live stream is configured.')
+            ->assertDontSee('every 15 seconds')
+            ->assertDontSee('Open previous wall')
+            ->assertDontSee('Open next wall');
+    }
+
+    public function test_wall_keeps_retrying_players_when_the_relay_is_down_during_page_load(): void
+    {
+        $this->mockRelayProcess(running: false, apiReachable: false);
+        $camera = Camera::query()->create([
+            'name' => 'Recovering camera', 'local_ip' => '192.168.1.90',
+            'rtsp_port' => 554, 'rtsp_path' => '/main', 'supports_rtsp' => true, 'is_enabled' => true,
+            'metadata' => ['rtsp_profiles' => [[
+                'name' => 'Main', 'encoding' => 'H264', 'uri' => 'rtsp://192.168.1.90:554/main',
+            ]]],
+        ]);
+        LiveWall::query()->firstOrFail()->tiles()->create([
+            'camera_id' => $camera->id, 'position' => 1, 'orientation' => 'landscape',
+            'column_span' => 1, 'row_span' => 1, 'is_enabled' => true,
+        ]);
+        $this->actingAs(User::factory()->create())->get(route('live-wall.index'))
+            ->assertOk()
+            ->assertSee('data-webrtc-player', false)
+            ->assertSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false)
+            ->assertViewHas('tiles', fn ($tiles) => $tiles->first()['sessionBootstrap'] === null);
+
+        $this->get(route('live-wall.player', ['camera' => $camera]))
+            ->assertOk()
+            ->assertSee('data-webrtc-player', false)
+            ->assertSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false);
+    }
+
     public function test_live_wall_uses_the_configured_live_feed_path_for_wall_tiles(): void
     {
         config()->set('mediamtx.auto_start', false);

@@ -63,7 +63,7 @@ Current expectation:
 
 - relay detection should reconcile stale pid files.
 - relay detection should validate the expected MediaMTX binary and config path from process arguments.
-- secure player bootstrap should use `ensureRunning()` rather than a raw status check so the relay can self-heal before returning `503`.
+- wall and standalone page entry use `ensureRunning()`; per-tile session refresh uses a cheap status check to avoid repeated full configuration rebuilds during a reconnect storm.
 
 ## ONVIF Probe Reality
 
@@ -207,7 +207,7 @@ Implications:
 - MediaMTX path design treats `camera-*-source*` as the only allowed hardware-ingest paths. Derived `camera-*-live*` playback paths and recorder workers read those loopback RTSP paths rather than the physical camera URI; bypassing the source path can produce periodic freezes on older cameras when recording and live playback compete for RTSP sessions.
 - because the pre-roll buffer is isolated to the motion workflow, motion cameras spend extra capture time around event evaluation and briefly suppress overlapping triggers while the current event clip is still being compiled.
 - the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
-- ffmpeg runtime settings are now split by workload: recording, motion, and relay ingest prefer RTSP over TCP, larger demux queues and realtime buffers, wallclock-backed timestamp generation, and passthrough frame timing so unstable camera timecodes do not propagate into saved clips or relayed playback.
+- ffmpeg runtime settings are now split by workload: recording and motion retain their timestamp recovery settings. Shared relay ingest retains the established source clock policy; source and live RTSP output use a positive 100 ms interleaving limit so sparse audio cannot hold video in the default ten-second mux queue.
 - finalized MP4 review assets should keep `+faststart`, and the Timeline Review fallback route now also materializes a short-lived finalized MP4 with `+faststart` before serving it so browser seeks and audio playback do not depend on fragmented stdout remuxing.
 - H.264 is copied into a review MP4 only when ffprobe confirms strictly increasing video DTS values. Cameras that repeat or omit DTS values are normalized through the CFR H.264 path instead; this safety gate now applies to both durable review generation and emergency request-time playback.
 - recording and review commands map only the first optional audio stream (`0:a:0?`) so multi-audio cameras do not unexpectedly expand a clip or produce an ambiguous browser playback asset.
@@ -294,11 +294,12 @@ ffmpeg -nostdin -hide_banner -loglevel error \
 	-crf 23 -b:v 1200k -maxrate 1800k -bufsize 1800k \
 	-af 'aresample=async=1:first_pts=0' \
 	-c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_interleave_delta 100000 -flush_packets 1 \
 	-max_muxing_queue_size 1024 \
 	-f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
 ```
 
-The critical sync-repair flags are `-fflags +genpts`, `-use_wallclock_as_timestamps 1`, `-fps_mode cfr`, `-r 15`, `-af aresample=async=1:first_pts=0`, and `-avoid_negative_ts make_zero`. Together they prevent the common HEVC-video plus AAC-audio drift where MediaMTX reaches the browser but the tracks do not stay aligned or show up as a grey tile.
+The default relay timing flags are `-fflags +genpts`, `-use_wallclock_as_timestamps 1`, `-fps_mode cfr`, `-r 15`, `-af aresample=async=1:first_pts=0`, and `-avoid_negative_ts make_zero`. The existing wallclock repair defaults are retained after live comparisons. Forced compatibility mode retains native source timing, and detected B-frame inputs preserve presentation/decode timestamps in both stages. Both source and live publishing also set `-max_interleave_delta 100000 -flush_packets 1`; zero would disable the buffering bound. These settings cannot recover frames while a camera or its network stops sending data.
 
 When GPU offload is available, the relay can switch to hardware-assisted decode and H.264 encode through `MEDIAMTX_TRANSCODE_HWACCEL`:
 
@@ -319,6 +320,7 @@ ffmpeg -nostdin -hide_banner -loglevel error \
 	-c:v h264_nvenc -profile:v baseline -preset p4 -tune ll -bf 0 -g 30 -keyint_min 30 \
 	-rc cbr -b:v 1200k -maxrate 1800k -bufsize 1800k \
 	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_interleave_delta 100000 -flush_packets 1 \
 	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
 ```
 
@@ -333,10 +335,13 @@ ffmpeg -nostdin -hide_banner -loglevel error \
 	-c:v h264_qsv -profile:v baseline -preset veryfast -look_ahead 0 -bf 0 -g 30 -keyint_min 30 \
 	-b:v 1200k -maxrate 1800k -bufsize 1800k \
 	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
+	-max_interleave_delta 100000 -flush_packets 1 \
 	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
 ```
 
 The browser-side receiver should still initialize the HTML media element in a muted state. The shared `public/js/live-wall-player.js` player now retries playback after the first user interaction if autoplay is blocked and the standalone player exposes an explicit audio-enable button so Opus audio is only unmuted on a deliberate gesture.
+
+The wall now reports Live only after a video frame is presented. Off-screen presentation throttling and deliberate native-player pause do not trigger the frozen-frame watchdog. Camera focus has a visible return control and Escape/keyboard handling; portrait and square containers preserve the source video proportions. A camera without a configured live path requires configuration and reopening the wall; it cannot be repaired by retrying a nonexistent player. See [live-wall-audit.md](live-wall-audit.md).
 
 ## Secure Live Wall Troubleshooting
 
@@ -435,3 +440,7 @@ When changing this platform, the most relevant tests are:
 - `tests/Feature/LiveWallStreamTest.php`
 - `tests/Feature/Relay/MediaMtxAuthCallbackTest.php`
 - `tests/Feature/Relay/MediaMtxProcessServiceTest.php`
+
+## Periodic IMOU freezes
+
+The September 2026 audit measured approximately three-second gaps in incoming camera TCP payloads on the host network interface, while the receiver continued advertising a nonzero window. These gaps precede Laravel, live transcoding, and WebRTC. Software buffering fixes reduce avoidable delay but cannot guarantee uninterrupted video during camera/network delivery gaps. See [live-streaming-audit.md](live-streaming-audit.md) for evidence and validation.

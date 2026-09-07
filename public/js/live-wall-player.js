@@ -8,6 +8,9 @@
     const state = {
         activeAudioPlayer: null,
         focusedTile: null,
+        focusReturnTarget: null,
+        focusScrollPosition: null,
+        pointerStart: null,
         lastTap: {
             tile: null,
             time: 0,
@@ -30,6 +33,7 @@
     const offscreenSuspendDelayMs = 30000;
     const hiddenPageSuspendDelayMs = 10000;
     const stalledVideoThresholdMs = 20000;
+    const connectionTimeoutMs = 65000;
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
 
@@ -56,12 +60,21 @@
     };
 
     const clearFocusedTile = () => {
-        if (!(state.focusedTile instanceof HTMLElement)) {
-            state.focusedTile = null;
-        }
+        const returnTarget = state.focusReturnTarget;
+        const scrollPosition = state.focusScrollPosition;
+        state.focusReturnTarget = null;
+        state.focusScrollPosition = null;
 
         document.querySelectorAll(focusableTileSelector).forEach((tile) => {
             tile.dataset.layoutState = 'grid';
+            tile.inert = false;
+            tile.removeAttribute('role');
+            tile.removeAttribute('aria-modal');
+            tile.removeAttribute('aria-label');
+            const button = tile.querySelector('[data-role="focus-toggle"]');
+            button?.setAttribute('aria-pressed', 'false');
+            button?.setAttribute('aria-label', `Focus ${tile.dataset.cameraName}`);
+            if (button) button.title = 'Focus camera';
         });
 
         document.querySelectorAll('[data-live-wall-grid]').forEach((grid) => {
@@ -69,6 +82,9 @@
         });
 
         document.body.classList.remove('live-wall-focus-mode');
+        document.querySelectorAll('.global-header, .live-wall-wall-switcher').forEach(element => { element.inert = false; });
+        if (returnTarget?.isConnected) returnTarget.focus({ preventScroll: true });
+        if (scrollPosition) window.scrollTo({ ...scrollPosition, behavior: 'instant' });
         state.focusedTile = null;
         state.players.forEach((player, index) => player.setFocusEligible(true, Math.min(1800, index * 150)));
     };
@@ -80,15 +96,29 @@
             return;
         }
 
+        if (!tile.querySelector('[data-role="focus-toggle"]')) return;
+        state.focusScrollPosition = { left: window.scrollX, top: window.scrollY };
+
         document.querySelectorAll(focusableTileSelector).forEach((candidate) => {
             candidate.dataset.layoutState = candidate === tile ? 'focused' : 'dimmed';
+            candidate.inert = candidate !== tile;
         });
 
         document.querySelectorAll('[data-live-wall-grid]').forEach((grid) => {
             grid.dataset.layoutMode = 'focused';
         });
 
+        state.focusReturnTarget = document.activeElement;
+        tile.setAttribute('role', 'dialog');
+        tile.setAttribute('aria-modal', 'true');
+        tile.setAttribute('aria-label', `${tile.dataset.cameraName} focused camera`);
+        const button = tile.querySelector('[data-role="focus-toggle"]');
+        button?.setAttribute('aria-pressed', 'true');
+        button?.setAttribute('aria-label', 'Return to camera grid');
+        if (button) button.title = 'Return to camera grid (Escape)';
         document.body.classList.add('live-wall-focus-mode');
+        document.querySelectorAll('.global-header, .live-wall-wall-switcher').forEach(element => { element.inert = true; });
+        button?.focus({ preventScroll: true });
         state.focusedTile = tile;
         state.players.forEach((player) => player.setFocusEligible(player.tile === tile));
     };
@@ -137,43 +167,60 @@
         toggleFocusedTile(tile);
     };
 
+    const handleTilePointerDown = (event) => {
+        state.pointerStart = { id: event.pointerId, x: event.clientX, y: event.clientY, time: Date.now() };
+    };
+
     const handleTilePointerUp = (event) => {
-        const pointerType = typeof event.pointerType === 'string' ? event.pointerType : '';
-
-        if (pointerType !== 'touch' && pointerType !== 'pen') {
-            return;
-        }
-
-        const tile = event.target instanceof Element ? event.target.closest('.wall-monitor-tile') : null;
-
-        if (!(tile instanceof HTMLElement) || isInteractiveTarget(event.target)) {
-            return;
-        }
-
+        if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+        const start = state.pointerStart;
+        state.pointerStart = null;
+        const tile = event.target instanceof Element ? event.target.closest(focusableTileSelector) : null;
         const now = Date.now();
-        const isRepeatedTap = state.lastTap.tile === tile && (now - state.lastTap.time) <= 320;
-
-        state.lastTap = {
-            tile,
-            time: now,
-        };
-
-        if (isRepeatedTap) {
-            toggleFocusedTile(tile);
-            state.lastTouchFocusToggle = {
-                tile,
-                time: now,
-            };
-            state.lastTap = {
-                tile: null,
-                time: 0,
-            };
+        // A scroll, long press, or cancelled gesture must never focus a camera.
+        if (!start || start.id !== event.pointerId || now - start.time > 320
+            || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12
+            || !tile || isInteractiveTarget(event.target)) {
+            state.lastTap = { tile: null, time: 0 };
+            return;
         }
+        const repeated = state.lastTap.tile === tile && now - state.lastTap.time <= 320
+            && Math.hypot(event.clientX - state.lastTap.x, event.clientY - state.lastTap.y) <= 24;
+        state.lastTap = { tile, time: now, x: event.clientX, y: event.clientY };
+        if (repeated) {
+            toggleFocusedTile(tile);
+            state.lastTouchFocusToggle = { tile, time: now };
+            state.lastTap = { tile: null, time: 0 };
+        }
+    };
+
+    const handleWallClick = (event) => {
+        if (!(event.target instanceof Element)) return;
+        const button = event.target.closest('[data-role="focus-toggle"]');
+        if (button) toggleFocusedTile(button.closest(focusableTileSelector));
+        document.querySelectorAll('.live-wall-wall-switcher__mobile-drawer[open]').forEach(drawer => {
+            if (!drawer.contains(event.target)) drawer.open = false;
+        });
     };
 
     const handleKeyDown = (event) => {
         if (event.key === 'Escape') {
-            clearFocusedTile();
+            const drawer = document.querySelector('.live-wall-wall-switcher__mobile-drawer[open]');
+            if (drawer) {
+                drawer.open = false;
+                drawer.querySelector('summary')?.focus();
+            } else if (state.focusedTile) {
+                clearFocusedTile();
+            }
+        }
+        if (event.key === 'Tab' && state.focusedTile) {
+            const controls = [...state.focusedTile.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled)')];
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault(); last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault(); first?.focus();
+            }
         }
     };
 
@@ -263,6 +310,7 @@
             this.isAudioSelectable = this.audioToggle !== null && this.audioIndicator !== null;
             this.hasStream = false;
             this.hasVideoTrack = false;
+            this.hasPresentedVideo = false;
             this.hasAudioTrack = false;
             this.mediaStream = new MediaStream();
             this.reader = null;
@@ -279,8 +327,27 @@
             this.isIntersecting = true;
             this.lastVideoTime = 0;
             this.lastVideoProgressAt = Date.now();
+            this.connectionStartedAt = null;
+            this.videoFrameCallback = null;
+            this.lastDecodedFrames = 0;
 
             this.handleAudioToggle = this.handleAudioToggle.bind(this);
+            this.handleNativeVolumeChange = () => {
+                if (!this.video?.controls || !this.hasAudioTrack || this.closed) return;
+                if (this.video.muted) {
+                    if (state.activeAudioPlayer === this) setActiveAudioPlayer(null);
+                } else {
+                    setMasterVolume(this.video.volume);
+                    setActiveAudioPlayer(this);
+                }
+            };
+            this.handlePlaybackState = (event) => {
+                if (event.type === 'playing') this.lastVideoProgressAt = Date.now();
+                this.updateStatusMessage();
+            };
+            this.video?.addEventListener('volumechange', this.handleNativeVolumeChange);
+            this.video?.addEventListener('pause', this.handlePlaybackState);
+            this.video?.addEventListener('playing', this.handlePlaybackState);
 
             if (this.isAudioSelectable) {
                 this.audioToggle.addEventListener('click', this.handleAudioToggle);
@@ -334,6 +401,7 @@
         async connect() {
             this.destroyConnection();
             const attempt = ++this.connectionAttempt;
+            this.connectionStartedAt = Date.now();
             this.setMessage('Loading camera feed...');
 
             const bootstrapSession = this.readBootstrapSession();
@@ -342,7 +410,12 @@
                 ? this.loadReaderScript(hintedReaderUrl)
                 : Promise.resolve();
 
-            const session = bootstrapSession || await this.fetchSession(attempt);
+            // Observe both promises immediately, including a script failure
+            // while the authenticated session request is still pending.
+            const [session] = await Promise.all([
+                bootstrapSession || this.fetchSession(attempt),
+                hintedReaderLoad,
+            ]);
 
             if (!this.isCurrentAttempt(attempt)) {
                 return;
@@ -411,6 +484,10 @@
         }
 
         readBootstrapSession() {
+            if (this.hasRetriedFreshSession) {
+                return null;
+            }
+
             if (this.bootstrapWhepUrl === '' || this.bootstrapAccessToken === '') {
                 return null;
             }
@@ -431,9 +508,7 @@
 
             if (usedBootstrapSession && !this.hasRetriedFreshSession && this.shouldRetryWithFreshSession(normalizedError)) {
                 this.hasRetriedFreshSession = true;
-                this.connect().catch((retryError) => {
-                    this.handleFailure(retryError);
-                });
+                this.connectIfEligible();
 
                 return;
             }
@@ -455,17 +530,18 @@
             this.refreshTrackState();
 
             if (this.hasVideoTrack) {
-                this.failureCount = 0;
                 this.lastVideoTime = this.video.currentTime;
                 this.lastVideoProgressAt = Date.now();
+                this.watchVideoFrames();
             }
 
             if (this.isAudioSelectable) {
                 this.applyAudioSelection();
             }
 
+            const attempt = this.connectionAttempt;
             this.tryPlay().catch((error) => {
-                this.handleFailure(error);
+                this.handleFailure(error, attempt);
             });
         }
 
@@ -546,9 +622,10 @@
 
             const isActive = state.activeAudioPlayer === this && this.hasAudioTrack;
 
-            this.video.defaultMuted = !isActive;
-            this.video.muted = !isActive;
-            this.video.volume = isActive ? state.masterVolume : 0;
+            if (this.video.defaultMuted !== !isActive) this.video.defaultMuted = !isActive;
+            if (this.video.muted !== !isActive) this.video.muted = !isActive;
+            // Preserve the native volume slider while muted so unmuting remains audible.
+            if (this.video.volume !== state.masterVolume) this.video.volume = state.masterVolume;
 
             if (isActive) {
                 this.tryPlay().catch(() => undefined);
@@ -609,8 +686,16 @@
         }
 
         destroyConnection() {
+            this.hasPresentedVideo = false;
             this.clearRetryTimeout();
             this.connectionAttempt += 1;
+            this.connectionStartedAt = null;
+
+            if (this.videoFrameCallback !== null) {
+                this.video?.cancelVideoFrameCallback?.(this.videoFrameCallback);
+                this.videoFrameCallback = null;
+            }
+            this.lastDecodedFrames = 0;
 
             if (this.sessionAbortController) {
                 this.sessionAbortController.abort();
@@ -639,6 +724,9 @@
 
         close() {
             this.closed = true;
+            this.video?.removeEventListener?.('volumechange', this.handleNativeVolumeChange);
+            this.video?.removeEventListener?.('pause', this.handlePlaybackState);
+            this.video?.removeEventListener?.('playing', this.handlePlaybackState);
             this.clearRetryTimeout();
 
             if (this.initialStartTimeout !== null) {
@@ -679,13 +767,21 @@
                 return false;
             }
 
+            const attempt = this.connectionAttempt;
+
             try {
                 await this.video.play();
+                if (!this.isCurrentAttempt(attempt)) {
+                    return false;
+                }
                 this.awaitingUserActivation = false;
                 this.updateStatusMessage();
 
                 return true;
             } catch (error) {
+                if (!this.isCurrentAttempt(attempt)) {
+                    return false;
+                }
                 if (this.isAutoplayBlocked(error)) {
                     this.awaitingUserActivation = true;
                     this.updateStatusMessage();
@@ -702,7 +798,9 @@
                 return;
             }
 
-            this.connect().catch((error) => this.handleFailure(error));
+            const connection = this.connect();
+            const attempt = this.connectionAttempt;
+            connection.catch((error) => this.handleFailure(error, attempt));
         }
 
         suspend(reason, message) {
@@ -752,6 +850,7 @@
         }
 
         setIntersecting(isIntersecting) {
+            if (isIntersecting && !this.isIntersecting) this.lastVideoProgressAt = Date.now();
             this.isIntersecting = isIntersecting;
 
             if (this.offscreenSuspendTimeout !== null) {
@@ -778,18 +877,61 @@
             }, offscreenSuspendDelayMs);
         }
 
-        checkHealth(now) {
-            if (this.closed || this.suspendReasons.size > 0 || !this.hasVideoTrack || !this.video || this.awaitingUserActivation || document.hidden) {
+        watchVideoFrames() {
+            if (this.videoFrameCallback !== null || typeof this.video?.requestVideoFrameCallback !== 'function') {
                 return;
             }
 
-            const currentTime = this.video.currentTime;
+            const attempt = this.connectionAttempt;
+            const onFrame = () => {
+                if (!this.isCurrentAttempt(attempt)) {
+                    return;
+                }
 
-            if (currentTime > this.lastVideoTime + 0.01) {
-                this.lastVideoTime = currentTime;
-                this.lastVideoProgressAt = now;
+                this.markVideoProgress(Date.now());
+                this.videoFrameCallback = this.video.requestVideoFrameCallback(onFrame);
+            };
+            this.videoFrameCallback = this.video.requestVideoFrameCallback(onFrame);
+        }
+
+        markVideoProgress(now) {
+            this.lastVideoProgressAt = now;
+            this.failureCount = 0;
+            if (!this.hasPresentedVideo) {
+                this.hasPresentedVideo = true;
+                this.updateStatusMessage();
+            }
+        }
+
+        checkHealth(now) {
+            if (this.closed || this.suspendReasons.size > 0 || !this.video || this.awaitingUserActivation || document.hidden) {
+                return;
+            }
+
+            // Browsers may stop presenting frames outside the viewport while audio continues.
+            if (this.root.dataset.playerLifecycle === 'viewport' && !this.isIntersecting) return;
+            if (this.video.controls && this.video.paused && this.hasPresentedVideo) return;
+
+            if (!this.hasVideoTrack) {
+                if (this.connectionStartedAt !== null && now - this.connectionStartedAt >= connectionTimeoutMs) {
+                    this.handleFailure(new Error(`${this.label} timed out while starting its video stream.`));
+                }
 
                 return;
+            }
+
+            // The media clock can keep advancing with audio while video is frozen.
+            // Prefer actual presented/decoded frames over HTMLMediaElement.currentTime.
+            if (typeof this.video.requestVideoFrameCallback !== 'function') {
+                const quality = this.video.getVideoPlaybackQuality?.();
+                const progress = quality ? quality.totalVideoFrames - quality.droppedVideoFrames : this.video.currentTime;
+                const previous = quality ? this.lastDecodedFrames : this.lastVideoTime;
+
+                if (progress > previous) {
+                    this.lastDecodedFrames = quality ? progress : this.lastDecodedFrames;
+                    this.lastVideoTime = this.video.currentTime;
+                    this.markVideoProgress(now);
+                }
             }
 
             if ((now - this.lastVideoProgressAt) >= stalledVideoThresholdMs) {
@@ -844,7 +986,15 @@
                 return;
             }
 
-            this.setMessage('');
+            if (this.video?.paused && this.hasPresentedVideo) {
+                this.setMessage('', 'Paused');
+                return;
+            }
+            if (!this.hasPresentedVideo) {
+                this.setMessage('Waiting for the first video frame…', 'Connecting');
+                return;
+            }
+            this.setMessage('', 'Live');
         }
 
         autoplayBlockedMessage() {
@@ -984,7 +1134,11 @@
             }
         }
 
-        setMessage(message) {
+        setMessage(message, status = null) {
+            const label = status || (this.suspendReasons.size > 0 ? 'Paused' : this.failureCount > 0 ? 'Retrying' : 'Connecting');
+            if (this.tile) this.tile.dataset.streamState = label.toLowerCase();
+            const badge = this.root.querySelector('[data-role="stream-status"]');
+            if (badge && badge.textContent !== label) badge.textContent = label;
             if (this.message) {
                 this.message.textContent = message;
             }
@@ -1049,6 +1203,7 @@
         state.activeAudioPlayer = null;
         players.forEach((player) => player.close());
         clearFocusedTile();
+        state.pointerStart = null;
         state.lastTap = {
             tile: null,
             time: 0,
@@ -1128,6 +1283,9 @@
         initializeIntersectionObserver();
         document.addEventListener('input', handleMasterVolumeInput);
         document.addEventListener('dblclick', handleTileDoubleClick);
+        document.addEventListener('click', handleWallClick);
+        document.addEventListener('pointerdown', handleTilePointerDown, { passive: true });
+        document.addEventListener('pointercancel', () => { state.pointerStart = null; state.lastTap = { tile: null, time: 0 }; });
         document.addEventListener('pointerdown', handlePlaybackUnlock, { passive: true });
         document.addEventListener('pointerup', handleTilePointerUp);
         document.addEventListener('keydown', handleKeyDown);
@@ -1137,6 +1295,10 @@
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+        window.addEventListener('pagehide', closePlayers);
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) bootstrapPlayers();
+        });
         window.addEventListener('beforeunload', closePlayers);
 
         state.healthCheckInterval = window.setInterval(() => {

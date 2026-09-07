@@ -23,11 +23,6 @@
                 <strong>Media relay binary is missing from the app container.</strong>
                 <p>Rebuild and restart the Docker app service so the configured MediaMTX binary is available to the live wall.</p>
             </div>
-        @elseif (!($relayStatus['running'] ?? false))
-            <div class="empty-state live-wall-canvas__empty">
-                <strong>Media relay is configured but not running.</strong>
-                <p>The wall will populate as soon as MediaMTX is running again. Reload after checking the app container log and relay status.</p>
-            </div>
         @elseif ($availableWalls->isEmpty())
             <div class="empty-state live-wall-canvas__empty">
                 <strong>No active walls are available yet.</strong>
@@ -65,7 +60,8 @@
                     <article
                         class="wall-monitor-tile"
                         style="{{ $tileStyle }}"
-                        data-camera-name="{{ e($camera->name) }}"
+                        data-camera-name="{{ $camera->name }}"
+                        data-orientation="{{ $tile['orientation'] ?? 'landscape' }}"
                         data-camera-id="{{ $camera->getKey() }}"
                         data-profile-index="{{ $selectedProfileIndex ?? '' }}"
                         @if (is_string($webrtcPath) && $webrtcPath !== '') data-webrtc-path="{{ $webrtcPath }}" @endif
@@ -93,11 +89,14 @@
                                         <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
                                         <div class="wall-monitor-tile__overlay">
                                             <div class="wall-monitor-tile__identity">
-                                                <span class="wall-monitor-tile__label">Live</span>
-                                                <strong class="wall-monitor-tile__name">{{ $camera->name }}</strong>
+                                                <span class="wall-monitor-tile__label" data-role="stream-status">Connecting</span>
+                                                <strong class="wall-monitor-tile__name" title="{{ $camera->name }}">{{ $camera->name }}</strong>
                                             </div>
 
                                             <div class="wall-monitor-tile__audio-controls">
+                                                <button class="wall-monitor-tile__focus-toggle" type="button" data-role="focus-toggle" aria-pressed="false" aria-label="Focus {{ $camera->name }}" title="Focus camera">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
+                                                </button>
                                                 <button
                                                     class="wall-monitor-tile__audio-toggle"
                                                     type="button"
@@ -125,8 +124,9 @@
                                 </div>
                             @else
                                 <div class="wall-tile__empty wall-monitor-tile__stream">
-                                    <strong>No live RTSP stream is ready.</strong>
-                                    <p>The wall retries configured live feeds automatically every 15 seconds. Save or verify a direct RTSP path in Camera Fleet first if this camera still has no retryable live path.</p>
+                                    <strong>{{ $camera->name }}</strong>
+                                    <p>No live stream is configured. Save or verify its RTSP path in Camera Fleet, then reopen this wall.</p>
+                                    <a class="button button--soft" href="{{ route('camera-fleet.index') }}" wire:navigate>Open Camera Fleet</a>
                                 </div>
                             @endif
                             <div class="wall-monitor-tile__gridline" aria-hidden="true"></div>
@@ -137,16 +137,18 @@
         @endif
 
         @if ($selectedWall && $wallCount > 0)
-            <nav class="live-wall-wall-switcher" aria-label="Switch walls and live wall controls">
+            <nav class="live-wall-wall-switcher" aria-label="Switch walls and live wall controls" data-single-wall="{{ $wallCount === 1 ? 'true' : 'false' }}">
                 <div class="live-wall-wall-switcher__desktop">
-                    <a
-                        class="live-wall-wall-switcher__arrow"
-                        href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
-                        wire:navigate
-                        aria-label="Open previous wall"
-                    >
-                        <span aria-hidden="true">&#8249;</span>
-                    </a>
+                    @if ($wallCount > 1)
+                        <a
+                            class="live-wall-wall-switcher__arrow"
+                            href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
+                            wire:navigate
+                            aria-label="Open previous wall"
+                        >
+                            <span aria-hidden="true">&#8249;</span>
+                        </a>
+                    @endif
 
                     <div class="live-wall-wall-switcher__status">
                         <strong class="live-wall-wall-switcher__wall-name">{{ $selectedWall->name }}</strong>
@@ -168,28 +170,33 @@
                             >
                             <span class="live-wall-wall-switcher__volume-value" data-role="master-volume-value">100%</span>
                         </label>
+                        <a class="live-wall-wall-switcher__menu-link" href="{{ route('wall-tiles.index') }}" wire:navigate>Configure wall</a>
                     </div>
 
-                    <a
-                        class="live-wall-wall-switcher__arrow"
-                        href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
-                        wire:navigate
-                        aria-label="Open next wall"
-                    >
-                        <span aria-hidden="true">&#8250;</span>
-                    </a>
+                    @if ($wallCount > 1)
+                        <a
+                            class="live-wall-wall-switcher__arrow"
+                            href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
+                            wire:navigate
+                            aria-label="Open next wall"
+                        >
+                            <span aria-hidden="true">&#8250;</span>
+                        </a>
+                    @endif
                 </div>
 
                 <div class="live-wall-wall-switcher__mobile">
                     <div class="live-wall-wall-switcher__mobile-bar">
-                        <a
-                            class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
-                            href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
-                            wire:navigate
-                            aria-label="Open previous wall"
-                        >
-                            <span aria-hidden="true">&#8249;</span>
-                        </a>
+                        @if ($wallCount > 1)
+                            <a
+                                class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
+                                href="{{ route('live-wall.index', ['wall' => $previousWall?->slug]) }}"
+                                wire:navigate
+                                aria-label="Open previous wall"
+                            >
+                                <span aria-hidden="true">&#8249;</span>
+                            </a>
+                        @endif
 
                         <div class="live-wall-wall-switcher__mobile-status">
                             <span class="live-wall-wall-switcher__mobile-eyebrow">Live wall</span>
@@ -197,17 +204,19 @@
                             <span class="live-wall-wall-switcher__wall-meta">Wall {{ $selectedWallIndex + 1 }} of {{ $wallCount }}</span>
                         </div>
 
-                        <a
-                            class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
-                            href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
-                            wire:navigate
-                            aria-label="Open next wall"
-                        >
-                            <span aria-hidden="true">&#8250;</span>
-                        </a>
+                        @if ($wallCount > 1)
+                            <a
+                                class="live-wall-wall-switcher__arrow live-wall-wall-switcher__arrow--mobile"
+                                href="{{ route('live-wall.index', ['wall' => $nextWall?->slug]) }}"
+                                wire:navigate
+                                aria-label="Open next wall"
+                            >
+                                <span aria-hidden="true">&#8250;</span>
+                            </a>
+                        @endif
 
                         <details class="live-wall-wall-switcher__mobile-drawer">
-                            <summary class="live-wall-wall-switcher__mobile-toggle" aria-label="Open live wall controls">
+                            <summary class="live-wall-wall-switcher__mobile-toggle" aria-label="Live wall controls">
                                 <span>Controls</span>
                             </summary>
 

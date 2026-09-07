@@ -16,39 +16,7 @@
 @import url('./auth.css');
 @import url('./setup-auth.css');
 @import url('./screens.css');
-@import url('./mobile.css');
 
-:root {
-    color-scheme: light;
-    --font-sans: "Segoe UI", Tahoma, Arial, sans-serif;
-    --font-serif: "Segoe UI", Tahoma, Arial, sans-serif;
-    --radius-1: 6px;
-    --radius-2: 10px;
-    --radius-3: 14px;
-    --radius-4: 18px;
-    --page-bg: #f3f4f7;
-    --page-bg-strong: #eceff3;
-    --surface: #ffffff;
-    --surface-strong: #ffffff;
-    --surface-muted: #f7f8fa;
-    --surface-sunken: #eef1f5;
-    --text: #1f2937;
-    --text-soft: #475569;
-    --muted: #667085;
-    --muted-strong: #344054;
-    --border: rgba(148, 163, 184, 0.24);
-    --border-strong: rgba(148, 163, 184, 0.42);
-    --accent: #2f6fed;
-    --accent-strong: #1e5ad1;
-    --accent-soft: rgba(47, 111, 237, 0.1);
-    --success: #1f7a43;
-    --warning: #b36a11;
-    --danger: #b9382f;
-    --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.14);
-    --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-panel: 0 12px 28px rgba(15, 23, 42, 0.06);
-    --shadow-raised: 0 8px 20px rgba(15, 23, 42, 0.08);
-}
 
 body.page-dashboard,
 body.auth-page {
@@ -61,7 +29,7 @@ body.page-dashboard {
 }
 
 body.page-dashboard h1 {
-    font-size: clamp(1.9rem, 3vw, 2.5rem);
+    font-size: clamp(1.65rem, 2.5vw, 2.1rem);
     line-height: 1.08;
     letter-spacing: -0.03em;
 }
@@ -342,48 +310,6 @@ body.page-dashboard .operator-chip__avatar {
     color: #1d4ed8;
 }
 
-body.page-dashboard .button,
-body.auth-page .button {
-    min-height: 40px;
-    padding: 9px 14px;
-    border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    background: #ffffff;
-    box-shadow: none;
-    color: var(--text);
-    font-size: 0.94rem;
-    font-weight: 600;
-    transition: none;
-}
-
-body.page-dashboard .button:hover,
-body.page-dashboard .button:active,
-body.auth-page .button:hover,
-body.auth-page .button:active {
-    transform: none;
-    box-shadow: none;
-}
-
-body.page-dashboard .button--soft,
-body.auth-page .button--soft {
-    background: #ffffff;
-}
-
-body.page-dashboard .button--primary,
-body.auth-page .button--primary {
-    background: #2f6fed;
-    border-color: #275fc9;
-    color: #ffffff;
-}
-
-body.page-dashboard .button--primary:hover,
-body.page-dashboard .button--primary:focus-visible,
-body.auth-page .button--primary:hover,
-body.auth-page .button--primary:focus-visible {
-    background: #275fc9;
-    border-color: #1f56c0;
-}
-
 body.page-dashboard .eyebrow {
     padding: 0;
     border-radius: 0;
@@ -406,6 +332,25 @@ body.page-dashboard .status-pill {
 body.page-dashboard .status-pill::before {
     width: 6px;
     height: 6px;
+    flex-shrink: 0;
+}
+
+body.page-dashboard .status-pill--good {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #bbdfc7;
+}
+
+body.page-dashboard .status-pill--warn {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #ead6a4;
+}
+
+body.page-dashboard .status-pill--alert {
+    color: #991b1b;
+    background: #fef2f2;
+    border-color: #efcaca;
 }
 
 body.page-dashboard .panel-copy,
@@ -463,11 +408,13 @@ body.page-dashboard .workflow-card__step {
 }
 
 body.page-dashboard .metric-card {
+    min-width: 0;
     gap: 12px;
     align-items: center;
 }
 
 body.page-dashboard .metric-card__icon {
+    flex-shrink: 0;
     width: 40px;
     height: 40px;
     border-radius: 10px;
@@ -773,9 +720,11 @@ body.page-dashboard .empty-state {
 }
 
 body.page-dashboard .form-input,
+body.auth-page .form-input,
+body.auth-page .form-select,
 body.page-dashboard .form-select {
-    min-height: 42px;
-    padding: 0 12px;
+    min-height: 44px;
+    padding: 10px 12px;
     border-radius: 8px;
     border-color: rgba(148, 163, 184, 0.34);
     background: #ffffff;
@@ -783,6 +732,8 @@ body.page-dashboard .form-select {
 }
 
 body.page-dashboard .form-input:focus,
+body.auth-page .form-input:focus,
+body.auth-page .form-select:focus,
 body.page-dashboard .form-select:focus {
     border-color: rgba(47, 111, 237, 0.54);
     box-shadow: var(--focus-ring);
@@ -889,8 +840,8 @@ body.page-dashboard .fleet-modal[data-camera-editor-modal] .camera-form-grid > .
 body.page-dashboard .fleet-modal[data-camera-editor-modal] .camera-form-grid > .field-stack > .form-input,
 body.page-dashboard .fleet-modal[data-camera-editor-modal] .camera-form-grid > .field-stack > .form-select,
 body.page-dashboard .fleet-modal[data-camera-editor-modal] .camera-form-grid > .field-stack > .field-stack__control-row .form-input {
-    height: 42px;
-    min-height: 42px;
+    height: 44px;
+    min-height: 44px;
 }
 
 body.page-dashboard .fleet-modal[data-camera-editor-modal] .camera-form-grid > .field-stack > .probe-note,
@@ -2528,10 +2479,6 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
 }
 
 @media (max-width: 600px) {
-    body.page-live-wall .wall-monitor-tile__identity {
-        display: none;
-    }
-
     body.page-recording-review .recording-review-focus__overlay {
         padding: 10px;
     }

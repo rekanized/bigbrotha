@@ -56,6 +56,29 @@
     gap: 16px;
 }
 
+/* Optional setup instructions stay available without displacing daily work. */
+body.page-dashboard .screen-card.setup-guide {
+    display: block;
+    padding: 0;
+    background: var(--surface-muted);
+}
+
+.setup-guide__toggle {
+    padding: 14px 18px;
+    cursor: pointer;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.setup-guide[open] > summary {
+    border-bottom: 1px solid var(--border);
+}
+
+.setup-guide__toggle:hover {
+    color: var(--accent-strong);
+}
+
 .panel-title {
     margin-bottom: 6px;
     font-family: var(--font-serif);

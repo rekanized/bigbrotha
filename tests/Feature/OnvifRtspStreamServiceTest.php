@@ -53,6 +53,10 @@ XML, 200),
     <s:Body>
         <trt:GetProfilesResponse>
             <trt:Profiles token="profile_main">
+                <tt:AudioEncoderConfiguration>
+                    <tt:Name>Audio encoder</tt:Name>
+                    <tt:Encoding>G711</tt:Encoding>
+                </tt:AudioEncoderConfiguration>
                 <tt:Name>MainStream</tt:Name>
                 <tt:VideoEncoderConfiguration>
                     <tt:Encoding>H264</tt:Encoding>
@@ -109,6 +113,8 @@ XML, 200),
         $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $result['media_service_url']);
         $this->assertCount(2, $result['profiles']);
         $this->assertSame('MainStream', $result['profiles'][0]['name']);
+        $this->assertSame('H264', $result['profiles'][0]['encoding']);
+        $this->assertSame('1920x1080', $result['profiles'][0]['resolution']);
         $this->assertSame('rtsp://192.168.1.67:554/stream1', $result['profiles'][0]['uri']);
         $this->assertSame('/stream1', $result['profiles'][0]['path']);
 

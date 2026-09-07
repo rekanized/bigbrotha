@@ -306,7 +306,9 @@ class CameraLiveStreamService
                         continue;
                     }
 
-                    $stderr .= $chunk;
+                    // These responses can stay open for hours. Keep only the
+                    // diagnostic tail when a camera repeatedly reports errors.
+                    $stderr = substr($stderr.$chunk, -16384);
                 }
 
                 if (connection_aborted()) {
@@ -316,7 +318,7 @@ class CameraLiveStreamService
             }
 
             $this->drainRemainingOutput($pipes[1], true);
-            $stderr .= $this->drainRemainingOutput($pipes[2], false);
+            $stderr = substr($stderr.$this->drainRemainingOutput($pipes[2], false), -16384);
         } finally {
             foreach ($pipes as $pipe) {
                 if (is_resource($pipe)) {
@@ -372,7 +374,7 @@ class CameraLiveStreamService
                 continue;
             }
 
-            $buffer .= $chunk;
+            $buffer = substr($buffer.$chunk, -16384);
         }
 
         return $buffer;

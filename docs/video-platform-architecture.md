@@ -27,14 +27,15 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 
 ## Operator UI Theme
 
-- `public/css/app.css` exposes one visual entry point: `public/css/pages/simplified-theme.css`.
+- `public/css/app.css` loads the single visual theme, `public/css/pages/simplified-theme.css`, followed by `public/css/pages/mobile.css` and the monitor layout/interaction rules in `public/css/pages/live-wall.css`. Responsive and monitor behavior load after the theme so desktop refinements cannot silently override mobile behavior.
 - `simplified-theme.css` owns the import order for shared reset, typography, layout, component, authentication, and operator-screen foundations.
 - The operator UI has one fixed light appearance. It does not select a second theme from browser storage or the operating-system color preference, and it does not render an appearance switch.
-- New operator-facing styles must extend the simplified theme instead of adding another theme manifest or a page-level design override.
-- `public/css/pages/mobile.css` is imported by the simplified theme and owns the shared narrow-layout contract for coarse-pointer targets, safe-area spacing, form and card reflow, admin queue cards, responsive camera and wall editors, and mobile playback containment. `public/css/components/global-header.css` owns the responsive application-header contract.
+- New operator-facing styles must extend the single simplified theme. Keep shared colors and components in the existing foundations; the live-wall stylesheet owns monitor sizing, focused mode, stream states, and dock behavior rather than introducing an alternate theme.
+- `public/css/pages/mobile.css` owns the shared narrow-layout contract for coarse-pointer targets, safe-area spacing, form and card reflow, admin queue cards, responsive camera and wall editors, and mobile playback containment. `public/css/components/global-header.css` owns the responsive application-header contract. Shared visual tokens live only in `base/tokens.css`, and button appearance lives in `components/button.css`.
 - Every authenticated Blade surface that extends `layouts.app`, including Timeline Review and immersive Live Wall, renders the same sticky global application header. Desktop links and the native `<details>` mobile drawer both come from `resources/views/layouts/partials/primary-navigation.blade.php`, so route labels, authorization, and active states cannot drift between view modes.
 - The Live Wall bottom dock is limited to wall switching, audio, and wall-configuration controls; application navigation, operator identity, and sign-out stay in the global header just as they do on every other authenticated screen.
 - The shared layout exposes a keyboard skip link and a stable `#main-content` target. Navigation section IDs are suffixed per desktop or mobile instance so rendering both responsive variants does not create duplicate document IDs. The mobile drawer closes after navigation, on Escape, and on outside interaction.
+- Camera and wall setup guides use native expandable details, and mobile summary cards stay compact so the working tools appear sooner. Saved camera metadata is expandable above the editable fields. Camera dialogs sit above the global header at every breakpoint, trap keyboard focus, and measure their sticky header/footer to keep section navigation and focused controls visible as the layout changes. See [ui-design-audit.md](ui-design-audit.md) for the September 2026 audit and validation coverage.
 
 ## Route Map
 
@@ -159,14 +160,17 @@ Current live viewing behavior:
 - uses a shared MediaMTX WebRTC relay for operator wall playback.
 - preserves optional camera audio in the shared relay by publishing an Opus audio track alongside the browser-safe H.264 wall video.
 - lets operators select exactly one wall tile for live audio output at a time, with a shared wall volume control in the bottom dock and the active audio source marked directly on the wall.
-- copies source H.264 video into the shared relay when the selected profile is already browser-safe, otherwise transcodes once per active camera into WebRTC-safe H.264 output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer; HEVC and other non-H.264 feeds are republished as H.264 plus Opus at 48 kHz stereo so browser decoders stay on the common WebRTC path.
+- copies source H.264 video into the shared relay when the selected profile is browser-safe and diagnostics have not detected B-frames, otherwise transcodes once per active camera into WebRTC-safe H.264 output through ffmpeg `runOnDemand` publishing, instead of one ffmpeg job per viewer; HEVC and other non-H.264 feeds are republished as H.264 plus Opus at 48 kHz stereo so browser decoders stay on the common WebRTC path.
 - uses canonical internal MediaMTX source paths so live playback ffmpeg processes read the already-buffered internal RTSP feed instead of opening a second hardware RTSP session for the same selected profile.
-- keeps configured wall feeds in the browser reconnect loop even after a failed RTSP probe, so the wall retries and re-wakes recovering cameras every 15 seconds without requiring a manual profile refresh; motion-buffer-only pseudo-paths still stay blocked until a real live RTSP path is verified.
-- normalizes live timestamps in the shared relay path with generated PTS, wallclock-backed input timestamps, `aresample=async=1:first_pts=0`, and `avoid_negative_ts=make_zero` so cameras with unstable AAC timing do not corrupt live playback.
+- keeps configured wall feeds in the browser reconnect loop even after a failed RTSP probe, so the wall retries and re-wakes recovering cameras with exponential backoff (approximately 5–30 seconds, plus jitter) without requiring a manual profile refresh; motion-buffer-only pseudo-paths still stay blocked until a real live RTSP path is verified.
+- retains the established camera clock-repair settings, with native source timestamps for forced compatibility mode and native presentation/decode timing for detected B-frame inputs. Both source and live publishing bound audio/video interleaving to a positive 100 ms and flush packets, preventing sparse audio from holding video for seconds.
 - serves a Laravel-rendered player shell and an authenticated session bootstrap endpoint instead of embedding the stock public MediaMTX iframe page.
 - uses `public/js/live-wall-player.js` to fetch session bootstrap data and then load the official per-path MediaMTX `reader.js` implementation.
-- staggers initial WHEP connections instead of starting every tile in the same browser task, uses exponential retry backoff with jitter, cancels superseded session fetches, and restarts a feed when its live video track ends or decoded frame clock stalls.
+- staggers initial WHEP connections instead of starting every tile in the same browser task, uses exponential retry backoff with jitter, cancels superseded session fetches, and restarts a feed when its live video track ends or presented video frames stall. Browsers without frame callbacks use decoded-frame counters where available; audio clock progress cannot conceal a frozen picture. Startup has a 65-second watchdog, and superseded asynchronous errors cannot close a newer connection.
 - releases browser WebRTC receivers after a tile remains off screen for 30 seconds, after the page remains hidden for 10 seconds, or while another tile is in focused mode; visible receivers resume automatically with the same staggered startup guard. The selected off-screen audio tile remains connected until audio is deselected or the whole page is suspended.
+- exposes a visible, touch-sized focus/return button per configured tile. Focused mode covers the viewport, makes other controls inert, keeps keyboard focus inside the camera controls, and restores focus on return. Double-click and nearby double-tap remain shortcuts; scrolling and cancelled gestures do not focus cameras.
+- honors landscape, portrait, and square tile containers while preserving video proportions with `object-fit: contain`. The live badge appears only after actual video frames arrive. Unconfigured tiles retain their camera name and direct the operator to Camera Fleet without promising an automatic configuration refresh.
+- keeps native standalone mute/volume controls synchronized with the audio button, preserves deliberate pause, avoids frame-watchdog reconnects for off-screen presentation throttling, and releases/restores receivers across pagehide and persisted pageshow events. See [live-wall-audit.md](live-wall-audit.md) for audit coverage and limits.
 - issues short-lived Laravel-signed MediaMTX read tokens per authenticated operator and per camera path.
 - uses MediaMTX `authMethod: http` so the relay calls back into Laravel before accepting a WebRTC read.
 - uses dedicated internal RTSP publisher credentials for the ffmpeg `runOnDemand` republish leg, so relay auth can stay enabled without blocking the local publisher.
@@ -204,6 +208,8 @@ MediaMTX currently uses one HTTP auth callback for two different trust models:
 This split keeps relay auth enabled for public-facing WebRTC while still allowing local relay publishers and readers to function.
 
 Current relay management behavior:
+
+- The Docker relay service overrides the PHP-FPM image's `SIGQUIT` stop signal with `SIGTERM`, allowing MediaMTX to close its listeners, sessions, and publisher processes gracefully.
 
 - `config/mediamtx.php` pins the relay ports, runtime paths, and Docker-internal service URLs.
 - the Docker relay auth callback targets `web:8080`, matching the internal nginx listener; using the service name without that port causes RTSP readers and publishers to fail with `401 Unauthorized` before camera media can flow.
@@ -316,3 +322,9 @@ This avoids broken image icons in the Camera Fleet UI.
 This restriction applies to the web application, but not to UDP multicast discovery traffic.
 
 If `WEBSITE_ALLOWED_IPS` is blank, the allow list is effectively disabled.
+
+## Streaming audit
+
+See [live-streaming-audit.md](live-streaming-audit.md) for the September 2026 audit, reproducible tests, deployment validation, and the measured IMOU upstream packet gaps. Relay configuration is published by atomic file replacement so MediaMTX reloads complete snapshots.
+
+Wall and standalone player pages render retrying receivers during relay outages, so loading either page while MediaMTX restarts does not require a manual reload when it returns.

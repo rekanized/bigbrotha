@@ -66,6 +66,8 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('rtsp://192.168.1.91:554/minor', $liveBlock);
         $this->assertStringContainsString('-c:v copy', $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
+        $this->assertStringContainsString("-max_interleave_delta '100000'", $liveBlock);
+        $this->assertStringContainsString('-flush_packets 1', $liveBlock);
         $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $liveBlock);
         $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $liveBlock);
@@ -126,6 +128,8 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $this->assertStringContainsString("-thread_queue_size '1024'", $sourceBlock);
         $this->assertStringContainsString("-timeout '20000000'", $sourceBlock);
+        $this->assertStringContainsString("-max_interleave_delta '100000'", $sourceBlock);
+        $this->assertStringContainsString('-flush_packets 1', $sourceBlock);
         $this->assertStringContainsString("-rtbufsize '128M'", $sourceBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $sourceBlock);
         $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $sourceBlock);
@@ -140,6 +144,25 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('-af', $sourceBlock);
         $this->assertStringNotContainsString('libopus', $sourceBlock);
         $this->assertStringNotContainsString('libx264', $sourceBlock);
+    }
+
+    public function test_h264_with_detected_b_frames_is_transcoded_for_webrtc(): void
+    {
+        config()->set('ffmpeg.ffmpeg.binaries', ['/bin/true']);
+        $camera = Camera::query()->create([
+            'name' => 'Reordered H264', 'local_ip' => '192.168.1.93',
+            'rtsp_port' => 554, 'rtsp_path' => '/main', 'supports_rtsp' => true, 'is_enabled' => true,
+            'metadata' => ['rtsp_profiles' => [[
+                'uri' => 'rtsp://192.168.1.93:554/main', 'video_codec' => 'h264', 'video_has_b_frames' => 2,
+            ]]],
+        ]);
+        $config = app(MediaMtxConfigService::class)->buildConfig();
+        $live = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
+        $this->assertStringContainsString('-c:v libx264', $live);
+        $this->assertStringContainsString("-threads:v '2'", $live);
+        $this->assertStringContainsString('-bf 0', $live);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $live);
+        $this->assertStringContainsString('-c copy', $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0'));
     }
 
     public function test_build_config_transcodes_non_h264_video_sources(): void
@@ -231,6 +254,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('slice-max-size', $liveBlock);
         $this->assertStringContainsString("-af 'aresample=48000:async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB'", $liveBlock);
         $this->assertStringNotContainsString('-c:v copy', $liveBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $liveBlock);
     }
 
     public function test_build_config_can_use_nvidia_hardware_acceleration_for_hevc_live_transcoding(): void

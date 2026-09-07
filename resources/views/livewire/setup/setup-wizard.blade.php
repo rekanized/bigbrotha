@@ -2,24 +2,10 @@
     <section class="screen-card screen-card--accent screen-summary-strip">
         <div class="screen-summary-strip__body">
             <div>
-                <span class="eyebrow">Setup</span>
-                <p class="screen-summary-strip__copy">Choose the active sign-in methods for the application, validate Google OAuth before saving it, and optionally create the initial local administrator account.</p>
+                <h1 class="setup-title">Set up {{ config('app.name', 'Bigbrotha') }}</h1>
+                <p class="screen-summary-strip__copy">Choose how operators sign in and create your first administrator.</p>
             </div>
 
-            <div class="screen-summary-strip__steps">
-                <span class="screen-summary-strip__step">
-                    <span class="screen-summary-strip__step-number">1</span>
-                    <strong>Select auth methods</strong>
-                </span>
-                <span class="screen-summary-strip__step">
-                    <span class="screen-summary-strip__step-number">2</span>
-                    <strong>Validate Google if enabled</strong>
-                </span>
-                <span class="screen-summary-strip__step">
-                    <span class="screen-summary-strip__step-number">3</span>
-                    <strong>Create the first admin</strong>
-                </span>
-            </div>
         </div>
     </section>
 

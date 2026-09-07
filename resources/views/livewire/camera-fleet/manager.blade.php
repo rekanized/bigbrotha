@@ -1,9 +1,10 @@
 <div class="fleet-manager">
-    <section class="screen-card screen-card--accent fleet-manager__workflow-strip">
+    <details class="screen-card setup-guide">
+        <summary class="setup-guide__toggle">Camera setup guide</summary>
+        <div class="fleet-manager__workflow-strip">
         <div class="fleet-manager__workflow-header">
             <div>
-                <span class="eyebrow">Fleet workflow</span>
-                <p class="fleet-manager__workflow-copy">Probe the ONVIF endpoint, review the hydrated draft, save the camera, then test streams and apply recording policy before operators rely on the feed.</p>
+                <p class="fleet-manager__workflow-copy">Connect your camera, review its details, then test the stream and choose how to record.</p>
             </div>
         </div>
 
@@ -15,12 +16,12 @@
 
             <article class="fleet-manager__workflow-step">
                 <span class="fleet-manager__workflow-step-number">02</span>
-                <strong>Save hydrated draft</strong>
+                <strong>Save camera</strong>
             </article>
 
             <article class="fleet-manager__workflow-step">
                 <span class="fleet-manager__workflow-step-number">03</span>
-                <strong>Test and capture proof</strong>
+                <strong>Test stream</strong>
             </article>
 
             <article class="fleet-manager__workflow-step">
@@ -28,7 +29,8 @@
                 <strong>Apply recording policy</strong>
             </article>
         </div>
-    </section>
+        </div>
+    </details>
 
     <div class="dashboard-stats">
         <article class="metric-card metric-card--blue">
@@ -561,6 +563,8 @@
 
                 @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
                     @if ($selectedCamera)
+                        <details class="screen-card setup-guide camera-editor__summary">
+                            <summary class="setup-guide__toggle">Saved camera details</summary>
                         <div class="detail-grid">
                             <article class="detail-card">
                                 <span class="detail-card__label">Camera ID</span>
@@ -592,6 +596,7 @@
                                 <strong>{{ $selectedCamera->recording_last_recorded_at?->diffForHumans() ?? 'No segment saved yet' }}</strong>
                             </article>
                         </div>
+                        </details>
                     @endif
 
                 <section class="form-section" id="camera-editor-identity">

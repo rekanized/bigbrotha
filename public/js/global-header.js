@@ -6,6 +6,13 @@
     window.bigBrothaGlobalHeaderInitialized = true;
 
     const drawers = () => document.querySelectorAll('[data-global-navigation]');
+    const desktopGroups = () => document.querySelectorAll('.global-header__desktop-navigation details');
+
+    const closeDesktopGroups = (except = null) => {
+        desktopGroups().forEach((group) => {
+            if (group !== except) group.removeAttribute('open');
+        });
+    };
 
     const closeDrawers = (except = null) => {
         drawers().forEach((drawer) => {
@@ -21,6 +28,9 @@
         if (!eventTarget) {
             return;
         }
+
+        const selectedGroup = eventTarget.closest('.global-header__desktop-navigation details');
+        closeDesktopGroups(eventTarget.closest('a') ? null : selectedGroup);
 
         const selectedLink = eventTarget.closest('[data-global-navigation] a');
 
@@ -42,7 +52,8 @@
             return;
         }
 
-        const openDrawer = document.querySelector('[data-global-navigation][open]');
+        const openDrawer = document.querySelector('[data-global-navigation][open]')
+            ?? document.querySelector('.global-header__desktop-navigation details[open]');
 
         if (!openDrawer) {
             return;
@@ -52,10 +63,20 @@
         openDrawer.querySelector('summary')?.focus();
     });
 
-    document.addEventListener('livewire:navigated', () => closeDrawers());
+    document.addEventListener('toggle', (event) => {
+        if (event.target instanceof Element && event.target.matches('[data-global-navigation]')) {
+            event.target.querySelector('summary')?.setAttribute('aria-label', event.target.open ? 'Close primary navigation' : 'Open primary navigation');
+        }
+    }, true);
+
+    document.addEventListener('livewire:navigated', () => {
+        closeDrawers();
+        closeDesktopGroups();
+    });
 
     const desktopNavigation = window.matchMedia('(min-width: 1181px)');
     const closeDrawersAtDesktopWidth = (event) => {
+        closeDesktopGroups();
         if (event.matches) {
             closeDrawers();
         }

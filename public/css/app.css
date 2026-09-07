@@ -1,1 +1,4 @@
+/* Foundations and theme first; responsive rules intentionally win last. */
 @import url('./pages/simplified-theme.css');
+@import url('./pages/mobile.css');
+@import url('./pages/live-wall.css');

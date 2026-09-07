@@ -10,7 +10,7 @@
         "laravel/framework": "^13.0",
         "laravel/socialite": "^5.16",
         "laravel/tinker": "^3.0",
-        "livewire/livewire": "^4.2",
+        "livewire/livewire": "^4.3.4",
         "php-ffmpeg/php-ffmpeg": "^1.4",
         "robgridley/flysystem-smb": "^3.0"
     },

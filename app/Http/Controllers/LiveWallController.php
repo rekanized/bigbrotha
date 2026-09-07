@@ -25,7 +25,9 @@ class LiveWallController extends Controller
     ): View {
         $relayStatus = $relayProcess->ensureRunning();
         $operator = $request->user();
-        $canBootstrapSessions = $operator instanceof User && ($relayStatus['running'] ?? false);
+        $canBootstrapSessions = $operator instanceof User
+            && ($relayStatus['running'] ?? false)
+            && ($relayStatus['api_reachable'] ?? false);
 
         $availableWalls = LiveWall::query()
             ->where('is_active', true)
@@ -71,15 +73,21 @@ class LiveWallController extends Controller
                 $sessionBootstrap = null;
                 $sessionUrl = null;
 
-                if ($canBootstrapSessions && is_array($liveSelection) && is_string($whepUrl) && $whepUrl !== '' && is_string($readerUrl) && $readerUrl !== '') {
+                if (is_array($liveSelection) && is_string($whepUrl) && $whepUrl !== '' && is_string($readerUrl) && $readerUrl !== '') {
+                    // Keep the player in its retry loop even when the relay is
+                    // restarting as the page renders. Its session endpoint will
+                    // report 503 until the relay is healthy again.
                     $sessionUrl = route('live-wall.session', ['camera' => $camera]);
-                    $sessionBootstrap = [
-                        'whep_url' => $whepUrl,
-                        'reader_url' => $readerUrl,
-                        'access_token' => $accessTokenService->issueReadToken($operator, $path),
-                        'expires_in' => $accessTokenService->ttl(),
-                        'issued_at' => now()->timestamp,
-                    ];
+
+                    if ($canBootstrapSessions) {
+                        $sessionBootstrap = [
+                            'whep_url' => $whepUrl,
+                            'reader_url' => $readerUrl,
+                            'access_token' => $accessTokenService->issueReadToken($operator, $path),
+                            'expires_in' => $accessTokenService->ttl(),
+                            'issued_at' => now()->timestamp,
+                        ];
+                    }
                 }
 
                 return [

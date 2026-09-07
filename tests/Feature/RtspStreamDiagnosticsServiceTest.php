@@ -35,7 +35,7 @@ class RtspStreamDiagnosticsServiceTest extends TestCase
         $ffprobeBinary = $binaryDirectory.'/ffprobe-success.sh';
         File::put($ffprobeBinary, <<<'BASH'
 #!/usr/bin/env bash
-printf '%s' '{"streams":[{"codec_name":"h264","width":1920,"height":1080}]}'
+printf '%s' '{"streams":[{"codec_name":"h264","width":1920,"height":1080,"has_b_frames":2}]}'
 BASH);
         chmod($ffprobeBinary, 0755);
 
@@ -58,6 +58,7 @@ BASH);
 
         $this->assertSame('Healthy', $profile['probe_status']);
         $this->assertSame('h264', $profile['video_codec']);
+        $this->assertSame(2, $profile['video_has_b_frames']);
         $this->assertSame('1920x1080', $profile['video_resolution']);
         $this->assertNotNull($profile['preview_path']);
         $this->assertStringStartsWith('cameras/'.$camera->id.'/previews/', $profile['preview_path']);
@@ -213,7 +214,8 @@ BASH);
                         'uri' => 'rtsp://192.168.1.71:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
-                        'encoding' => 'H264',
+                        'encoding' => 'H265',
+                        'video_has_b_frames' => 2,
                     ],
                 ],
             ],
@@ -274,7 +276,8 @@ BASH);
             'token' => 'profile_minor',
             'uri' => 'rtsp://192.168.1.71:554/stream2',
             'resolution' => '1280x720',
-            'encoding' => 'H264',
+            'encoding' => 'H265',
+            'video_has_b_frames' => 2,
         ], 0);
 
         $this->assertSame('Healthy', $profile['probe_status']);
@@ -285,7 +288,8 @@ BASH);
         $this->assertFalse((bool) ($profile['transport_persistable'] ?? true));
         $this->assertNotNull($profile['preview_path']);
         $this->assertFileExists(storage_path('app/private/'.$profile['preview_path']));
-        $this->assertSame('h264', $profile['video_codec']);
+        $this->assertSame('h265', $profile['video_codec']);
+        $this->assertSame(2, $profile['video_has_b_frames']);
         $this->assertSame('1280x720', $profile['video_resolution']);
     }
 

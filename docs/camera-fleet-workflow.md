@@ -246,10 +246,13 @@ Current behavior:
 7. the browser loads the official per-path MediaMTX `reader.js` and opens the WHEP session with that token.
 8. MediaMTX validates both the WebRTC read and the internal ffmpeg RTSP publisher through the Laravel auth callback.
 9. operators can promote one live tile at a time to output wall audio, while every other tile stays muted, the selected source is visibly marked, and a shared wall volume slider sits in the bottom dock.
-10. each tile still exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
+10. the standalone camera player exposes an `Open relay` link that remuxes the selected camera video with ffmpeg stream copy instead of a re-encode.
 11. relay configuration can be refreshed with `php artisan relay:sync` when enabled cameras, RTSP selections, relay auth settings, or camera-specific live-transcode overrides change.
 12. large walls stagger browser connection startup and retry with jittered backoff so a relay or network recovery does not make every tile reconnect at once.
 13. a wall tile that stays outside the viewport for 30 seconds is disconnected until it approaches the viewport again; focused mode also disconnects dimmed tiles, and a background tab releases all receivers after 10 seconds. These states resume automatically and never substitute a saved preview for the live feed.
+14. use a tile’s focus button to enlarge it; the same button or Escape returns to the grid and restores the scroll position. Double-click and nearby double-tap remain shortcuts. Other camera receivers pause while focused.
+15. Connecting changes to Live only after video frames arrive. Portrait/square tile containers preserve the video’s proportions. A tile with no live path keeps its camera name and links to Camera Fleet; configure its path and reopen the wall.
+16. the mobile Controls drawer contains volume and wall configuration, closes on Escape or outside interaction, and stays within the viewport. Navigation arrows appear only when another active wall exists.
 
 This gives operators a shared live view path for multiple simultaneous viewers while keeping a separate no-transcode path available for consumers that do not need WebRTC.
 
@@ -271,3 +274,9 @@ The same-host deployment model should expose MediaMTX directly on `8189` rather 
 Deleting a camera also removes its per-camera preview storage through `CameraStorageService`.
 
 That same per-camera storage root now also contains recording segments, so deleting the camera removes both previews and recordings together.
+
+## Live stream diagnostics and compatibility
+
+ONVIF profile discovery takes the encoding and resolution from the video encoder configuration, even when audio configuration appears first. RTSP diagnostics persist the detected B-frame count; H.264 with detected B-frames is transcoded for WebRTC because those frames are not supported by MediaMTX WebRTC delivery. Unprobed H.264 retains the existing copy behavior; the operator can still force compatibility transcoding. Refresh profiles and run diagnostics to update older saved metadata. Changing compatibility mode can reload the shared source path; allow for a brief interruption to its readers.
+
+When diagnostics fall back to a live relay, they preserve the original source codec and B-frame metadata: a successfully probed H.264 relay does not prove that the hardware camera emits H.264. Probes of the canonical source and original recording buffer remain authoritative for source metadata.

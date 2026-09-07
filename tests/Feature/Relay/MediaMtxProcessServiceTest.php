@@ -10,6 +10,25 @@ use Tests\TestCase;
 
 class MediaMtxProcessServiceTest extends TestCase
 {
+    public function test_sync_publishes_complete_config_snapshots_and_skips_unchanged_content(): void
+    {
+        $path = storage_path('app/private/mediamtx/mediamtx.yml');
+        config()->set('mediamtx.config_path', $path);
+        $configService = $this->createMock(MediaMtxConfigService::class);
+        $configService->method('buildConfig')->willReturnOnConsecutiveCalls(
+            "paths: {}\n", "paths: {}\n", "paths: {camera-1-live: {}}\n",
+        );
+        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+        $this->assertTrue($service->syncConfig());
+        $firstInode = fileinode($path);
+        $this->assertFalse($service->syncConfig());
+        $this->assertSame($firstInode, fileinode($path));
+        $this->assertTrue($service->syncConfig());
+        clearstatcache(true, $path);
+        $this->assertNotSame($firstInode, fileinode($path));
+        $this->assertSame("paths: {camera-1-live: {}}\n", file_get_contents($path));
+    }
+
     public function test_status_uses_the_api_when_mediamtx_is_managed_externally(): void
     {
         Http::fake([

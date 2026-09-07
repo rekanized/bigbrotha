@@ -272,13 +272,14 @@ XML;
                 continue;
             }
 
-            $width = trim((string) $xpath->evaluate('string(.//*[local-name()="Resolution"]/*[local-name()="Width"])', $node));
-            $height = trim((string) $xpath->evaluate('string(.//*[local-name()="Resolution"]/*[local-name()="Height"])', $node));
+            $videoEncoder = './*[local-name()="VideoEncoderConfiguration"]';
+            $width = trim((string) $xpath->evaluate('string('.$videoEncoder.'/*[local-name()="Resolution"]/*[local-name()="Width"])', $node));
+            $height = trim((string) $xpath->evaluate('string('.$videoEncoder.'/*[local-name()="Resolution"]/*[local-name()="Height"])', $node));
 
             $profiles[] = [
                 'token' => $this->stringOrNull($node->getAttribute('token')),
-                'name' => $this->stringOrNull((string) $xpath->evaluate('string(.//*[local-name()="Name"])', $node)),
-                'encoding' => $this->stringOrNull((string) $xpath->evaluate('string(.//*[local-name()="Encoding"])', $node)),
+                'name' => $this->stringOrNull((string) $xpath->evaluate('string(./*[local-name()="Name"])', $node)),
+                'encoding' => $this->stringOrNull((string) $xpath->evaluate('string('.$videoEncoder.'/*[local-name()="Encoding"])', $node)),
                 'resolution' => $width !== '' && $height !== '' ? $width.'x'.$height : null,
                 'uri' => null,
                 'path' => null,

@@ -1,12 +1,14 @@
 <div class="screen-grid">
-    <section class="screen-card screen-card--accent screen-summary-strip">
+    <details class="screen-card setup-guide">
+        <summary class="setup-guide__toggle">Wall setup guide</summary>
+        <div class="screen-summary-strip">
         <div class="screen-summary-strip__body">
             <div>
                 <span class="eyebrow">Wall builder</span>
                 <p class="screen-summary-strip__copy">Create the wall, assign cameras, then set tile shape and span.</p>
             </div>
 
-            <span class="status-pill status-pill--neutral">{{ $summary['assigned_cameras'] }} cameras assigned</span>
+            <span class="status-pill status-pill--neutral">{{ $summary['assigned_cameras'] }} {{ $summary['assigned_cameras'] === 1 ? 'camera' : 'cameras' }} assigned</span>
         </div>
 
         <div class="screen-summary-strip__steps" aria-label="Wall builder workflow">
@@ -25,7 +27,8 @@
                 <strong>Set layout</strong>
             </article>
         </div>
-    </section>
+        </div>
+    </details>
 
     <div class="dashboard-stats">
         <article class="metric-card metric-card--blue">

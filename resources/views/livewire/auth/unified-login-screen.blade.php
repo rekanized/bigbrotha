@@ -9,7 +9,7 @@
         </div>
         <div class="auth-brand__copy">
             <h1 class="auth-brand__name">{{ config('app.name', 'Bigbrotha') }}</h1>
-            <p class="auth-brand__text">Sign in with the authentication methods currently enabled for this control room.</p>
+            <p class="auth-brand__text">Sign in to your camera workspace.</p>
         </div>
     </div>
 
@@ -90,5 +90,5 @@
         </div>
     @endif
 
-    <p class="auth-card__footnote">Operator access controls live viewing, recordings, camera management, and admin tooling.</p>
+    <p class="auth-card__footnote">Access is limited to approved operators.</p>
 </section>

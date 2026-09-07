@@ -2,17 +2,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 46px;
-    padding: 11px 18px;
+    min-height: 44px;
+    padding: 10px 16px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-2);
     background: var(--surface-strong);
     color: var(--text);
     text-decoration: none;
-    font-weight: 700;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
     box-shadow: var(--shadow-soft);
     cursor: pointer;
-    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+    transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .button__content {
@@ -59,8 +62,8 @@ button[data-loading].button {
 }
 
 .button:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-raised);
+    background: var(--surface-muted);
+    border-color: var(--muted);
 }
 
 .button:active {
@@ -69,13 +72,13 @@ button[data-loading].button {
 
 .button--primary {
     background: var(--accent);
-    border-color: var(--accent-600);
+    border-color: var(--accent-strong);
     color: hsl(0 0% 100%);
 }
 
 .button--primary:hover {
-    background: var(--accent-600);
-    border-color: var(--accent-700);
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
 }
 
 .button--soft {
@@ -87,8 +90,9 @@ button[data-loading].button {
 }
 
 .button:focus-visible {
-    outline: 0;
-    box-shadow: var(--focus-ring), var(--shadow-raised);
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 3px;
+    box-shadow: var(--focus-ring);
 }
 
 .button:disabled,

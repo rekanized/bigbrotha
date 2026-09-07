@@ -145,7 +145,9 @@ class RtspStreamDiagnosticsService
 
                 return $this->successfulProfile(
                     $profile,
-                    $relayProbe['stream'],
+                    $relaySource['preserves_video']
+                        ? $relayProbe['stream']
+                        : $this->savedSourceStreamInfo($profile),
                     $probeCheckedAt,
                     $previewPath,
                     $storage,
@@ -225,6 +227,21 @@ class RtspStreamDiagnosticsService
         return [
             'codec_name' => $this->stringOrNull($stream['codec_name'] ?? null),
             'resolution' => $width !== null && $height !== null ? $width.'x'.$height : null,
+            'has_b_frames' => isset($stream['has_b_frames']) ? max(0, (int) $stream['has_b_frames']) : null,
+        ];
+    }
+
+    private function savedSourceStreamInfo(array $profile): array
+    {
+        // A live relay can be HEVC -> H264 or remove B-frames. Its probe describes
+        // playback, not the camera. Saving it as source metadata can disable the
+        // very transcoder that made the fallback playable.
+        $codec = strtolower(trim((string) ($profile['video_codec'] ?? $profile['encoding'] ?? '')));
+
+        return [
+            'codec_name' => in_array($codec, ['h264', 'h.264', 'h265', 'h.265', 'hevc', 'mjpeg', 'jpeg', 'mpeg4'], true) ? $codec : null,
+            'resolution' => $this->stringOrNull($profile['video_resolution'] ?? $profile['resolution'] ?? null),
+            'has_b_frames' => $profile['video_has_b_frames'] ?? null,
         ];
     }
 
@@ -286,7 +303,7 @@ class RtspStreamDiagnosticsService
             '-select_streams',
             'v:0',
             '-show_entries',
-            'stream=codec_name,width,height,avg_frame_rate',
+            'stream=codec_name,width,height,avg_frame_rate,has_b_frames',
             '-of',
             'json',
             $uri,
@@ -330,7 +347,7 @@ class RtspStreamDiagnosticsService
             '-select_streams',
             'v:0',
             '-show_entries',
-            'stream=codec_name,width,height,avg_frame_rate',
+            'stream=codec_name,width,height,avg_frame_rate,has_b_frames',
             '-of',
             'json',
             $path,
@@ -465,6 +482,7 @@ class RtspStreamDiagnosticsService
             'probe_message' => $probeMessage,
             'video_codec' => $streamInfo['codec_name'],
             'video_resolution' => $streamInfo['resolution'],
+            'video_has_b_frames' => $streamInfo['has_b_frames'] ?? null,
             'preview_path' => $storage->privateFileExists($previewPath) ? $previewPath : ($profile['preview_path'] ?? null),
             'preview_generated_at' => $storage->privateFileExists($previewPath) ? $probeCheckedAt : ($profile['preview_generated_at'] ?? null),
             'preview_message' => $previewMessage,
@@ -497,6 +515,7 @@ class RtspStreamDiagnosticsService
                 'label' => 'Live relay',
                 'path' => $liveDefinition['path'],
                 'transport' => 'tcp',
+                'preserves_video' => false,
             ];
         }
 
@@ -507,6 +526,7 @@ class RtspStreamDiagnosticsService
                 'label' => 'Buffered source relay',
                 'path' => $recordingDefinition['path'],
                 'transport' => 'tcp',
+                'preserves_video' => true,
             ];
         }
 
@@ -527,6 +547,7 @@ class RtspStreamDiagnosticsService
                 'label' => $definition['label'],
                 'uri' => $this->injectCredentials($internalBaseUrl.'/'.$definition['path'], $readerUser, $readerPass),
                 'transport' => $definition['transport'],
+                'preserves_video' => $definition['preserves_video'],
             ];
         }
 

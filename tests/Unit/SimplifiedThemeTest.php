@@ -12,7 +12,9 @@ class SimplifiedThemeTest extends TestCase
         $appStyles = trim((string) file_get_contents($publicPath.'/app.css'));
         $themeStyles = (string) file_get_contents($publicPath.'/pages/simplified-theme.css');
 
-        $this->assertSame("@import url('./pages/simplified-theme.css');", $appStyles);
+        preg_match_all('/@import url\([\'"]([^\'"]+)[\'"]\);/', $appStyles, $imports);
+        $this->assertSame(['./pages/simplified-theme.css', './pages/mobile.css', './pages/live-wall.css'], $imports[1]);
+        $this->assertStringNotContainsString("@import url('./mobile.css');", $themeStyles);
         $this->assertStringNotContainsString("data-theme", $themeStyles);
         $this->assertStringNotContainsString("theme-toggle", $themeStyles);
     }
@@ -50,7 +52,7 @@ class SimplifiedThemeTest extends TestCase
         $mobileStyles = (string) file_get_contents($publicPath.'/mobile.css');
         $headerStyles = (string) file_get_contents(dirname($publicPath).'/components/global-header.css');
 
-        $this->assertStringContainsString("@import url('./mobile.css');", $themeStyles);
+        $this->assertStringContainsString("@import url('./pages/mobile.css');", (string) file_get_contents(dirname($publicPath).'/app.css'));
         $this->assertStringContainsString("@import url('../components/global-header.css');", $themeStyles);
         $this->assertStringContainsString('@media (pointer: coarse)', $mobileStyles);
         $this->assertStringContainsString('.global-header__drawer-panel', $headerStyles);

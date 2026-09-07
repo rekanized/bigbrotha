@@ -472,7 +472,8 @@ class MediaMtxConfigService
                 $ffmpegBinary,
                 $definition['authenticated_uri'],
                 $definition['transport'],
-                $definition['live_transcode'] ?? [],
+                filter_var($definition['live_transcode']['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
+                    || (int) ($definition['profile']['video_has_b_frames'] ?? 0) > 0,
             )
             : $this->buildLiveRunOnDemandCommand(
                 $ffmpegBinary,
@@ -497,6 +498,10 @@ class MediaMtxConfigService
         $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
         $transcodeVideo = $this->shouldTranscodeVideo($profile, $transcodeOverrides);
+        // Keep the established camera clock repair. B-frame inputs are the
+        // exception: their presentation/decode timestamp ordering must survive.
+        $useWallclockTimestamps = (int) ($profile['video_has_b_frames'] ?? 0) === 0
+            && (bool) config('ffmpeg.live.use_wallclock_timestamps', true);
         $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
         $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
         $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
@@ -521,7 +526,7 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0'),
+            escapeshellarg($useWallclockTimestamps ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -572,6 +577,10 @@ class MediaMtxConfigService
             escapeshellarg((string) config('mediamtx.transcode.audio_bitrate', '96k')),
             '-max_muxing_queue_size',
             escapeshellarg((string) config('ffmpeg.live.max_muxing_queue_size', 1024)),
+            '-max_interleave_delta',
+            escapeshellarg((string) max(1, (int) config('ffmpeg.live.max_interleave_delta', 100000))),
+            '-flush_packets',
+            '1',
             '-f',
             'rtsp',
             '-rtsp_transport',
@@ -582,7 +591,7 @@ class MediaMtxConfigService
         return implode(' ', $command);
     }
 
-    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, array $transcodeOverrides = []): string
+    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, bool $preserveMediaTimestamps = false): string
     {
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
         $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
@@ -607,12 +616,7 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(
-                config('ffmpeg.recording.use_wallclock_timestamps', true)
-                && !filter_var($transcodeOverrides['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
-                    ? '1'
-                    : '0'
-            ),
+            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) && !$preserveMediaTimestamps ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -643,6 +647,10 @@ class MediaMtxConfigService
             '-copyinkf',
             '-max_muxing_queue_size',
             escapeshellarg((string) config('ffmpeg.recording.max_muxing_queue_size', 1024)),
+            '-max_interleave_delta',
+            escapeshellarg((string) max(1, (int) config('ffmpeg.relay_source.max_interleave_delta', 100000))),
+            '-flush_packets',
+            '1',
             '-f',
             'rtsp',
             '-rtsp_transport',
@@ -660,7 +668,8 @@ class MediaMtxConfigService
     {
         $codec = $this->normalizedVideoCodec($profile);
 
-        return in_array($codec, ['h264', 'h.264'], true);
+        return in_array($codec, ['h264', 'h.264'], true)
+            && (int) ($profile['video_has_b_frames'] ?? 0) === 0;
     }
 
     /**
@@ -729,6 +738,8 @@ class MediaMtxConfigService
         $arguments = [
             '-c:v',
             (string) config('mediamtx.transcode.video_codec', 'libx264'),
+            '-threads:v',
+            escapeshellarg((string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2))),
             '-pix_fmt',
             'yuv420p',
             '-profile:v',

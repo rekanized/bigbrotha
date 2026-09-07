@@ -30,6 +30,7 @@
     align-items: center;
     gap: 9px;
     min-width: 0;
+    min-height: 44px;
     color: #1f2937;
     text-decoration: none;
 }
@@ -135,7 +136,7 @@
 
 .primary-navigation__link--active {
     border-bottom-color: #2f6fed;
-    background: #ffffff;
+    background: #eff5ff;
     color: #174ea6;
 }
 
@@ -243,6 +244,8 @@ html.material-symbols-ready .primary-navigation__symbol {
     width: 280px;
     padding: 5px 8px;
     border: 1px solid #b8c0cc;
+    border-radius: 12px;
+    box-shadow: var(--shadow-panel);
     background: #ffffff;
 }
 
@@ -296,6 +299,7 @@ html.material-symbols-ready .primary-navigation__symbol {
     flex: 0 0 30px;
     width: 30px;
     height: 30px;
+    border-radius: 50%;
     border: 0;
     background: #2f6fed;
     color: #ffffff;
@@ -314,9 +318,10 @@ html.material-symbols-ready .primary-navigation__symbol {
 }
 
 .global-header__sign-out {
-    min-height: 36px;
+    min-height: 44px;
     padding: 6px 10px;
-    border: 1px outset #d0d5dd;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
     background: #ffffff;
     color: #1f2937;
     cursor: pointer;
@@ -325,7 +330,7 @@ html.material-symbols-ready .primary-navigation__symbol {
 }
 
 .global-header__sign-out:active {
-    border-style: inset;
+    background: #eef2f7;
 }
 
 .global-header__drawer {
@@ -498,6 +503,8 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
         overscroll-behavior: contain;
         padding: 6px 0 0;
         border: 1px solid #9aa4b2;
+        border-radius: 12px;
+        box-shadow: var(--shadow-panel);
         background: #ffffff;
         -webkit-overflow-scrolling: touch;
     }
@@ -537,7 +544,7 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
     }
 
     .global-header__drawer .primary-navigation__link {
-        min-height: 40px;
+        min-height: 44px;
         padding: 7px 16px 7px 13px;
         border: 0;
         border-left: 3px solid transparent;
@@ -546,7 +553,7 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
 
     .global-header__drawer .primary-navigation__link--active {
         border-left-color: #2f6fed;
-        background: #ffffff;
+        background: #eff5ff;
     }
 
     .global-header__drawer .primary-navigation__content {
@@ -575,12 +582,14 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
         margin-top: 0;
         padding: 2px 0 0 38px;
         border: 0;
+        border-radius: 0;
+        box-shadow: none;
         background: #ffffff;
     }
 
     .global-header__drawer .primary-navigation__sublink {
         min-width: 0;
-        min-height: 36px;
+        min-height: 44px;
         padding: 8px 16px 8px 12px;
         border: 0;
         background: transparent;
@@ -609,7 +618,7 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
     }
 
     .global-header__account--mobile .global-header__sign-out {
-        min-height: 38px;
+        min-height: 44px;
     }
 
     body.app-body .app-shell.app-shell--global:not(.app-shell--immersive) {

@@ -60,7 +60,9 @@ class MediaMtxProcessService
             return false;
         }
 
-        File::put($configPath, $configContents);
+        // MediaMTX watches this file. Publish a complete snapshot so its reload
+        // cannot observe a truncated configuration during concurrent requests.
+        File::replace($configPath, $configContents, 0644);
 
         return true;
     }

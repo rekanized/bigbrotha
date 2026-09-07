@@ -42,6 +42,8 @@ services:
     <<: *service
     image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
     command: ["run-relay"]
+    # MediaMTX needs SIGTERM; the PHP-FPM base image defaults to SIGQUIT.
+    stop_signal: SIGTERM
     depends_on:
       app: {condition: service_healthy}
     cap_drop: [ALL]

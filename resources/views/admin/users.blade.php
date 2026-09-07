@@ -243,8 +243,8 @@
                                 <form method="POST" action="{{ route('admin.users.local-password', ['user' => $user]) }}" class="inline-auth-form">
                                     @csrf
                                     @method('PUT')
-                                    <input class="form-input" type="password" name="password" placeholder="New local password" autocomplete="new-password" required>
-                                    <input class="form-input" type="password" name="password_confirmation" placeholder="Confirm password" autocomplete="new-password" required>
+                                    <label class="field-stack"><span>New local password</span><input class="form-input" type="password" name="password" autocomplete="new-password" required></label>
+                                    <label class="field-stack"><span>Confirm password</span><input class="form-input" type="password" name="password_confirmation" autocomplete="new-password" required></label>
                                     <button class="button button--soft" type="submit">{{ $user->hasLocalAuth() ? 'Reset local password' : 'Enable local password' }}</button>
                                 </form>
 

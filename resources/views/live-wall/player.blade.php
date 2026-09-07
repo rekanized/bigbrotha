@@ -8,7 +8,7 @@
 
 @section('page_title', $camera->name)
 
-@section('page_lead', 'This player is served by Laravel and requests a short-lived WebRTC token before each MediaMTX session bootstrap.')
+@section('page_lead', 'Watch this camera live. Use the player controls for sound, playback, and fullscreen.')
 
 @section('page_actions')
     <a class="button button--soft" href="{{ route('live-wall.index') }}" wire:navigate>Back to wall</a>
@@ -23,15 +23,10 @@
                         <strong>Media relay binary is missing from the app container.</strong>
                         <p>Rebuild and restart the Docker app service so the configured MediaMTX binary is present before opening the player again.</p>
                     </div>
-                @elseif (!($relayStatus['running'] ?? false))
-                    <div class="empty-state">
-                        <strong>Media relay is configured but not running.</strong>
-                        <p>The player will connect as soon as MediaMTX is running again.</p>
-                    </div>
                 @elseif (!is_array($liveSelection) || !is_string($sessionUrl) || $sessionUrl === '')
                     <div class="empty-state">
                         <strong>No live RTSP stream is ready.</strong>
-                        <p>This player retries configured live feeds automatically every 15 seconds. Save or verify a direct RTSP path in Camera Fleet first if this camera still has no retryable live path.</p>
+                        <p>Save or verify this camera’s RTSP path in Camera Fleet, then reopen the player.</p>
                     </div>
                 @else
                     <div class="wall-tile__stream">
@@ -63,7 +58,7 @@
                     <div class="panel-heading">
                         <div>
                             <h2 class="panel-title">Player session</h2>
-                            <p class="panel-copy">Google-authenticated users receive Laravel-issued stream tokens per connection attempt and camera path.</p>
+                            <p class="panel-copy">Stream access is limited to signed-in operators.</p>
                         </div>
                     </div>
 
