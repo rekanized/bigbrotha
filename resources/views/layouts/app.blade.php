@@ -18,8 +18,7 @@
             );
         @endphp
 
-        <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
-        <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
+        @include('layouts.partials.app-icons')
 
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

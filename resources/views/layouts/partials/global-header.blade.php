@@ -2,7 +2,7 @@
     <div class="global-header__inner">
         <a class="global-header__brand" href="{{ route('camera-fleet.index') }}" wire:navigate aria-label="{{ config('app.name', 'Bigbrotha') }} camera fleet">
             <span class="global-header__mark" aria-hidden="true">
-                <img src="{{ $assetBase }}/img/bigbrotha-logo.svg" alt="">
+                <img src="{{ $assetBase }}/img/bigbrotha-logo.svg?v={{ filemtime(public_path('img/bigbrotha-logo.svg')) }}" width="64" height="64" alt="">
             </span>
             <span class="global-header__brand-copy">
                 <strong>{{ config('app.name', 'Bigbrotha') }}</strong>

@@ -19,6 +19,20 @@
     data-initial-muted="true"
     data-initial-volume="1"
 >
+    <div class="recording-review-focus__overlay">
+        <div class="recording-review-focus__identity">
+            <span class="recording-review-tile__eyebrow">Active camera</span>
+            <strong data-role="camera-label">{{ $cameraName }}</strong>
+            <p data-role="time-label">{{ $segment['timeLabel'] ?? 'No clip selected' }}</p>
+        </div>
+
+        <div class="recording-review-focus__overlay-badges">
+            <span class="status-pill" data-role="mode-label">{{ $segment['modeLabel'] ?? 'Select a clip from the rail' }}</span>
+            <span class="status-pill" data-role="duration-label">{{ $segment['durationLabel'] ?? 'No duration' }}</span>
+            <span class="status-pill" data-role="size-label">{{ $segment['fileSizeLabel'] ?? 'No file saved' }}</span>
+            <span class="status-pill" data-role="asset-status">{{ $assetStatus }}</span>
+        </div>
+    </div>
     <div class="recording-review-focus__viewer">
         <div class="recording-review-tile__empty recording-review-focus__empty" data-role="empty" @if ($segment) hidden @endif>
             <span class="recording-review-tile__eyebrow" data-role="camera-label">{{ $cameraName }}</span>
@@ -46,25 +60,27 @@
                 Your browser could not load the timeline review video.
             </video>
 
-            <audio data-role="companion-audio" preload="auto" hidden></audio>
-
-            <div class="recording-review-focus__overlay">
-                <div class="recording-review-focus__identity">
-                    <span class="recording-review-tile__eyebrow">Active camera</span>
-                    <strong data-role="camera-label">{{ $cameraName }}</strong>
-                    <p data-role="time-label">{{ $segment['timeLabel'] ?? 'No clip selected' }}</p>
+            <div class="recording-review__playline" data-role="clip-progress" aria-label="Selected clip playback">
+                <div class="recording-review__playline-labels" aria-hidden="true">
+                    <span><span data-role="clip-elapsed">0:00</span> / <span data-role="clip-duration">0:00</span></span>
+                    <span>Drag to seek</span>
                 </div>
-
-                <div class="recording-review-focus__overlay-badges">
-                    <span class="status-pill" data-role="mode-label">{{ $segment['modeLabel'] ?? 'Select a clip from the rail' }}</span>
-                    <span class="status-pill" data-role="duration-label">{{ $segment['durationLabel'] ?? 'No duration' }}</span>
-                    <span class="status-pill" data-role="size-label">{{ $segment['fileSizeLabel'] ?? 'No file saved' }}</span>
-                    <span class="status-pill" data-role="asset-status">{{ $assetStatus }}</span>
-                </div>
+                <input class="recording-review__playline-slider" data-role="clip-seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Seek within selected clip" aria-valuetext="Loading clip" disabled>
             </div>
+            <audio data-role="companion-audio" preload="auto" hidden></audio>
         </div>
     </div>
 
+    <div class="recording-review__playback-notice" data-role="playback-notice" hidden>
+        <p data-role="playback-message" role="status" aria-live="polite"></p>
+        <button class="button button--soft" type="button" data-role="playback-retry" hidden>Retry playback</button>
+    </div>
+    <div class="recording-review__transport" role="group" aria-label="Recording navigation">
+        <button class="button button--soft" type="button" data-role="previous-clip" aria-label="Previous clip">Previous</button>
+        <button class="button button--soft" type="button" data-role="seek-back" aria-label="Go back 10 seconds">−10 s</button>
+        <button class="button button--soft" type="button" data-role="seek-forward" aria-label="Go forward 10 seconds">+10 s</button>
+        <button class="button button--soft" type="button" data-role="next-clip" aria-label="Next clip">Next</button>
+    </div>
     <div class="probe-actions recording-review-focus__actions" @if (!$segment) hidden @endif>
         <div class="recording-review-focus__audio-toolbar">
             <button
@@ -124,6 +140,7 @@
             </label>
         </div>
 
+        <button class="button button--soft" type="button" data-role="fullscreen">Full screen</button>
         <a class="button button--soft" data-role="download-link" href="{{ $segment['downloadUrl'] ?? '#' }}" @if (empty($segment['downloadUrl'])) hidden @endif>Download file</a>
     </div>
 </div>

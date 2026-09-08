@@ -191,6 +191,14 @@ Current behavior:
 3. the primary save and cancel actions remain visible at the bottom of the modal while its configuration sections scroll.
 4. keyboard focus moves into the dialog when it opens, stays inside the modal while tabbing, returns to the launching control after close, and Escape cancels the editor.
 5. narrow layouts retain the same sections and actions without horizontal page overflow; the section navigator itself scrolls horizontally.
+6. recording mode, RTSP support, and relay rate control update their dependent controls immediately. Motion-mask strokes and trigger-pixel edits are kept in deferred Livewire state, survive other form updates, and are submitted together by Save changes.
+7. the motion preview uses the **saved recording path**. Unsaved connection changes do not interrupt the preview; saving a changed recording path starts a new receiver. Reconnect preview releases the old receiver and requests a fresh session.
+8. the painted grid follows the actual video bounds, excluding letterboxing. Fast pointer strokes are interpolated; cancelling a touch/pen gesture ends the stroke. Empty masks remain empty and motion-mode saves validate that at least one pixel is selected.
+9. activity colors show the latest confirmed recorder transition, while the recorder still qualifies an entire segment by its peak. An active saved recording event is reported separately and can remain active after the current image becomes quiet. The sample-age label measures time since new decoded buffer frames, not camera-to-screen latency.
+10. analysis requests never overlap, have a ten-second client deadline, and pause in hidden tabs. With the default 650 ms target interval, request processing time counts toward that interval; slow responses retain a minimum 100 ms gap. Errors back off. Brief segment rollover can retain the last confirmed overlay for 1.5 seconds; samples without frame progress expire after three seconds.
+11. modal receivers participate in the shared player's connection deadline, frozen-video watchdog, autoplay recovery, and online/visibility recovery. Script loads time out after 15 seconds and can retry; closing or navigating away releases the receiver and analysis resources.
+
+See [camera-editor-audit.md](camera-editor-audit.md) for the audit and validation coverage.
 
 ## Live Wall Playback
 
@@ -206,14 +214,17 @@ Current behavior:
 2. the dedicated timeline review page lives separately in navigation and behaves like a standalone synchronized review module rather than a second recordings browser.
 3. the module now opens into a single large preview stage with a right-hand vertical scrub rail and a bottom camera strip, so operators can keep one feed in focus while switching cameras quickly.
 4. the review screen auto-loads available recorded cameras into the bottom strip instead of starting with a separate camera-selection step or a saved wall layout.
-5. the review timeline now defaults to the previous display day plus the current display day, and operators can submit a custom `From` / `To` date span when they need a narrower or older range.
+5. the review timeline defaults to the previous display day plus the current display day. Expand **Date range & cameras** to change dates or camera selection; leaving all camera boxes unchecked shows all available cameras. Reset restores the default range and camera list. Filters open automatically when the selected range has no clips.
 6. the active stage loads the saved clip that overlaps the selected timeline focus time for the currently active camera, while cameras without a clip at that time stay visibly empty until the operator switches feeds or moves the focus.
 7. the timeline supports dragging the focus line, clicking thumbnail rail events, hour-jump labels, scrub sprite previews, explicit zoom controls, keyboard focus movement, and synchronized autoplay within the active preview stage.
 8. timeline scrolling remains native: wheel and touch gestures scroll the rail, Ctrl/Command + wheel zooms around the pointer, and touch scrubbing starts only from the blue focus handle so the mobile rail does not trap page or timeline scrolling.
-9. on narrow screens, the camera strip becomes a horizontal touch scroller, the timeline keeps a bounded viewport, and the rail exposes loading or retry feedback instead of silently failing while more segment windows are requested.
-10. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.
-11. recorded entries still open a dedicated playback screen for focused review, and that screen still provides original-file download.
-12. if a saved file is missing or the segment was skipped or failed, the detailed review page still exposes the recorder status and metadata without pretending playback is available.
+9. on narrow screens, the camera strip scrolls horizontally and the timeline keeps a bounded viewport. **Timeline** and **Back to video** links move between the player and rail. **Find selected time** centers the rail on its focus handle and gives it keyboard focus.
+10. **Previous** / **Next** find saved clips across gaps within the selected camera and date range. The ten-second controls move the shared focus; The on-video playline seeks within the selected clip, shows elapsed/total time, and restores the previous playing or paused state after dragging. **Detail view** magnifies the vertical timeline around the selected moment; **Overview** resets its scale. **Go to time** accepts the displayed application timezone, even when the device uses another timezone. Camera selection, committed focus, and zoom are preserved in the URL for reloads and bookmarks.
+11. the player exposes inline loading, buffering, and retry feedback. Timeline-loading errors have their own retry button. Playback stops visibly at gaps or at the range boundary; operators can use Next to continue across a gap.
+12. the video retains its source proportions, camera metadata sits outside the footage, and a full-screen control appears when the browser supports it.
+13. detailed searching, failure inspection, and one-off playback remain on `/recordings`, so the timeline screen stays focused on synchronized review only.
+14. recorded entries still open a dedicated playback screen for focused review, and that screen still provides original-file download.
+15. if a saved file is missing or the segment was skipped or failed, the detailed review page still exposes the recorder status and metadata without pretending playback is available.
 
 ## Wall Tiles Builder
 

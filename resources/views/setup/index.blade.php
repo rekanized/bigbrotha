@@ -16,8 +16,7 @@
             );
         @endphp
 
-        <link rel="icon" type="image/svg+xml" href="{{ $assetBase }}/favicon.svg" sizes="any">
-        <link rel="icon" type="image/x-icon" href="{{ $assetBase }}/favicon.ico">
+        @include('layouts.partials.app-icons')
         <link rel="stylesheet" href="{{ $assetBase }}/css/app.css?v={{ $stylesheetVersion }}">
         @livewireStyles
     </head>

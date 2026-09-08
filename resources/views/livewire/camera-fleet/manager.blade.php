@@ -807,7 +807,7 @@
 
                         <label class="field-stack">
                             <span>Rate control</span>
-                            <select class="form-select" wire:model="form.live_transcode_rate_control">
+                            <select class="form-select" wire:model.live="form.live_transcode_rate_control">
                                 @foreach ($liveTranscodeRateControlOptions as $rateControlValue => $rateControlLabel)
                                     <option value="{{ $rateControlValue }}">{{ $rateControlLabel }}</option>
                                 @endforeach
@@ -850,7 +850,7 @@
                     <div class="camera-form-grid">
                         <label class="field-stack">
                             <span>Recording mode</span>
-                            <select class="form-select" wire:model="form.recording_mode">
+                            <select class="form-select" wire:model.live="form.recording_mode">
                                 @foreach ($recordingModes as $recordingModeValue => $recordingModeLabel)
                                     <option value="{{ $recordingModeValue }}">{{ $recordingModeLabel }}</option>
                                 @endforeach
@@ -905,7 +905,7 @@
                             </article>
                         </div>
 
-                        <div class="motion-threshold-card">
+                        <div class="motion-threshold-card" wire:key="motion-threshold-{{ $selectedCameraId ?? 'new' }}" wire:ignore>
                             <div>
                                 <h4 class="panel-title">Motion trigger pixels</h4>
                                 <p class="panel-copy">Recording starts when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
@@ -914,8 +914,8 @@
                             <div class="motion-threshold-card__control">
                                 <label class="field-stack">
                                     <span>Trigger pixels needed</span>
-                                    <input class="form-input motion-threshold-card__input" type="number" min="1" max="{{ $motionTriggerPixelLimit }}" step="1" value="{{ min($motionTriggerPixelLimit, $motionTriggerPixels) }}" data-role="motion-trigger-pixels-input">
-                                    <small class="probe-note">Current mask supports up to {{ $motionTriggerPixelLimit }} effective trigger pixels with cluster weighting.</small>
+                                    <input class="form-input motion-threshold-card__input" type="number" min="1" max="{{ $motionTriggerPixelLimit }}" step="1" value="{{ min($motionTriggerPixelLimit, $motionTriggerPixels) }}" wire:model="form.recording_motion_trigger_pixels" data-role="motion-trigger-pixels-input">
+                                    <small class="probe-note">Current mask supports up to <span data-role="motion-trigger-limit">{{ $motionTriggerPixelLimit }}</span> effective trigger pixels with cluster weighting.</small>
                                 </label>
                                 <strong class="motion-threshold-card__value" data-role="motion-trigger-pixels-value">{{ min($motionTriggerPixelLimit, $motionTriggerPixels) }}</strong>
                             </div>
@@ -953,7 +953,7 @@
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
                                     data-cluster-bonus-multiplier="{{ config('recording.motion.cluster_bonus_multiplier', 2) }}"
-                                    wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($form['recording_rtsp_path'] ?? '')) }}"
+                                    wire:key="motion-editor-{{ $selectedCameraId ?? 'new' }}-{{ md5((string) ($selectedCamera?->recording_rtsp_path ?? '')) }}"
                                     wire:ignore
                                 >
                                     <script type="application/json" data-role="motion-mask-json">@json($motionMask)</script>
@@ -966,7 +966,7 @@
 
                                         <canvas class="motion-editor__canvas motion-editor__canvas--mask" data-role="mask-canvas"></canvas>
                                         <canvas class="motion-editor__canvas motion-editor__canvas--activity" data-role="activity-canvas"></canvas>
-                                        <span class="motion-editor__status-badge" data-role="motion-status" data-state="watching">Armed and watching</span>
+                                        <span class="motion-editor__status-badge" data-role="motion-status" data-state="waiting">Waiting for recorder buffer</span>
                                     </div>
 
                                     <div class="motion-editor__toolbar">
@@ -975,6 +975,7 @@
                                             <button class="button button--soft motion-editor__tool" type="button" data-role="erase-button" aria-pressed="false">Erase mask</button>
                                             <button class="button button--soft motion-editor__tool" type="button" data-role="reset-button">Reset full frame</button>
                                             <button class="button button--soft motion-editor__tool" type="button" data-role="clear-button">Clear all</button>
+                                            <button class="button button--soft" type="button" data-role="preview-retry">Reconnect preview</button>
                                         </div>
 
                                         <label class="field-stack motion-editor__brush-field">
@@ -984,7 +985,9 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells are armed mask coverage. Amber and red cells come from near-live snapshots of the recorder's current buffer—not from the browser-transcoded preview. The backend waits only long enough to reject codec refresh spikes, then red means this exact mask and threshold would qualify the segment for recording. Unsaved mask edits are tested as a draft and take effect for automatic recording after Save changes.</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells select where motion counts. Amber cells show activity below the threshold; red cells meet it. Activity comes from the recorder's latest confirmed sample and can trail the live video. Connected pixels carry extra weight. This preview uses the saved recording path; save stream changes to apply them.</p>
+                                    <p class="probe-note" data-role="motion-analysis-note">Waiting for the recorder detector…</p>
+                                    <p class="probe-note" data-role="motion-sample-age">Waiting for sample</p>
 
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">
@@ -1009,7 +1012,7 @@
 
                                         <article class="motion-editor__stat-card">
                                             <span>Recorder state</span>
-                                            <strong data-role="motion-state-value">Armed</strong>
+                                            <strong data-role="motion-state-value">Waiting for buffer</strong>
                                         </article>
                                     </div>
                                 </div>
@@ -1033,7 +1036,7 @@
                         </label>
 
                         <label class="checkbox-field">
-                            <input type="checkbox" wire:model="form.supports_rtsp">
+                            <input type="checkbox" wire:model.live="form.supports_rtsp">
                             <span>RTSP enabled</span>
                         </label>
 
@@ -1230,11 +1233,9 @@
                             <button
                                 class="button button--primary"
                                 type="button"
-                                @unless($usesMotionEditorSave)
-                                    wire:click="saveCamera"
-                                    wire:loading.attr="disabled"
-                                    wire:target="saveCamera"
-                                @endunless
+                                wire:click="saveCamera"
+                                wire:loading.attr="disabled"
+                                wire:target="saveCamera,saveCameraFromMotionEditor"
                                 data-role="camera-save-button"
                             >
                                 <span class="button__content">

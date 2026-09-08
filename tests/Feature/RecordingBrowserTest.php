@@ -7,6 +7,7 @@ use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
+use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -785,7 +786,7 @@ class RecordingBrowserTest extends TestCase
         File::ensureDirectoryExists(dirname($absolutePath));
         File::put($absolutePath, 'recorded-segment');
 
-        $recordings = app(\App\Services\CameraRecordingService::class);
+        $recordings = app(CameraRecordingService::class);
         $canCopyPlaybackVideo = new \ReflectionMethod($recordings, 'canCopyPlaybackVideo');
         $canCopyPlaybackVideo->setAccessible(true);
 
@@ -1010,8 +1011,8 @@ class RecordingBrowserTest extends TestCase
             ->assertSee('data-role="rail-viewport"', false)
             ->assertSee('data-role="camera-switch"', false)
             ->assertSee('data-role="rail-segment"', false)
-            ->assertSee('Switch which loaded camera is shown on the stage.')
-            ->assertSee('Recorded feeds available in the camera strip.')
+            ->assertSee('Switch cameras to compare the same moment.')
+            ->assertSee('Date range &amp; cameras', false)
             ->assertSee('Download file')
             ->assertSee('60 s')
             ->assertSee('Garage')

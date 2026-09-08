@@ -137,7 +137,11 @@
         returnFocusKey = trigger.dataset.cameraEditorTrigger ?? null;
     }, true);
 
-    new MutationObserver(syncModal).observe(document.documentElement, {
+    new MutationObserver((records) => {
+        // Motion metrics update frequently inside their own managed island.
+        if (records.every(record => record.target instanceof Element && record.target.closest('[data-motion-editor], .motion-threshold-card'))) return;
+        syncModal();
+    }).observe(document.documentElement, {
         childList: true,
         subtree: true,
     });

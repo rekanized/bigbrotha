@@ -245,9 +245,11 @@ Current recording management behavior:
 - recording summary counters are calculated with one conditional aggregate query instead of four separate count queries.
 - the Admin navigation now exposes an Audit log page with filters for subject type, actor type, source, event key, and free-text actor or IP search.
 - `/recordings/timeline` now lets operators choose the cameras they want to review directly instead of resolving them from a saved wall.
-- the recordings timeline now mounts a Livewire review shell that keeps the selected camera and focus time in parent-owned state while rendering separate stage and rail child components.
-- the timeline rail now hydrates only summary camera-strip data on first load, server-renders a small focus-centered segment window, and asks the parent Livewire review shell for additional segment windows as the operator scrolls.
-- the review screen still loads a padded multi-day span for the selected cameras, but the JavaScript layer is now limited to transient rail dragging, scrub-preview overlays, and stage seek synchronization across Livewire rerenders.
+- the recordings timeline route server-renders the shared Blade review shell, stage, and rail; plain JavaScript owns subsequent camera switching, playback, and rail updates. The Livewire components remain available and use those same templates.
+- the timeline rail hydrates only camera summaries and a small focus-centered segment window on first load, then requests authenticated JSON windows as the operator scrolls.
+- the review screen defaults to the previous and current display days. Native GET forms filter dates/cameras or jump to a display-timezone date and time; the URL preserves the selected camera, absolute focus time, and zoom. Previous/next clip requests use the existing stage endpoint with a validated `direction`, select one saved recording within the current camera/date range, and skip gaps without probing recording files.
+- `public/css/pages/timeline-review.css` is linked directly, with a file version, by the timeline page after shared styles. It owns the compact filter disclosure, responsive player/rail layout, transport controls, and touch-sized focus handle.
+- stage and rail requests reject stale responses after camera changes or navigation. Playback has loading, buffering, error/retry, empty-time, and range-end feedback. Initialization is idempotent for the same DOM root, preserving audio volume across repeated navigation events.
 - the vertical rail DOM is virtualized in plain JavaScript so only the visible tick, segment, and thumbnail nodes remain mounted, while thumbnail images hydrate through an `IntersectionObserver` rooted to the rail viewport.
 - timeline segment selection now treats clip bounds as half-open ranges, so a focus time exactly on a shared clip edge resolves to the following adjacent segment instead of double-matching the earlier one.
 - saved segments can generate private review assets under their `_review` directory, including a manifest and scrub sprite sheet; the durable recording itself is normalized into a browser-playable MP4 in the recordings directory, and the rail thumbnail route crops a frame from the scrub sprite instead of storing a separate poster image.
@@ -328,3 +330,11 @@ If `WEBSITE_ALLOWED_IPS` is blank, the allow list is effectively disabled.
 See [live-streaming-audit.md](live-streaming-audit.md) for the September 2026 audit, reproducible tests, deployment validation, and the measured IMOU upstream packet gaps. Relay configuration is published by atomic file replacement so MediaMTX reloads complete snapshots.
 
 Wall and standalone player pages render retrying receivers during relay outages, so loading either page while MediaMTX restarts does not require a manual reload when it returns.
+
+## Camera editor preview lifecycle
+
+`BigBrothaWhepPlayer.start()` registers every receiver in a lifecycle set, including manually created motion-editor receivers. The wall's own player list still determines layout and audio controls; the lifecycle set drives health checks, browser activation, visibility, and network recovery. `close()` unregisters and releases the receiver. Both script loaders use bounded loads with removal of failed script elements.
+
+The motion analysis response retains `decision` as the segment-wide recorder result and adds `activity` for the latest confirmed transition from the same detector pass. Automatic recording thresholds and artifact rejection are unchanged. The segment basename plus decoded frame count identifies sample advancement, so additional audio packets cannot keep a frozen video sample marked fresh. The browser clears stale overlays and displays analysis availability independently of WebRTC availability. Canvas bounds follow contained video dimensions instead of the surrounding player box. See [camera-editor-audit.md](camera-editor-audit.md).
+
+Motion recorder Matroska segments use `flush_packets=1:cluster_time_limit=250` so active-file snapshots expose decodable frames between keyframes. Other configured muxers retain packet flushing without Matroska-specific options. Live preview decoding has an eight-second process deadline, below the browser analysis request deadline.

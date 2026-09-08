@@ -18,7 +18,9 @@
         pendingKeys: new Set(),
         queuedRequest: null,
         renderFrame: null,
-        renderKey: '',
+        thumbnailLayout: null,
+        statusTimer: null,
+        statusShownAt: 0,
         requestController: null,
         requestInFlight: false,
         requestTimer: null,
@@ -35,6 +37,7 @@
 
     const state = {
         activeCameraId: null,
+        bootstrappedRoot: null,
         boundAudio: null,
         boundAudioCleanup: null,
         boundVideo: null,
@@ -43,6 +46,7 @@
         boundViewportCleanup: null,
         cleanupFns: [],
         drag: null,
+        clipScrub: null,
         lastDragEndedAt: 0,
         lastNativeScrollAt: 0,
         lastPointerEventAt: 0,
@@ -64,6 +68,7 @@
         stageAudioLastSyncAt: 0,
         stageSegmentRequestController: null,
         stageSegmentRequestId: 0,
+        stageSelectionId: 0,
         stageSourceLoadTimer: null,
         stageSourceRequestId: 0,
         pendingViewportRestore: false,
@@ -240,7 +245,7 @@
     );
 
     const setText = (element, value) => {
-        if (element instanceof HTMLElement) {
+        if (element instanceof HTMLElement && element.textContent !== String(value)) {
             element.textContent = value;
         }
     };
@@ -274,6 +279,124 @@
         }
 
         window.history.replaceState(window.history.state, '', url);
+        scope.querySelectorAll('[data-role="zoom-input"]').forEach(input => { input.value = normalizedZoomScale.toFixed(2); });
+    };
+
+    const persistReviewInUrl = (scope) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('focus_at', new Date(currentFocusMs(scope)).toISOString());
+        url.searchParams.set('active_camera_id', activeCameraId(scope));
+        for (const name of ['date_from', 'date_to']) {
+            const value = scope.querySelector(`.recording-review__time-jump [name="${name}"]`)?.value;
+            if (value) url.searchParams.set(name, value);
+        }
+        window.history.replaceState(window.history.state, '', url);
+        document.querySelectorAll('[data-role="active-camera-input"]').forEach(input => { input.value = activeCameraId(scope); });
+    };
+
+    const setPlaybackNotice = (scope, message = '', status = 'loading') => {
+        const notice = scope.querySelector('[data-role="playback-notice"]');
+        if (!(notice instanceof HTMLElement)) return;
+        notice.hidden = message === '';
+        notice.dataset.state = status;
+        setText(notice.querySelector('[data-role="playback-message"]'), message);
+        const retry = notice.querySelector('[data-role="playback-retry"]');
+        if (retry) retry.hidden = status !== 'error';
+    };
+
+    const clipTimeLabel = (seconds) => {
+        const total = Math.max(0, Math.floor(seconds));
+        const minutes = Math.floor(total / 60);
+        return `${minutes}:${String(total % 60).padStart(2, '0')}`;
+    };
+
+    const clipSeekBounds = (scope, video = stageVideo(scope)) => {
+        if (!video?.dataset.recordingId) return null;
+        const start = readNumber(video, 'startMs');
+        const end = Math.min(readNumber(video, 'endMs'), timelineEndMs(scope));
+        const mediaDuration = !stageSourceIsLoading(video) && Number.isFinite(video.duration) && video.duration > 0
+            ? video.duration : readNumber(video, 'durationSeconds', (end - start) / 1000);
+        const min = Math.max(0, (timelineStartMs(scope) - start) / 1000);
+        const duration = Math.min(mediaDuration, (end - start) / 1000);
+        // Stay inside this clip, including when its end adjoins another clip.
+        const max = Math.max(min, Math.min(Math.floor((duration - 0.1) * 10) / 10, (timelineMaximumFocusMs(scope) - start) / 1000));
+        return { start, min, max, duration };
+    };
+
+    const updateClipProgress = (scope) => {
+        const slider = scope.querySelector('[data-role="clip-seek"]');
+        if (!(slider instanceof HTMLInputElement)) return;
+        const video = stageVideo(scope);
+        const bounds = clipSeekBounds(scope, video);
+        const available = bounds && bounds.max > bounds.min;
+        slider.disabled = !available;
+        const detail = scope.querySelector('[data-role="clip-detail"]');
+        if (detail) detail.disabled = !available;
+        if (!available) return;
+        const elapsed = clamp((currentFocusMs(scope) - bounds.start) / 1000, bounds.min, bounds.max);
+        slider.min = String(bounds.min);
+        slider.max = String(bounds.max);
+        if (!state.clipScrub) slider.value = String(elapsed);
+        slider.style.setProperty('--clip-progress', `${((elapsed - bounds.min) / (bounds.max - bounds.min)) * 100}%`);
+        slider.setAttribute('aria-valuetext', `${clipTimeLabel(elapsed)} of ${clipTimeLabel(bounds.duration)}`);
+        setText(scope.querySelector('[data-role="clip-elapsed"]'), clipTimeLabel(elapsed));
+        setText(scope.querySelector('[data-role="clip-duration"]'), clipTimeLabel(bounds.duration));
+    };
+
+    const beginClipScrub = (scope) => {
+        const video = stageVideo(scope);
+        if (state.clipScrub || !clipSeekBounds(scope, video)) return;
+        state.clipScrub = { scope, video, recordingId: video.dataset.recordingId, wasPlaying: stageControllerSnapshot(scope).isPlaying };
+        video.pause();
+        stageAudio(scope)?.pause();
+    };
+
+    const finishClipScrub = () => {
+        const scrub = state.clipScrub;
+        if (!scrub) return;
+        state.clipScrub = null;
+        if (root() !== scrub.scope || scrub.video.dataset.recordingId !== scrub.recordingId) return;
+        setStageControllerState(scrub.scope, { isPlaying: scrub.wasPlaying });
+        applyStageControllerStateToVideo(scrub.scope, scrub.video);
+        centerViewportOnFocus(scrub.scope, currentFocusMs(scrub.scope));
+        commitFocus(scrub.scope, currentFocusMs(scrub.scope));
+    };
+
+    const seekWithinClip = (scope, seconds) => {
+        const video = stageVideo(scope);
+        const bounds = clipSeekBounds(scope, video);
+        if (!bounds) return;
+        const elapsed = clamp(seconds, bounds.min, bounds.max);
+        const focus = bounds.start + elapsed * 1000;
+        if (stageSourceIsLoading(video) || video.readyState < 1) setPendingStageFocusMs(video, focus);
+        else video.currentTime = elapsed;
+        updateLocalFocus(scope, focus);
+        syncCompanionAudioTime(video, stageAudio(scope), true);
+    };
+
+    const selectFocus = (scope, focusMs) => {
+        const nextFocus = clamp(focusMs, timelineStartMs(scope), timelineMaximumFocusMs(scope));
+        updateLocalFocus(scope, nextFocus);
+        centerViewportOnFocus(scope, nextFocus);
+        hideScrubPreview(scope);
+        void syncStageSegmentToFocus(scope, nextFocus, { fetchIfMissing: true });
+        commitFocus(scope, nextFocus);
+    };
+
+    const navigateClip = async (scope, direction) => {
+        const video = stageVideo(scope);
+        const referenceMs = video?.dataset.recordingId ? readNumber(video, 'startMs', currentFocusMs(scope)) : currentFocusMs(scope);
+        const selectionId = ++state.stageSelectionId;
+        const cameraId = activeCameraId(scope);
+        setPlaybackNotice(scope, 'Finding '+(direction === 'previous' ? 'previous' : 'next')+' clip…');
+        const segment = await requestStageSegmentForFocus(scope, referenceMs, direction);
+        if (root() !== scope || selectionId !== state.stageSelectionId || cameraId !== activeCameraId(scope)) return;
+        if (segment === undefined) return;
+        if (!segment) {
+            setPlaybackNotice(scope, 'No '+(direction === 'previous' ? 'earlier' : 'later')+' clip in this date range.', 'empty');
+            return;
+        }
+        selectFocus(scope, segment.startMs);
     };
 
     const updateZoomUi = (scope, zoomScale = currentZoomScale(scope)) => {
@@ -356,13 +479,7 @@
         );
 
         setCurrentZoomScale(scope, nextZoomScale);
-        applyTimelineScale(scope);
-
-        const nextTrackHeight = railTrackHeight(scope);
-        const nextScrollTop = ((anchorMs - timelineStartMs(scope)) / timelineDurationMs(scope)) * nextTrackHeight - anchorOffsetY;
-
-        viewport.scrollTop = clamp(nextScrollTop, 0, Math.max(0, nextTrackHeight - viewport.clientHeight));
-        state.viewportScrollTop = viewport.scrollTop;
+        applyTimelineScale(scope, { anchorMs, anchorOffsetY });
         hideScrubPreview(scope);
         updateVisibleRange(scope);
         updateZoomUi(scope, nextZoomScale);
@@ -729,7 +846,6 @@
             return false;
         }
 
-        const shouldPlay = options.shouldPlay !== false;
         const resumeAt = Number.isFinite(Number(options.resumeAt)) ? Number(options.resumeAt) : null;
         const pendingFocusMs = pendingStageFocusMs(video, currentFocusMs(scope));
         const requestId = nextStageSourceRequestId(video);
@@ -738,32 +854,24 @@
                 return;
             }
 
+            const latestFocusMs = pendingStageFocusMs(video, pendingFocusMs);
             clearStageSourceLoadWatchdog();
             clearPendingStageSourceLoad(video);
             pendingStageReadyHandlers.delete(video);
 
-            if (resumeAt !== null) {
+            if (resumeAt !== null && latestFocusMs === pendingFocusMs) {
                 try {
                     video.currentTime = Math.max(0, resumeAt);
                 } catch (error) {
                 }
             } else {
-                seekStageVideoToFocus(scope, video, pendingFocusMs);
+                seekStageVideoToFocus(scope, video, latestFocusMs);
             }
 
             setStageVideoLoadVisibility(video, true);
             updateStageAssetStatus(scope, video, normalizedSourceUrl);
 
-            const resolvedPlayerState = ensureStageControllerState(scope, video);
-
-            if (shouldPlay && !resolvedPlayerState.isPlaying) {
-                state.stage = {
-                    ...resolvedPlayerState,
-                    initialized: true,
-                    isPlaying: true,
-                };
-            }
-
+            // Honor pause and seek actions made while the new source was loading.
             applyStageControllerStateToVideo(scope, video);
         };
 
@@ -1279,7 +1387,7 @@
             video.volume = playerState.volume;
         }
 
-        if (!playerState.isPlaying) {
+        if (!playerState.isPlaying || state.clipScrub?.video === video) {
             video.pause();
 
             return;
@@ -1346,7 +1454,9 @@
             return 1;
         }
 
-        return Math.max(track.scrollHeight, track.offsetHeight, 1);
+        // Absolute children still have old pixel positions while zoom is changing.
+        // Their overflow must not redefine the timeline duration/scale.
+        return Math.max(track.offsetHeight, 1);
     };
 
     const secondaryTickLabelSpacingPx = (scope, trackHeight = railTrackHeight(scope)) => (
@@ -1401,7 +1511,11 @@
         const ratioEnd = clamp((viewport.scrollTop + viewport.clientHeight) / trackHeight, 0, 1);
         const visibleStartMs = timelineStartMs(scope) + (timelineDurationMs(scope) * ratioStart);
         const visibleEndMs = timelineStartMs(scope) + (timelineDurationMs(scope) * ratioEnd);
-        const label = `${formatFocusLabel(visibleStartMs, scope)} - ${formatFocusLabel(visibleEndMs, scope)}`;
+        const first = formatFocusLabel(visibleStartMs, scope);
+        const last = formatFocusLabel(visibleEndMs, scope);
+        const dates = first.slice(0, 10) === last.slice(0, 10)
+            ? first.slice(0, 10) : `${first.slice(0, 10)} – ${last.slice(0, 10)}`;
+        const label = `${dates}\n${first.slice(11, 19)} – ${last.slice(11)}`;
 
         scope.querySelectorAll('[data-role="visible-range-label"]').forEach((element) => {
             setText(element, label);
@@ -1415,6 +1529,8 @@
 
         const viewport = railViewport(scope);
         const statusElement = scope.querySelector('[data-role="rail-status"]');
+        const retry = scope.querySelector('[data-role="rail-retry"]');
+        if (retry) retry.hidden = status !== 'error';
         const isLoading = status === 'loading';
         const normalizedMessage = String(message || '').trim();
 
@@ -1422,10 +1538,25 @@
             viewport.setAttribute('aria-busy', isLoading ? 'true' : 'false');
         }
 
-        if (statusElement instanceof HTMLElement) {
+        window.clearTimeout(state.rail.statusTimer);
+        state.rail.statusTimer = null;
+        if (!(statusElement instanceof HTMLElement)) return;
+
+        const show = () => {
+            state.rail.statusTimer = null;
             statusElement.dataset.state = status;
-            statusElement.textContent = normalizedMessage;
+            setText(statusElement, normalizedMessage);
             statusElement.hidden = normalizedMessage === '';
+            state.rail.statusShownAt = normalizedMessage === '' ? 0 : Date.now();
+        };
+        // Background window requests should not flash a message on every scroll.
+        // Slow requests remain visible long enough to read, without moving the rail.
+        if (isLoading && statusElement.hidden) {
+            state.rail.statusTimer = window.setTimeout(show, 300);
+        } else if (status === 'ready' && !statusElement.hidden && statusElement.dataset.state === 'loading') {
+            state.rail.statusTimer = window.setTimeout(show, Math.max(0, 300 - (Date.now() - state.rail.statusShownAt)));
+        } else {
+            show();
         }
     };
 
@@ -1484,6 +1615,7 @@
             window.clearTimeout(state.rail.requestTimer);
         }
 
+        window.clearTimeout(state.rail.statusTimer);
         cleanupRailThumbnailObserver();
         state.rail = defaultRailState();
     };
@@ -1618,7 +1750,7 @@
                 const currentRoot = root();
                 const currentRail = currentRoot instanceof HTMLElement ? timelineRail(currentRoot) : null;
 
-                if (!(currentRoot instanceof HTMLElement) || !(currentRail instanceof HTMLElement)) {
+                if (currentRoot !== scope || requestId !== state.railRequestId || !(currentRail instanceof HTMLElement)) {
                     return;
                 }
 
@@ -1632,11 +1764,13 @@
                     Number(payload?.windowStartMs || requestRange.startMs),
                     Number(payload?.windowEndMs || requestRange.endMs),
                 ));
-                renderRailWindow(currentRoot, true);
+                renderRailWindow(currentRoot);
                 updateCameraSwitchUi(currentRoot);
-                void syncStageSegmentToFocus(currentRoot, currentFocusMs(currentRoot), {
-                    fetchIfMissing: false,
-                });
+                const video = stageVideo(currentRoot);
+                if (!video?.dataset.recordingId && !state.stageSegmentRequestController
+                    && segmentPayloadForFocus(currentRoot, currentFocusMs(currentRoot))) {
+                    void syncStageSegmentToFocus(currentRoot, currentFocusMs(currentRoot), { fetchIfMissing: false });
+                }
                 setRailStatus(currentRoot, 'ready');
             })
             .catch((error) => {
@@ -1843,6 +1977,7 @@
             return;
         }
 
+        const preservedFocus = currentFocusMs(scope);
         state.activeCameraId = nextCameraId;
         scope.dataset.activeCameraId = nextCameraId;
         host.dataset.cameraId = nextCameraId;
@@ -1851,6 +1986,8 @@
         host.dataset.stageUrl = String(button.dataset.stageUrl || '');
         host.dataset.activeSegmentId = '';
 
+        const viewport = railViewport(scope);
+        if (viewport) viewport.setAttribute('aria-label', 'Scrollable recording timeline for '+host.dataset.cameraName);
         resetStagePrewarm();
         hideScrubPreview(scope);
         resetRailBootstrapPayload(scope);
@@ -1858,13 +1995,15 @@
         setRailStatus(scope, 'ready');
         readRailBootstrapData(scope);
         updateCameraSwitchUi(scope);
-        renderRailWindow(scope, true);
+        renderRailWindow(scope);
         void syncStageSegmentToFocus(scope, currentFocusMs(scope), {
             fetchIfMissing: true,
         });
         syncStagePlaybackState(scope);
         syncStageAudioState(scope);
         updateStageVolumeUi(scope);
+        updateLocalFocus(scope, preservedFocus);
+        persistReviewInUrl(scope);
         requestRailWindow(scope);
     };
 
@@ -1946,7 +2085,7 @@
                 existing.alt = thumbnailAlt;
             }
 
-            if (existing.src !== thumbnailUrl) {
+            if (existing.getAttribute('src') !== thumbnailUrl) {
                 existing.src = thumbnailUrl;
             }
 
@@ -1957,7 +2096,7 @@
 
         image.alt = thumbnailAlt;
         image.decoding = 'async';
-        image.loading = 'lazy';
+        image.loading = 'eager';
         image.src = thumbnailUrl;
         frame.appendChild(image);
 
@@ -1973,6 +2112,13 @@
             image.remove();
         });
     };
+
+    const railThumbnailMediaKey = (thumbnail) => JSON.stringify([
+        thumbnail.dataset.thumbnailSpriteUrl, thumbnail.dataset.thumbnailUrl,
+        thumbnail.dataset.thumbnailFrameIndex, thumbnail.dataset.scrubFrameCount,
+        thumbnail.dataset.scrubFrameWidth, thumbnail.dataset.scrubFrameHeight,
+        thumbnail.dataset.scrubColumns, thumbnail.dataset.scrubRows,
+    ]);
 
     const hydrateRailThumbnail = (thumbnail) => {
         if (!(thumbnail instanceof HTMLElement)) {
@@ -1994,7 +2140,17 @@
             return;
         }
 
+        const mediaKey = railThumbnailMediaKey(thumbnail);
+        if (frame.dataset.hydrationKey === mediaKey) return;
+        frame.dataset.hydrationKey = mediaKey;
+        const isCurrent = () => thumbnail.isConnected && frame.dataset.hydrationKey === mediaKey
+            && railThumbnailMediaKey(thumbnail) === mediaKey;
+
         if (thumbnailSpriteUrl === '' || scrubFrameCount < 1) {
+            const oldSprite = frame.querySelector('[data-role=rail-thumbnail-sprite]');
+            oldSprite?.classList.remove('is-ready');
+            clearSpriteFrameBackground(oldSprite);
+            if (thumbnailUrl === '') removeRailThumbnailFallbackImage(frame);
             ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
             frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'empty';
 
@@ -2012,9 +2168,7 @@
 
         const frameKey = `${thumbnailSpriteUrl}:${thumbnailFrameIndex}`;
         const renderSprite = () => {
-            if (!thumbnail.isConnected) {
-                return;
-            }
+            if (!isCurrent()) return;
 
             removeRailThumbnailFallbackImage(frame);
             applySpriteFrameBackground(
@@ -2036,17 +2190,21 @@
             return;
         }
 
-        spriteLayer.classList.remove('is-ready');
-        clearSpriteFrameBackground(spriteLayer);
-        removeRailThumbnailFallbackImage(frame);
-        frame.dataset.renderState = thumbnailUrl !== '' ? 'loading' : 'empty';
+        // Keep the current preview until the replacement sprite has decoded.
+        if (!spriteLayer.classList.contains('is-ready')) {
+            ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
+            frame.dataset.renderState = 'loading';
+        }
 
         void preloadScrubSprite(thumbnailSpriteUrl, {
             expectedHeight: scrubFrameHeight * scrubRows,
             expectedWidth: scrubFrameWidth * scrubColumns,
             priority: 'low',
         }).then((loaded) => {
+            if (!isCurrent()) return;
             if (!loaded) {
+                spriteLayer.classList.remove('is-ready');
+                clearSpriteFrameBackground(spriteLayer);
                 ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
                 frame.dataset.renderState = thumbnailUrl !== '' ? 'fallback' : 'error';
 
@@ -2065,15 +2223,11 @@
                 return;
             }
 
+            const thumbnail = frame.closest('[data-role="rail-thumbnail"]');
+            if (!(thumbnail instanceof HTMLElement) || frame.dataset.hydrationKey === railThumbnailMediaKey(thumbnail)) return;
             if (observer) {
                 observer.observe(frame);
-
-                return;
-            }
-
-            const thumbnail = frame.closest('[data-role="rail-thumbnail"]');
-
-            if (thumbnail instanceof HTMLElement) {
+            } else {
                 hydrateRailThumbnail(thumbnail);
             }
         });
@@ -2155,9 +2309,13 @@
         const thumbnailGap = Math.max(0, readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-gap'), 12));
         const maxThumbnailTopPx = Math.max(0, trackHeight - thumbnailHeight);
         const activeSegment = activeRailSegmentId(scope);
+        const previous = state.rail.thumbnailLayout;
+        const geometryKey = [trackHeight, thumbnailHeight, thumbnailGap, activeSegment].join(':');
+        if (previous?.segments === segments && previous.geometryKey === geometryKey) return previous.items;
+        const retainedIds = new Set(previous?.geometryKey === geometryKey ? previous.items.map(item => String(item.id)) : []);
         const occupiedRanges = [];
 
-        return segments
+        const items = segments
             .map((segment) => {
                 const desiredTopPx = clamp(railTrackOffsetPxForMs(scope, segment.startMs, trackHeight), 0, maxThumbnailTopPx);
 
@@ -2171,6 +2329,10 @@
                 if (left.isActive !== right.isActive) {
                     return left.isActive ? -1 : 1;
                 }
+
+                const leftRetained = retainedIds.has(String(left.id));
+                const rightRetained = retainedIds.has(String(right.id));
+                if (leftRetained !== rightRetained) return leftRetained ? -1 : 1;
 
                 const leftDurationMs = Math.max(1, left.endMs - left.startMs);
                 const rightDurationMs = Math.max(1, right.endMs - right.startMs);
@@ -2199,10 +2361,12 @@
                 return true;
             })
             .sort((left, right) => left.startMs - right.startMs);
+        state.rail.thumbnailLayout = { segments, geometryKey, items };
+        return items;
     };
 
-    const createRailTickElement = (tick) => {
-        const button = document.createElement('button');
+    const createRailTickElement = (tick, existing = null) => {
+        const button = existing || document.createElement('button');
         const label = document.createElement('span');
         const rawVariant = typeof tick?.labelVariant === 'string' ? tick.labelVariant : '';
         const variant = ['day', 'hour', 'minute'].includes(rawVariant)
@@ -2250,14 +2414,13 @@
             label.appendChild(secondary);
         }
 
-        button.appendChild(label);
+        button.replaceChildren(label);
 
         return button;
     };
 
-    const createRailSegmentElement = (scope, segment) => {
-        const button = document.createElement('button');
-        const bar = document.createElement('span');
+    const createRailSegmentElement = (scope, segment, existing = null) => {
+        const button = existing || document.createElement('button');
         const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
         const activeSegment = activeRailSegmentId(scope);
         const trackHeight = railTrackHeight(scope);
@@ -2288,14 +2451,17 @@
         button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} ${segment.modeLabel || 'Recorded clip'}`);
         button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
 
-        bar.className = 'recording-review-focus__rail-segment-bar';
-        button.appendChild(bar);
+        if (!existing) {
+            const bar = document.createElement('span');
+            bar.className = 'recording-review-focus__rail-segment-bar';
+            button.appendChild(bar);
+        }
 
         return button;
     };
 
-    const createRailThumbnailElement = (scope, segment) => {
-        const button = document.createElement('button');
+    const createRailThumbnailElement = (scope, segment, existing = null) => {
+        const button = existing || document.createElement('button');
         const frame = document.createElement('span');
         const sprite = document.createElement('span');
         const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
@@ -2320,6 +2486,8 @@
         button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail`);
         button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
 
+        if (existing) return button;
+
         frame.className = 'recording-review-focus__rail-thumbnail-frame';
         frame.dataset.role = 'rail-thumbnail-frame';
         frame.dataset.renderState = 'idle';
@@ -2335,73 +2503,62 @@
         return button;
     };
 
-    const renderRailWindow = (scope, force = false) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
+    const reconcileRailLayer = (layer, items, keyFor, signatureFor, render) => {
+        const desiredKeys = new Set(items.map(keyFor));
+        const existing = new Map();
+        for (const node of Array.from(layer.children)) {
+            if (desiredKeys.has(node.dataset.railKey)) {
+                existing.set(node.dataset.railKey, node);
+            } else {
+                const frame = node.querySelector('[data-role="rail-thumbnail-frame"]');
+                if (frame) state.rail.thumbnailObserver?.unobserve(frame);
+                node.remove();
+            }
         }
+        let cursor = layer.firstElementChild;
+        for (const item of items) {
+            const key = keyFor(item);
+            const signature = signatureFor(item);
+            let node = existing.get(key);
+            if (!node || node.railRenderSignature !== signature) {
+                node = render(item, node);
+                node.dataset.railKey = key;
+                node.railRenderSignature = signature;
+            }
+            // Do not detach/reinsert retained nodes: that resets image painting and focus.
+            if (node !== cursor) layer.insertBefore(node, cursor);
+            cursor = node.nextElementSibling;
+        }
+    };
 
+    const renderRailWindow = (scope) => {
+        if (!(scope instanceof HTMLElement)) return;
         const ticksLayer = railTicksLayer(scope);
         const segmentsLayer = railSegmentsLayer(scope);
         const thumbnailsLayer = railThumbnailsLayer(scope);
-
-        if (!(ticksLayer instanceof HTMLElement) || !(segmentsLayer instanceof HTMLElement) || !(thumbnailsLayer instanceof HTMLElement)) {
-            return;
-        }
-
+        if (!ticksLayer || !segmentsLayer || !thumbnailsLayer) return;
         readRailBootstrapData(scope);
 
         const visibleWindow = railWindowForViewport(scope);
         const tickBufferMs = secondaryTickIntervalMinutes(scope) * 60000;
-        const visibleTicks = state.rail.ticks.filter((tick) => {
-            const focusMs = Number(tick.focusMs || 0);
+        const visibleTicks = state.rail.ticks.filter(tick => tick.focusMs >= visibleWindow.startMs - tickBufferMs
+            && tick.focusMs <= visibleWindow.endMs + tickBufferMs);
+        const intersects = segment => segment.endMs >= visibleWindow.startMs && segment.startMs <= visibleWindow.endMs;
+        const visibleSegments = state.rail.segments.filter(intersects);
+        // Select non-overlapping previews across loaded data, not the moving viewport.
+        const thumbnails = buildRailThumbnailSegments(scope, state.rail.segments).filter(intersects);
+        const cameraKey = String(state.rail.cameraId);
+        const trackHeight = railTrackHeight(scope);
+        const keyForSegment = segment => `${cameraKey}:${railSegmentKey(segment)}`;
+        const segmentSignature = segment => `${trackHeight}:${JSON.stringify(segment)}`;
 
-            return focusMs >= (visibleWindow.startMs - tickBufferMs)
-                && focusMs <= (visibleWindow.endMs + tickBufferMs);
-        });
-        const visibleSegments = state.rail.segments.filter((segment) => segment.endMs >= visibleWindow.startMs && segment.startMs <= visibleWindow.endMs);
-        const visibleThumbnailSegments = buildRailThumbnailSegments(scope, visibleSegments);
-        const renderKey = [
-            state.rail.cameraId,
-            activeRailSegmentId(scope),
-            visibleTicks.length,
-            visibleTicks[0]?.focusMs || 'none',
-            visibleTicks[visibleTicks.length - 1]?.focusMs || 'none',
-            visibleSegments.length,
-            visibleSegments[0]?.id || 'none',
-            visibleSegments[visibleSegments.length - 1]?.id || 'none',
-            visibleThumbnailSegments.length,
-            visibleThumbnailSegments[0]?.id || 'none',
-            visibleThumbnailSegments[visibleThumbnailSegments.length - 1]?.id || 'none',
-        ].join(':');
-
-        if (!force && state.rail.renderKey === renderKey) {
-            observeRailThumbnails(scope);
-            updateTimelineTickLabelVisibility(scope);
-
-            return;
-        }
-
-        state.rail.renderKey = renderKey;
-        const tickFragment = document.createDocumentFragment();
-        const segmentFragment = document.createDocumentFragment();
-        const thumbnailFragment = document.createDocumentFragment();
-
-        visibleTicks.forEach((tick) => {
-            tickFragment.appendChild(createRailTickElement(tick));
-        });
-
-        visibleSegments.forEach((segment) => {
-            segmentFragment.appendChild(createRailSegmentElement(scope, segment));
-        });
-
-        visibleThumbnailSegments.forEach((segment) => {
-            thumbnailFragment.appendChild(createRailThumbnailElement(scope, segment));
-        });
-
-        ticksLayer.replaceChildren(tickFragment);
-        segmentsLayer.replaceChildren(segmentFragment);
-        thumbnailsLayer.replaceChildren(thumbnailFragment);
-
+        reconcileRailLayer(ticksLayer, visibleTicks, tick => `${cameraKey}:${tick.focusMs}:${tick.kind}`,
+            tick => JSON.stringify(tick), (tick, node) => createRailTickElement(tick, node));
+        reconcileRailLayer(segmentsLayer, visibleSegments, keyForSegment, segmentSignature,
+            (segment, node) => createRailSegmentElement(scope, segment, node));
+        reconcileRailLayer(thumbnailsLayer, thumbnails, keyForSegment, segmentSignature,
+            (segment, node) => createRailThumbnailElement(scope, segment, node));
+        updateActiveRailDecorations(scope);
         observeRailThumbnails(scope);
         updateTimelineTickLabelVisibility(scope);
     };
@@ -2441,7 +2598,7 @@
         state.stageSegmentRequestController = null;
     };
 
-    const requestStageSegmentForFocus = (scope, focusMs) => {
+    const requestStageSegmentForFocus = (scope, focusMs, direction = null) => {
         if (!(scope instanceof HTMLElement)) {
             return Promise.resolve(null);
         }
@@ -2466,6 +2623,7 @@
         requestUrl.searchParams.set('day_start_ms', String(timelineStartMs(scope)));
         requestUrl.searchParams.set('day_end_ms', String(timelineEndMs(scope)));
         requestUrl.searchParams.set('focus_ms', String(Math.round(focusMs)));
+        if (direction) requestUrl.searchParams.set('direction', direction);
 
         return window.fetch(requestUrl.toString(), {
             credentials: 'same-origin',
@@ -2483,7 +2641,7 @@
                     return null;
                 }
 
-                if (String(payload?.cameraId || '') !== cameraId) {
+                if (String(payload?.cameraId || '') !== cameraId || activeCameraId(scope) !== cameraId) {
                     return null;
                 }
 
@@ -2491,12 +2649,17 @@
 
                 if (segment) {
                     storeRailSegments([segment]);
-                    renderRailWindow(scope, true);
+                    renderRailWindow(scope);
                 }
 
                 return segment;
             })
-            .catch(() => null)
+            .catch((error) => {
+                if (error?.name !== 'AbortError' && root() === scope && requestId === state.stageSegmentRequestId) {
+                    setPlaybackNotice(scope, 'Could not load this recording. Check your connection and retry.', 'error');
+                }
+                return undefined;
+            })
             .finally(() => {
                 if (requestId === state.stageSegmentRequestId) {
                     state.stageSegmentRequestController = null;
@@ -2509,6 +2672,8 @@
             return Promise.resolve(null);
         }
 
+        const selectionId = ++state.stageSelectionId;
+        const cameraId = activeCameraId(scope);
         const resolvedFocusMs = clamp(
             Number(focusMs ?? currentFocusMs(scope)),
             timelineStartMs(scope),
@@ -2537,6 +2702,7 @@
             return Promise.resolve(null);
         }
 
+        setPlaybackNotice(scope, 'Loading recording…');
         return requestStageSegmentForFocus(scope, resolvedFocusMs).then((segment) => {
             const currentRoot = root();
 
@@ -2544,7 +2710,8 @@
                 return segment;
             }
 
-            if (Math.abs(currentFocusMs(scope) - resolvedFocusMs) > 1) {
+            if (segment === undefined || selectionId !== state.stageSelectionId || cameraId !== activeCameraId(scope)
+                || Math.abs(currentFocusMs(scope) - resolvedFocusMs) > 1) {
                 return segment;
             }
 
@@ -2590,6 +2757,12 @@
         const downloadLink = scope.querySelector('[data-role="download-link"]');
         const cameraName = timelineRail(scope)?.dataset.cameraName || 'Camera';
 
+        if (state.clipScrub && String(segment?.id ?? '') !== state.clipScrub.recordingId) {
+            const wasPlaying = state.clipScrub.wasPlaying;
+            state.clipScrub = null;
+            setStageControllerState(scope, { isPlaying: wasPlaying });
+        }
+        setPlaybackNotice(scope);
         updateStageText(scope, 'camera-label', cameraName);
         setActiveRailSegmentId(scope, segment && typeof segment === 'object' ? (segment.id ?? null) : null);
 
@@ -2623,6 +2796,7 @@
                 clearPendingStageSourceLoad(video);
                 nextStageSourceRequestId(video);
                 video.dataset.recordingId = '';
+                updateClipProgress(scope);
                 video.dataset.startMs = '';
                 video.dataset.endMs = '';
                 video.dataset.durationSeconds = '';
@@ -2716,10 +2890,11 @@
         setStageVideoLoadVisibility(video, true);
 
         applyStageControllerStateToVideo(scope, video);
+        updateClipProgress(scope);
         prewarmStageNeighbors(scope, segment);
     };
 
-    const scheduleRailRender = (scope, force = false) => {
+    const scheduleRailRender = (scope) => {
         if (!(scope instanceof HTMLElement)) {
             return;
         }
@@ -2732,7 +2907,9 @@
 
         state.rail.renderFrame = window.requestAnimationFrame(() => {
             state.rail.renderFrame = null;
-            renderRailWindow(scope, force);
+            updateVisibleRange(scope);
+            renderRailWindow(scope);
+            requestRailWindow(scope);
         });
     };
 
@@ -2957,7 +3134,7 @@
 
             image.decoding = 'async';
             image.fetchPriority = priority;
-            image.onload = () => {
+            image.onload = async () => {
                 const widthMatches = expectedWidth < 1 || image.naturalWidth === expectedWidth;
                 const heightMatches = expectedHeight < 1 || image.naturalHeight === expectedHeight;
 
@@ -2968,6 +3145,13 @@
                     return;
                 }
 
+                try {
+                    await image.decode();
+                } catch (error) {
+                    rememberFailedSprite(spriteUrl);
+                    resolve(false);
+                    return;
+                }
                 rememberLoadedSprite(spriteUrl);
                 state.scrubSpritePending.delete(spriteUrl);
                 resolve(true);
@@ -3028,113 +3212,7 @@
             || (horizontalScrollbarHeight > 0 && event.clientY >= (rect.bottom - horizontalScrollbarHeight));
     };
 
-    const layoutRailThumbnails = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        const track = railTrack(scope);
-
-        if (!(track instanceof HTMLElement)) {
-            return;
-        }
-
-        const thumbnails = Array.from(scope.querySelectorAll('[data-role="rail-thumbnail"]'))
-            .filter((element) => element instanceof HTMLElement)
-            .sort((left, right) => readNumber(left, 'focusMs', 0) - readNumber(right, 'focusMs', 0));
-
-        if (thumbnails.length === 0) {
-            return;
-        }
-
-        const segmentsByRecordingId = new Map(railSegments(scope)
-            .map((segment) => [String(segment.dataset.recordingId || ''), segment]));
-        const trackHeight = railTrackHeight(scope);
-        const computedStyle = window.getComputedStyle(track);
-        const thumbnailHeight = Math.max(
-            1,
-            readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-height'), thumbnails[0].offsetHeight || 84),
-        );
-        const thumbnailGap = Math.max(0, readCssPixelValue(computedStyle.getPropertyValue('--recording-review-rail-thumb-gap'), 12));
-        const maxThumbnailTopPx = Math.max(0, trackHeight - thumbnailHeight);
-        const occupiedRanges = [];
-        const candidates = thumbnails.map((thumbnail) => {
-            const recordingId = String(thumbnail.dataset.recordingId || '');
-            const segment = segmentsByRecordingId.get(recordingId) || null;
-            const fallbackTopPx = clamp(
-                railTrackOffsetPxForMs(scope, readNumber(thumbnail, 'focusMs', timelineStartMs(scope)), trackHeight),
-                0,
-                maxThumbnailTopPx,
-            );
-            const desiredTopPx = clamp(
-                segment instanceof HTMLElement
-                    ? railTrackOffsetPxForMs(scope, readNumber(segment, 'startMs', timelineStartMs(scope)), trackHeight)
-                    : fallbackTopPx,
-                0,
-                maxThumbnailTopPx,
-            );
-
-            return {
-                durationMs: segment instanceof HTMLElement
-                    ? Math.max(1, readNumber(segment, 'endMs', 0) - readNumber(segment, 'startMs', 0))
-                    : 0,
-                isActive: thumbnail.classList.contains('is-active') || (segment instanceof HTMLElement && segment.classList.contains('is-active')),
-                thumbnail,
-                topPx: desiredTopPx,
-            };
-        }).sort((left, right) => {
-            if (left.isActive !== right.isActive) {
-                return left.isActive ? -1 : 1;
-            }
-
-            if (left.durationMs !== right.durationMs) {
-                return right.durationMs - left.durationMs;
-            }
-
-            return readNumber(left.thumbnail, 'focusMs', 0) - readNumber(right.thumbnail, 'focusMs', 0);
-        });
-
-        candidates.forEach(({ thumbnail, topPx }) => {
-            const bottomPx = topPx + thumbnailHeight;
-            const overlapsExistingThumbnail = occupiedRanges.some((range) => topPx < (range.bottomPx + thumbnailGap)
-                && (bottomPx + thumbnailGap) > range.topPx);
-
-            if (overlapsExistingThumbnail) {
-                thumbnail.hidden = true;
-
-                return;
-            }
-
-            thumbnail.hidden = false;
-            thumbnail.style.top = `${topPx}px`;
-            occupiedRanges.push({
-                bottomPx,
-                topPx,
-            });
-        });
-    };
-
-    const layoutRailSegments = (scope) => {
-        if (!(scope instanceof HTMLElement)) {
-            return;
-        }
-
-        railSegments(scope).forEach((segment) => {
-            const trackHeight = railTrackHeight(scope);
-            const range = clippedSegmentRangeMs(
-                scope,
-                readNumber(segment, 'startMs', timelineStartMs(scope)),
-                readNumber(segment, 'endMs', timelineStartMs(scope) + 1000),
-            );
-            const topPx = railTrackOffsetPxForMs(scope, range.startMs, trackHeight);
-            const heightPx = Math.max(1, railTrackOffsetPxForMs(scope, range.endMs, trackHeight) - topPx);
-
-            segment.style.top = `${topPx}px`;
-            segment.style.height = `${heightPx}px`;
-        });
-    };
-
-    const applyTimelineScale = (scope) => {
+    const applyTimelineScale = (scope, anchor = null) => {
         if (!(scope instanceof HTMLElement)) {
             return;
         }
@@ -3155,9 +3233,10 @@
         track.style.setProperty('--recording-review-zoom-scale', String(zoomScale));
 
         if (viewport instanceof HTMLElement) {
-            const restoredScrollTop = state.pendingViewportRestore && Number.isFinite(state.viewportScrollTop)
-                ? Number(state.viewportScrollTop)
-                : viewport.scrollTop;
+            const restoredScrollTop = anchor
+                ? ((anchor.anchorMs - timelineStartMs(scope)) / timelineDurationMs(scope)) * nextTrackHeight - anchor.anchorOffsetY
+                : (state.pendingViewportRestore && Number.isFinite(state.viewportScrollTop)
+                    ? Number(state.viewportScrollTop) : viewport.scrollTop);
 
             viewport.scrollTop = clamp(restoredScrollTop, 0, Math.max(0, nextTrackHeight - viewport.clientHeight));
             state.viewportScrollTop = viewport.scrollTop;
@@ -3165,7 +3244,7 @@
         }
 
         updateFocusCursor(scope, currentFocusMs(scope));
-        renderRailWindow(scope, true);
+        renderRailWindow(scope);
         requestRailWindow(scope);
         updateTimelineTickLabelVisibility(scope);
         updateZoomUi(scope, zoomScale);
@@ -3182,7 +3261,6 @@
         state.lastNativeScrollAt = Date.now();
         state.viewportScrollTop = viewport.scrollTop;
         scheduleRailRender(scope);
-        requestRailWindow(scope);
     };
 
     const handleViewportWheel = (event) => {
@@ -3321,7 +3399,7 @@
             }
 
             updateVisibleRange(currentRoot);
-            scheduleRailRender(currentRoot, true);
+            scheduleRailRender(currentRoot);
             requestRailWindow(currentRoot);
             updateTimelineTickLabelVisibility(currentRoot);
         });
@@ -3530,6 +3608,8 @@
 
         updateFocusCursor(scope, focusMs);
         updateFocusLabels(scope, focusMs);
+        setText(scope.querySelector('[data-role="rail-focus-time"]'), formatFocusLabel(focusMs, scope).slice(11, 19));
+        updateClipProgress(scope);
     };
 
     const focusFromPointer = (scope, clientY) => {
@@ -3603,6 +3683,7 @@
     };
 
     const commitFocus = (scope, focusMs) => {
+        persistReviewInUrl(scope);
         const viewport = railViewport(scope);
 
         if (viewport instanceof HTMLElement) {
@@ -3646,16 +3727,21 @@
         cleanupVideoBinding();
 
         const seekToFocus = () => {
-            seekStageVideoToFocus(scope, video);
+            seekStageVideoToFocus(scope, video, pendingStageFocusMs(video, currentFocusMs(scope)));
+            updateClipProgress(scope);
             applyStageControllerStateToVideo(scope, video);
         };
 
         const handleError = () => {
+            if (!video.dataset.recordingId) return;
             const fallbackUrl = nextStageFallbackUrl(video);
 
             if (fallbackUrl === '') {
                 clearStageSourceLoadWatchdog();
                 clearPendingStageSourceLoad(video);
+                setStageVideoLoadVisibility(video, true);
+                setStageControllerState(scope, { isPlaying: false });
+                setPlaybackNotice(scope, 'Playback could not start. Retry or choose another clip.', 'error');
 
                 return;
             }
@@ -3667,6 +3753,11 @@
         };
 
         const handleEnded = () => {
+            if (readNumber(video, 'endMs', 0) >= timelineEndMs(scope)) {
+                setStageControllerState(scope, { isPlaying: false });
+                setPlaybackNotice(scope, 'End of the selected date range.', 'empty');
+                return;
+            }
             const nextFocus = clamp(
                 readNumber(video, 'endMs', currentFocusMs(scope)),
                 timelineStartMs(scope),
@@ -3687,6 +3778,7 @@
         };
 
         const handlePlay = () => {
+            if (!video.dataset.recordingId) return;
             const playerState = syncStageControllerFromVideo(scope, video);
             syncCompanionAudioTime(video, stageAudio(scope), true);
             applyStageCompanionAudioState(scope, video, playerState, stageAudio(scope));
@@ -3694,6 +3786,7 @@
         };
 
         const handlePause = () => {
+            if (state.clipScrub || !video.dataset.recordingId || stageSourceIsLoading(video)) return;
             const playerState = syncStageControllerFromVideo(scope, video);
             applyStageCompanionAudioState(scope, video, playerState, stageAudio(scope));
             updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
@@ -3704,7 +3797,7 @@
         };
 
         const handleTimeUpdate = () => {
-            if (state.drag) {
+            if (state.drag || state.clipScrub || !video.dataset.recordingId || stageSourceIsLoading(video)) {
                 return;
             }
 
@@ -3712,6 +3805,7 @@
         };
 
         const handleSeeked = () => {
+            if (state.clipScrub || !video.dataset.recordingId) return;
             syncCompanionAudioTime(video, stageAudio(scope), true);
             updateLocalFocus(scope, focusMsForVideoPlayback(scope, video));
         };
@@ -3722,7 +3816,28 @@
             video.addEventListener('loadedmetadata', seekToFocus, { once: true });
         }
 
-        video.addEventListener('error', handleError);
+        const handleWaiting = () => { if (video.dataset.recordingId) setPlaybackNotice(scope, 'Buffering recording…'); };
+        const handleReady = () => {
+            if (!video.dataset.recordingId) return;
+            updateClipProgress(scope);
+            clearStageSourceLoadWatchdog();
+            setPlaybackNotice(scope);
+        };
+        const handleLoadStart = () => {
+            clearStageSourceLoadWatchdog();
+            if (!video.dataset.recordingId) return;
+            setPlaybackNotice(scope, 'Loading recording…');
+            state.stageSourceLoadTimer = window.setTimeout(() => {
+                if (root() === scope && video.readyState < 2) {
+                    setPlaybackNotice(scope, 'This recording is taking too long to load. Retry playback.', 'error');
+                }
+            }, 30000);
+        };
+        video.addEventListener('loadstart', handleLoadStart);
+        video.addEventListener('waiting', handleWaiting);
+        video.addEventListener('playing', handleReady);
+        video.addEventListener('canplay', handleReady);
+        video.addEventListener('error', handleError, true);
         video.addEventListener('ended', handleEnded);
         video.addEventListener('play', handlePlay);
         video.addEventListener('pause', handlePause);
@@ -3734,7 +3849,12 @@
         state.boundVideoCleanup = () => {
             clearStageSourceLoadWatchdog();
             clearPendingStageSourceLoad(video);
-            video.removeEventListener('error', handleError);
+            video.removeEventListener('waiting', handleWaiting);
+            video.removeEventListener('playing', handleReady);
+            video.removeEventListener('canplay', handleReady);
+            video.removeEventListener('loadedmetadata', seekToFocus);
+            video.removeEventListener('error', handleError, true);
+            video.removeEventListener('loadstart', handleLoadStart);
             video.removeEventListener('ended', handleEnded);
             video.removeEventListener('play', handlePlay);
             video.removeEventListener('pause', handlePause);
@@ -3776,6 +3896,10 @@
         }
 
         const scope = rootFor(event.target);
+        if (scope && event.target instanceof HTMLInputElement && event.target.dataset.role === 'clip-seek') {
+            if (!event.target.disabled) beginClipScrub(scope);
+            return;
+        }
         const viewport = event.target instanceof Element ? event.target.closest('[data-role="rail-viewport"]') : null;
         const scrubbable = event.target instanceof Element
             ? event.target.closest('[data-role="rail-viewport"], [data-role="rail-track"], [data-role="rail-segments"], [data-role="rail-segment"], [data-role="rail-tick"], [data-role="focus-cursor"]')
@@ -3957,6 +4081,11 @@
     const handleInput = (event) => {
         const target = event.target;
         const scope = rootFor(target);
+        if (scope && target instanceof HTMLInputElement && target.dataset.role === 'clip-seek') {
+            seekWithinClip(scope, Number(target.value));
+            if (!state.clipScrub) commitFocus(scope, currentFocusMs(scope));
+            return;
+        }
 
         if (!(scope instanceof HTMLElement) || !(target instanceof HTMLInputElement) || target.dataset.role !== 'audio-volume-slider') {
             return;
@@ -3975,6 +4104,40 @@
         const scope = rootFor(event.target);
 
         if (!(scope instanceof HTMLElement) || !(event.target instanceof Element)) {
+            return;
+        }
+
+        const action = event.target.closest('button[data-role]')?.dataset.role;
+        if (action === 'clip-detail') {
+            applyZoomScale(scope, maximumZoomScale(scope), { anchorMs: currentFocusMs(scope) });
+            event.preventDefault();
+            return;
+        }
+        if (['center-focus', 'previous-clip', 'next-clip', 'seek-back', 'seek-forward', 'rail-retry', 'playback-retry', 'fullscreen'].includes(action)) {
+            event.preventDefault();
+            if (action === 'center-focus') {
+                centerViewportOnFocus(scope, currentFocusMs(scope));
+                scope.querySelector('[data-role="focus-cursor"]')?.focus({ preventScroll: true });
+            } else if (action === 'previous-clip' || action === 'next-clip') {
+                void navigateClip(scope, action === 'previous-clip' ? 'previous' : 'next');
+            } else if (action === 'seek-back' || action === 'seek-forward') {
+                selectFocus(scope, currentFocusMs(scope) + (action === 'seek-back' ? -10000 : 10000));
+            } else if (action === 'rail-retry') {
+                requestRailWindow(scope);
+            } else if (action === 'playback-retry') {
+                const video = stageVideo(scope);
+                if (video?.dataset.recordingId && stageDirectStreamUrl(video)) {
+                    setPlaybackNotice(scope, 'Loading recording…');
+                    setStageControllerState(scope, { isPlaying: true });
+                    loadStageVideoSource(scope, video, stageDirectStreamUrl(video), { resumeAt: video.currentTime, shouldPlay: true });
+                } else selectFocus(scope, currentFocusMs(scope));
+            } else {
+                const viewer = scope.querySelector('.recording-review-focus__viewer');
+                const video = stageVideo(scope);
+                if (viewer?.requestFullscreen) {
+                    viewer.requestFullscreen().catch(() => setPlaybackNotice(scope, 'Full screen is unavailable in this browser.', 'info'));
+                } else if (video?.webkitEnterFullscreen) video.webkitEnterFullscreen();
+            }
             return;
         }
 
@@ -4058,6 +4221,8 @@
     };
 
     const destroy = () => {
+        state.clipScrub = null;
+        state.bootstrappedRoot = null;
         state.cleanupFns.forEach((cleanup) => cleanup());
         state.cleanupFns = [];
 
@@ -4111,16 +4276,19 @@
     };
 
     const bootstrap = () => {
-        destroy();
-
         const scope = root();
+        if (scope && state.bootstrappedRoot === scope) return;
+        destroy();
 
         if (!(scope instanceof HTMLElement)) {
             return;
         }
 
+        state.bootstrappedRoot = scope;
         state.activeCameraId = activeCameraId(scope);
         updateLocalFocus(scope, currentFocusMs(scope));
+        const fullscreen = scope.querySelector('[data-role="fullscreen"]');
+        if (fullscreen) fullscreen.hidden = !document.fullscreenEnabled && !stageVideo(scope)?.webkitEnterFullscreen;
         bindRailViewport(scope);
         applyTimelineScale(scope);
         centerViewportOnFocus(scope, currentFocusMs(scope));
@@ -4129,6 +4297,10 @@
         document.addEventListener('pointerdown', handlePointerDown);
         document.addEventListener('pointermove', handlePointerMove);
         document.addEventListener('pointerup', clearDrag);
+        document.addEventListener('pointerup', finishClipScrub);
+        document.addEventListener('pointercancel', finishClipScrub);
+        document.addEventListener('change', finishClipScrub);
+        window.addEventListener('blur', finishClipScrub);
         document.addEventListener('pointercancel', cancelDrag);
         document.addEventListener('mousedown', handlePointerDown);
         document.addEventListener('mousemove', handlePointerMove);
@@ -4140,6 +4312,10 @@
         state.cleanupFns.push(() => document.removeEventListener('pointerdown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('pointermove', handlePointerMove));
         state.cleanupFns.push(() => document.removeEventListener('pointerup', clearDrag));
+        state.cleanupFns.push(() => document.removeEventListener('pointerup', finishClipScrub));
+        state.cleanupFns.push(() => document.removeEventListener('pointercancel', finishClipScrub));
+        state.cleanupFns.push(() => document.removeEventListener('change', finishClipScrub));
+        state.cleanupFns.push(() => window.removeEventListener('blur', finishClipScrub));
         state.cleanupFns.push(() => document.removeEventListener('pointercancel', cancelDrag));
         state.cleanupFns.push(() => document.removeEventListener('mousedown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('mousemove', handlePointerMove));

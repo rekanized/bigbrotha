@@ -21,6 +21,7 @@
         },
         masterVolume: 1,
         players: [],
+        managedPlayers: new Set(),
         readerScriptPromise: null,
         readerScriptUrl: '',
         documentSuspendTimeout: null,
@@ -283,7 +284,7 @@
     };
 
     const handlePlaybackUnlock = () => {
-        state.players.forEach((player) => player.resumeAfterUserActivation());
+        state.managedPlayers.forEach((player) => player.resumeAfterUserActivation());
     };
 
     class BigBrothaWhepPlayer {
@@ -360,6 +361,8 @@
             }
 
             this.closed = false;
+            state.managedPlayers.add(this);
+            this.root.bigBrothaWhepPlayer = this;
             this.clearRetryTimeout();
 
             this.hasStream = false;
@@ -724,6 +727,7 @@
 
         close() {
             this.closed = true;
+            state.managedPlayers.delete(this);
             this.video?.removeEventListener?.('volumechange', this.handleNativeVolumeChange);
             this.video?.removeEventListener?.('pause', this.handlePlaybackState);
             this.video?.removeEventListener?.('playing', this.handlePlaybackState);
@@ -1056,53 +1060,36 @@
                 return;
             }
 
-            const existing = document.querySelector('[data-mediamtx-reader]');
-
-            if (existing) {
-                state.readerScriptUrl = existing.dataset.mediamtxReader || readerUrl;
-                state.readerScriptPromise = new Promise((resolve, reject) => {
-                    if (existing.dataset.loaded === 'true') {
-                        resolve();
-
-                        return;
-                    }
-
-                    existing.addEventListener('load', () => resolve(), { once: true });
-                    existing.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
-                }).catch((error) => {
-                    if (existing.dataset.loaded !== 'true') {
-                        existing.remove();
-                    }
-                    state.readerScriptPromise = null;
-                    state.readerScriptUrl = '';
-
-                    throw error;
-                });
-
-                await state.readerScriptPromise;
-
-                return;
-            }
-
+            const script = document.querySelector('[data-mediamtx-reader]') || document.createElement('script');
             state.readerScriptUrl = readerUrl;
-            let createdScript = null;
             state.readerScriptPromise = new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                createdScript = script;
-                script.src = readerUrl;
-                script.defer = true;
-                script.dataset.mediamtxReader = readerUrl;
-                script.addEventListener('load', () => {
-                    script.dataset.loaded = 'true';
-                    resolve();
-                }, { once: true });
-                script.addEventListener('error', () => reject(new Error('The MediaMTX reader script could not be loaded.')), { once: true });
-                document.head.appendChild(script);
+                const finish = (error) => {
+                    window.clearTimeout(timeout);
+                    script.removeEventListener('load', loaded);
+                    script.removeEventListener('error', failed);
+                    if (error) {
+                        script.remove();
+                        reject(error);
+                    } else {
+                        script.dataset.loaded = 'true';
+                        resolve();
+                    }
+                };
+                const failed = () => finish(new Error('The MediaMTX reader script could not be loaded.'));
+                const loaded = () => typeof window.MediaMTXWebRTCReader === 'function' ? finish() : failed();
+                const timeout = window.setTimeout(failed, 15000);
+                script.addEventListener('load', loaded, { once: true });
+                script.addEventListener('error', failed, { once: true });
+                if (!script.isConnected) {
+                    script.src = readerUrl;
+                    script.dataset.mediamtxReader = readerUrl;
+                    document.head.appendChild(script);
+                } else if (script.dataset.loaded === 'true') {
+                    loaded();
+                }
             }).catch((error) => {
-                createdScript?.remove();
                 state.readerScriptPromise = null;
                 state.readerScriptUrl = '';
-
                 throw error;
             });
 
@@ -1257,7 +1244,7 @@
         }
 
         if (!document.hidden) {
-            state.players.forEach((player, index) => player.resume('document', Math.min(1800, index * 150)));
+            [...state.managedPlayers].forEach((player, index) => player.resume('document', Math.min(1800, index * 150)));
 
             return;
         }
@@ -1266,17 +1253,17 @@
             state.documentSuspendTimeout = null;
 
             if (document.hidden) {
-                state.players.forEach((player) => player.suspend('document', 'Paused while the live wall is in the background.'));
+                state.managedPlayers.forEach((player) => player.suspend('document', 'Paused while the live wall is in the background.'));
             }
         }, hiddenPageSuspendDelayMs);
     };
 
     const handleOnline = () => {
-        state.players.forEach((player, index) => player.resume('offline', Math.min(1800, index * 150)));
+        [...state.managedPlayers].forEach((player, index) => player.resume('offline', Math.min(1800, index * 150)));
     };
 
     const handleOffline = () => {
-        state.players.forEach((player) => player.suspend('offline', 'Paused while the browser is offline.'));
+        state.managedPlayers.forEach((player) => player.suspend('offline', 'Paused while the browser is offline.'));
     };
 
     const initialize = () => {
@@ -1303,7 +1290,7 @@
 
         state.healthCheckInterval = window.setInterval(() => {
             const now = Date.now();
-            state.players.forEach((player) => player.checkHealth(now));
+            state.managedPlayers.forEach((player) => player.checkHealth(now));
         }, 5000);
 
         updateMasterVolumeUi();

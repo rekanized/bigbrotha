@@ -338,7 +338,7 @@ class MotionRecordingSegmenterService
             '-segment_format',
             $this->segmentFormat(),
             '-segment_format_options',
-            'flush_packets=1',
+            $this->segmentFormat() === 'matroska' ? 'flush_packets=1:cluster_time_limit=250' : 'flush_packets=1',
             $this->outputPattern($camera),
         ];
 

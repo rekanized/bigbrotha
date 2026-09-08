@@ -138,5 +138,41 @@ window.runLiveWallPlayerTests = async () => {
     assert(document.body.classList.contains('live-wall-focus-mode'), 'Nearby double taps still focus a camera');
     focus.click(); grid.remove();
 
+    const external = makePlayer();
+    external.root.dataset.webrtcPlayerSkipAuto = 'true';
+    let connects = 0;
+    let healthChecks = 0;
+    external.connect = async () => { connects++; };
+    external.checkHealth = () => { healthChecks++; };
+    external.start();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    window.dispatchEvent(new Event('offline'));
+    assert(external.suspendReasons.has('offline'), 'Manually managed modal player participates in offline suspension');
+    window.dispatchEvent(new Event('online'));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert(!external.suspendReasons.has('offline') && connects >= 2, 'Modal player reconnects after returning online');
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    assert(healthChecks > 0, 'Shared health watchdog includes manually started modal players');
+    external.close();
+    assert(!external.root.bigBrothaWhepPlayer, 'Closing the modal removes its registered receiver');
+
+    const loader = makePlayer();
+    const previousReader = window.MediaMTXWebRTCReader;
+    delete window.MediaMTXWebRTCReader;
+    try {
+        const failure = loader.loadReaderScript('/missing-reader-fixture.js').catch(() => 'failed');
+        document.querySelector('[data-mediamtx-reader]').dispatchEvent(new Event('error'));
+        assert(await failure === 'failed' && !document.querySelector('[data-mediamtx-reader]'), 'Failed reader scripts are removed so retries can load again');
+        const retry = loader.loadReaderScript('/retry-reader-fixture.js');
+        window.MediaMTXWebRTCReader = function () {};
+        document.querySelector('[data-mediamtx-reader]').dispatchEvent(new Event('load'));
+        await retry;
+        assert(document.querySelector('[data-mediamtx-reader]').dataset.loaded === 'true', 'Reader loader recovers after a failed script request');
+    } finally {
+        window.MediaMTXWebRTCReader = previousReader;
+        document.querySelector('[data-mediamtx-reader]')?.remove();
+        loader.close();
+    }
+
     return passed;
 };

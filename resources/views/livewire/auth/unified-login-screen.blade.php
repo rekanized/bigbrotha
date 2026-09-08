@@ -5,7 +5,7 @@
 <section class="auth-card page-card auth-card--wide">
     <div class="auth-brand">
         <div class="auth-card__mark" aria-hidden="true">
-            <img class="sidebar-brand__logo" src="{{ rtrim(request()->getBaseUrl(), '/') }}/img/bigbrotha-logo.svg" alt="{{ config('app.name', 'Bigbrotha') }} logo">
+            <img class="sidebar-brand__logo" src="{{ rtrim(request()->getBaseUrl(), '/') }}/img/bigbrotha-logo.svg?v={{ filemtime(public_path('img/bigbrotha-logo.svg')) }}" width="64" height="64" alt="{{ config('app.name', 'Bigbrotha') }} logo">
         </div>
         <div class="auth-brand__copy">
             <h1 class="auth-brand__name">{{ config('app.name', 'Bigbrotha') }}</h1>

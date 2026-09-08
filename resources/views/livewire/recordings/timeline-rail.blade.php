@@ -111,6 +111,9 @@
 @endphp
 
 <aside
+    id="review-timeline"
+    tabindex="-1"
+    aria-label="Recording timeline"
     class="recording-review-focus__rail"
     data-role="timeline-rail"
     data-camera-id="{{ $tile['cameraId'] ?? '' }}"
@@ -124,10 +127,11 @@
 >
     <header class="recording-review-focus__rail-header">
         <div>
-            <span class="recording-review-tile__eyebrow">Timeline rail</span>
-            <strong data-role="visible-range-label">{{ $reviewRangeLabel ?? $focusLabel }}</strong>
+            <h2>Timeline</h2>
         </div>
 
+        <a class="button button--soft recording-review__mobile-link" href="#review-player">↑ Back to video</a>
+        <strong data-role="visible-range-label">{{ $reviewRangeLabel ?? $focusLabel }}</strong>
         <div class="recording-review-focus__rail-toolbar">
             <div class="recording-review-focus__rail-zoom" role="group" aria-label="Timeline zoom">
                 <button
@@ -141,10 +145,10 @@
                     class="recording-review-focus__rail-zoom-button recording-review-focus__rail-zoom-button--reset"
                     type="button"
                     data-role="zoom-reset"
-                    aria-label="Reset timeline zoom"
-                    title="Reset zoom"
+                    aria-label="Overview: reset timeline zoom"
+                    title="Overview: reset zoom"
                 >
-                    <span>Zoom</span>
+                    <span>Overview</span>
                     <strong data-role="zoom-label">{{ number_format($timelineZoomScale, 2) }}x</strong>
                 </button>
                 <button
@@ -156,12 +160,35 @@
                 >+</button>
             </div>
 
-            <p class="recording-review-focus__rail-help">Swipe or scroll to move through time. Tap a clip or time label to select it. Drag the blue focus handle to scrub; use Ctrl/Command + wheel to zoom.</p>
-            <p class="recording-review-focus__rail-status" data-role="rail-status" role="status" aria-live="polite" hidden></p>
+            <button class="button button--soft" type="button" data-role="clip-detail" disabled>Detail view</button>
+            <button class="button button--soft" type="button" data-role="center-focus">Find selected time</button>
+            <details class="recording-review__help">
+                <summary>How to use the timeline</summary>
+                <p>Scroll or swipe to browse. Select a clip or time label. Drag the blue handle to scrub. Use Ctrl/Command + wheel to zoom.</p>
+                <p>With the blue handle focused: arrow keys move 1 second; Shift + arrow moves 1 minute; Page Up/Down moves 15 minutes; Home/End jumps to the range boundary.</p>
+            </details>
+
         </div>
     </header>
 
+    <form class="recording-review__time-jump" method="GET" action="{{ route('recordings.timeline') }}">
+        @foreach ($selectedCameraIds ?? [] as $selectedCameraId)
+            <input type="hidden" name="camera_ids[]" value="{{ $selectedCameraId }}">
+        @endforeach
+        <input type="hidden" name="date_from" value="{{ $dateFrom ?? '' }}">
+        <input type="hidden" name="date_to" value="{{ $dateTo ?? '' }}">
+        <input type="hidden" name="active_camera_id" value="{{ $tile['cameraId'] ?? '' }}" data-role="active-camera-input">
+        <input type="hidden" name="zoom" value="{{ $timelineZoomScale }}" data-role="zoom-input">
+        <label class="field-stack"><span>Go to time ({{ $appSettings->javascriptTimezone() }})</span><input class="form-input" type="datetime-local" name="focus_at" step="1" value="{{ str_replace(' ', 'T', substr($focusLabel, 0, 19)) }}" min="{{ $dateFrom ?? '' }}T00:00:00" max="{{ $dateTo ?? '' }}T23:59:59" required></label>
+        <button class="button button--primary" type="submit">Go</button>
+    </form>
+    <p class="recording-review__scrub-hint">Drag the blue time handle to select a moment.</p>
+    <div class="recording-review__legend" aria-label="Clip colors"><span>● Continuous</span><span>● Movement</span></div>
     <div class="recording-review-focus__rail-shell" data-role="rail-shell">
+        <div class="recording-review__rail-feedback">
+            <p class="recording-review-focus__rail-status" data-role="rail-status" role="status" aria-live="polite" hidden></p>
+            <button class="button button--soft" type="button" data-role="rail-retry" hidden>Retry timeline</button>
+        </div>
         <div class="recording-review-focus__scrub-preview" data-role="scrub-preview" hidden>
             <div class="recording-review-focus__scrub-preview-frame" data-role="scrub-preview-frame" data-active-layer-index="0">
                 <span class="recording-review-focus__scrub-preview-layer is-active" data-role="scrub-preview-layer" aria-hidden="true"></span>
@@ -295,7 +322,7 @@
                     aria-valuenow="{{ $focusAtMs }}"
                     aria-valuetext="{{ $focusLabel }}"
                     style="top: {{ max(0, min(100, (($focusAtMs - $dayStartMs) / max(1, $dayEndMs - $dayStartMs)) * 100)) }}%;"
-                ></div>
+                ><span class="recording-review__focus-time" data-role="rail-focus-time" aria-hidden="true">{{ substr($focusLabel, 11, 8) }}</span></div>
             </div>
         </div>
     </div>

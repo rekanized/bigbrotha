@@ -83,6 +83,12 @@ class CameraFleetMotionEditorAnalysisTest extends TestCase
                 'selected_pixels' => 4,
                 'frame_count' => 12,
                 'changed_indexes' => [0, 1, 4],
+                'latest' => [
+                    'detected' => false,
+                    'activity_ratio' => 0.0,
+                    'effective_trigger_pixels' => 0,
+                    'changed_indexes' => [],
+                ],
             ]);
         });
 
@@ -101,7 +107,10 @@ class CameraFleetMotionEditorAnalysisTest extends TestCase
                 ->assertJsonPath('decision.detected', true)
                 ->assertJsonPath('decision.effective_trigger_pixels', 7)
                 ->assertJsonPath('decision.pixels_needed', 3)
-                ->assertJsonPath('decision.changed_indexes', [0, 1, 4]);
+                ->assertJsonPath('decision.changed_indexes', [0, 1, 4])
+                ->assertJsonPath('activity.detected', false)
+                ->assertJsonPath('activity.changed_indexes', [])
+                ->assertJsonPath('segment.sample_id', basename($segmentPath).':12');
         } finally {
             File::delete($segmentPath);
         }

@@ -135,7 +135,7 @@ class RecordingMotionDetectorService
             'rawvideo',
             'pipe:1',
         ]));
-        $process->setTimeout(max($analysisSeconds, (int) ($expectedDurationSeconds ?? 0)) + 15);
+        $process->setTimeout($requirePreviewLookahead ? 8 : max($analysisSeconds, (int) ($expectedDurationSeconds ?? 0)) + 15);
         $process->run();
 
         if (! $process->isSuccessful()) {
@@ -220,6 +220,8 @@ class RecordingMotionDetectorService
         $peakChangedPixels = 0;
         $peakChangedIndexes = [];
         $detected = false;
+        $latestChangedPixels = 0;
+        $latestChangedIndexes = [];
         $frames = [];
 
         for ($frameIndex = 0; $frameIndex < $frameCount; $frameIndex++) {
@@ -231,6 +233,10 @@ class RecordingMotionDetectorService
             : $frameCount - 1;
 
         for ($frameIndex = 1; $frameIndex <= $lastFrameIndex; $frameIndex++) {
+            // The overlay follows the newest confirmed transition, including
+            // quiet or rejected frames. The recorder still uses the segment peak.
+            $latestChangedPixels = 0;
+            $latestChangedIndexes = [];
             $changedIndexes = $this->filterIsolatedChangedIndexes(
                 $this->changedIndexes(
                     $frames[$frameIndex - 1],
@@ -280,6 +286,9 @@ class RecordingMotionDetectorService
                 continue;
             }
 
+            $latestChangedPixels = $changedPixels;
+            $latestChangedIndexes = $changedIndexes;
+
             if ($changedPixels > $peakChangedPixels) {
                 $peakChangedPixels = $changedPixels;
                 $peakChangedIndexes = $changedIndexes;
@@ -297,6 +306,13 @@ class RecordingMotionDetectorService
             'selected_pixels' => $selectedPixels,
             'frame_count' => $frameCount,
             'changed_indexes' => $peakChangedIndexes,
+            'latest' => [
+                'detected' => $latestChangedPixels >= $triggerPixelThreshold,
+                'activity_ratio' => round(min(1.0, $latestChangedPixels / $selectedPixels), 4),
+                'effective_trigger_pixels' => $latestChangedPixels,
+                'changed_indexes' => $latestChangedIndexes,
+                'offset_seconds' => $lastFrameIndex / $analysisFps,
+            ],
         ];
     }
 

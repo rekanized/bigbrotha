@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="title desc">
+    <title id="title">BigBrotha application icon</title>
+    <desc id="desc">The BigBrotha camera with extra space for circular, rounded, and square home-screen masks.</desc>
+    <defs>
+        <linearGradient id="background" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#2A7FFF"/>
+            <stop offset="1" stop-color="#143955"/>
+        </linearGradient>
+    </defs>
+    <path d="M0 0H64V64H0Z" fill="url(#background)"/>
+    <g transform="translate(6.4 6.4) scale(.8)">
+        <path d="M44 26 54 20V44L44 38Z" fill="#E6F5FF"/>
+        <rect x="12" y="19" width="32" height="24" rx="5" fill="#F8FCFF"/>
+        <circle cx="29" cy="31" r="8" fill="#52C7F2"/>
+        <circle cx="29" cy="31" r="4" fill="#143955"/>
+        <circle cx="27" cy="29" r="1.5" fill="#F8FCFF"/>
+        <circle cx="50" cy="12" r="3" fill="#FF5A5F"/>
+        <path d="M17 51Q32 40 47 51" stroke="#8ED7FF" stroke-width="3" stroke-linecap="round"/>
+    </g>
+</svg>

@@ -167,10 +167,16 @@ class RecordingController extends Controller
         $reviewWindowEnd = $this->millisecondsToUtc($dayEndMs);
         $focusAt = $this->millisecondsToUtc($normalizedFocusMs);
 
+        $direction = $request->query('direction');
+        abort_unless($direction === null || in_array($direction, ['previous', 'next'], true), Response::HTTP_UNPROCESSABLE_ENTITY);
+        $segment = $direction === null
+            ? $this->timelineStageSegmentPayload($camera, $focusAt, $reviewWindowStart, $reviewWindowEnd)
+            : $this->adjacentTimelineSegment($camera, $this->millisecondsToUtc($focusMs), $reviewWindowStart, $reviewWindowEnd, $direction);
+
         return response()->json([
             'cameraId' => (int) $camera->getKey(),
             'focusMs' => $normalizedFocusMs,
-            'segment' => $this->timelineStageSegmentPayload($camera, $focusAt, $reviewWindowStart, $reviewWindowEnd),
+            'segment' => $segment,
         ]);
     }
 
@@ -323,7 +329,10 @@ class RecordingController extends Controller
         );
         $reviewTiles = $this->timelineReview->buildCameraSummaries($selectedCameras, $reviewRecordings, $focusAt, $reviewWindowStart, $reviewWindowEnd);
         $timelineHours = max(24, (int) ceil($this->timelineDurationHours($reviewWindowStart, $reviewWindowEnd)));
-        $activeCameraId = $this->resolveActiveCameraId($reviewTiles);
+        $requestedActiveCameraId = filter_var($request->query('active_camera_id'), FILTER_VALIDATE_INT);
+        $activeCameraId = $requestedActiveCameraId && $reviewTiles->contains('cameraId', $requestedActiveCameraId)
+            ? $requestedActiveCameraId
+            : $this->resolveActiveCameraId($reviewTiles);
         [$initialRailWindowStartMs, $initialRailWindowEndMs] = $this->initialRailWindow(
             $reviewWindowStart->valueOf(),
             $reviewWindowEnd->valueOf(),
@@ -584,6 +593,31 @@ class RecordingController extends Controller
             ->values();
 
         $recording = $this->timelineReview->selectRecordingForFocus($cameraRecordings, $focusAt);
+
+        return $recording instanceof CameraRecording
+            ? $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd)
+            : null;
+    }
+
+    private function adjacentTimelineSegment(
+        Camera $camera,
+        Carbon $focusAt,
+        Carbon $reviewWindowStart,
+        Carbon $reviewWindowEnd,
+        string $direction,
+    ): ?array {
+        $query = CameraRecording::query()
+            ->select($this->timelineRecordingColumns())
+            ->where('camera_id', $camera->getKey())
+            ->where('status', CameraRecording::STATUS_RECORDED)
+            ->whereNotNull('relative_path');
+        $this->applyReviewWindow($query, $reviewWindowStart, $reviewWindowEnd);
+        $order = $direction === 'previous' ? 'desc' : 'asc';
+        $recording = $query
+            ->whereRaw('COALESCE(started_at, scheduled_for) '.($direction === 'previous' ? '<' : '>').' ?', [$focusAt])
+            ->orderByRaw('COALESCE(started_at, scheduled_for) '.$order)
+            ->orderBy('id', $order)
+            ->first();
 
         return $recording instanceof CameraRecording
             ? $this->timelineReview->recordingReviewPayload($recording, $reviewWindowStart, $reviewWindowEnd)

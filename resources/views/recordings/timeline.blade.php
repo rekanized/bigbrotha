@@ -88,6 +88,10 @@
     ])
 @endsection
 
+@push('styles')
+    <link rel="stylesheet" href="{{ asset('css/pages/timeline-review.css').'?v='.filemtime(public_path('css/pages/timeline-review.css')) }}">
+@endpush
+
 @push('scripts')
     <script src="{{ asset('js/recordings-review.js').'?v='.filemtime(public_path('js/recordings-review.js')) }}" defer data-navigate-once></script>
 @endpush

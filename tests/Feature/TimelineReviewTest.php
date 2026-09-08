@@ -13,6 +13,7 @@ use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\RecordingTimelineReviewService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -20,6 +21,77 @@ use Tests\TestCase;
 class TimelineReviewTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_timeline_preserves_a_requested_camera_and_absolute_focus_on_reload(): void
+    {
+        $user = User::factory()->create();
+        $first = Camera::query()->create(['name' => 'First', 'local_ip' => '192.0.2.1']);
+        $second = Camera::query()->create(['name' => 'Second', 'local_ip' => '192.0.2.2']);
+        foreach ([$first, $second] as $camera) {
+            CameraRecording::query()->create([
+                'camera_id' => $camera->id,
+                'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+                'status' => CameraRecording::STATUS_RECORDED,
+                'scheduled_for' => '2026-04-03 12:00:00',
+                'started_at' => '2026-04-03 12:00:00',
+                'ended_at' => '2026-04-03 12:01:00',
+                'relative_path' => 'test.mp4',
+            ]);
+        }
+        $params = [
+            'date_from' => '2026-04-03', 'date_to' => '2026-04-03',
+            'active_camera_id' => $second->id, 'focus_at' => '2026-04-03T12:00:15.000Z',
+        ];
+        $this->actingAs($user)->get(route('recordings.timeline', $params))
+            ->assertOk()
+            ->assertSeeHtml('data-active-camera-id="'.$second->id.'"')
+            ->assertSeeHtml('data-focus-ms="'.Carbon::parse($params['focus_at'])->valueOf().'"');
+        $params['camera_ids'] = [$first->id];
+        $this->get(route('recordings.timeline', $params))->assertOk()
+            ->assertSeeHtml('data-active-camera-id="'.$first->id.'"');
+    }
+
+    public function test_adjacent_clip_navigation_crosses_gaps_but_respects_camera_status_and_range(): void
+    {
+        $user = User::factory()->create();
+        $camera = Camera::query()->create(['name' => 'Gate', 'local_ip' => '192.0.2.3']);
+        $other = Camera::query()->create(['name' => 'Other', 'local_ip' => '192.0.2.4']);
+        $create = fn (string $time, array $extra = []) => CameraRecording::query()->create(array_merge([
+            'camera_id' => $camera->id, 'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED, 'scheduled_for' => $time,
+            'started_at' => $time, 'ended_at' => Carbon::parse($time, 'UTC')->addMinute(),
+            'relative_path' => 'test.mp4',
+        ], $extra));
+        $first = $create('2026-04-03 10:00:00');
+        $last = $create('2026-04-03 18:00:00', ['started_at' => null]);
+        $create('2026-04-03 12:00:00', ['camera_id' => $other->id]);
+        $create('2026-04-03 13:00:00', ['status' => CameraRecording::STATUS_FAILED]);
+        $create('2026-04-03 14:00:00', ['relative_path' => null]);
+        $create('2026-04-04 01:00:00');
+        $params = [
+            'camera' => $camera->id,
+            'day_start_ms' => Carbon::parse('2026-04-03', 'UTC')->valueOf(),
+            'day_end_ms' => Carbon::parse('2026-04-04', 'UTC')->valueOf(),
+            'focus_ms' => $first->started_at->valueOf(), 'direction' => 'next',
+        ];
+        $this->actingAs($user)->getJson(route('recordings.timeline.stage-data', $params))
+            ->assertOk()->assertJsonPath('segment.id', $last->id);
+        $params['focus_ms'] = $last->scheduled_for->valueOf();
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertOk()->assertJsonPath('segment', null);
+        $params['direction'] = 'previous';
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertOk()->assertJsonPath('segment.id', $first->id);
+        $params['focus_ms'] = $first->started_at->valueOf();
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertOk()->assertJsonPath('segment', null);
+        $overlapping = $create('2026-04-02 23:59:40');
+        $params['focus_ms'] = $overlapping->started_at->valueOf();
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertOk()->assertJsonPath('segment', null);
+        $params['direction'] = 'next';
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertOk()->assertJsonPath('segment.id', $first->id);
+        $params['direction'] = 'invalid';
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertUnprocessable();
+        $this->app['auth']->forgetGuards();
+        $this->getJson(route('recordings.timeline.stage-data', $params))->assertUnauthorized();
+    }
 
     public function test_timeline_review_initializes_focus_state_from_payload(): void
     {

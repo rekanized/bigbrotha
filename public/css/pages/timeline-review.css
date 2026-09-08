@@ -1,0 +1,810 @@
+/* Timeline workspace: page-specific layout after the shared theme and mobile rules. */
+body.page-recording-review .recording-review {
+    max-width: 1800px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 20px;
+    gap: 16px;
+}
+
+body.page-recording-review .recording-review__hero {
+    align-items: center;
+}
+
+body.page-recording-review .recording-review__title {
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+}
+
+body.page-recording-review .recording-review__hero-copy p {
+    display: none;
+}
+
+body.page-recording-review .recording-review__workspace {
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+body.page-recording-review .recording-review h2 {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.recording-review__filters {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    min-width: 0;
+}
+
+.recording-review__filters > summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    min-height: 48px;
+    padding: 12px 16px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.recording-review__filters > summary > span:first-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+}
+
+.recording-review__filters > summary::after {
+    content: '+';
+    font-size: 1.2rem;
+}
+
+.recording-review__filters[open] > summary::after {
+    content: '−';
+}
+
+.recording-review__filter-hint {
+    margin-left: auto;
+    color: var(--accent);
+    font-size: .85rem;
+}
+
+.recording-review__filter-form {
+    display: grid;
+    gap: 16px;
+    padding: 0 16px 16px;
+}
+
+.recording-review__filter-dates {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 560px;
+}
+
+.recording-review__camera-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.recording-review__camera-options legend {
+    margin-bottom: 8px;
+    font-weight: 700;
+}
+
+.recording-review__camera-options legend span {
+    font-weight: 400;
+    font-size: .85rem;
+}
+
+.recording-review__camera-options label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.recording-review__camera-options input {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+}
+
+.recording-review__filter-actions, .recording-review__context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.recording-review__filter-actions {
+    justify-content: flex-start;
+}
+
+.recording-review__filter-actions > span {
+    color: var(--muted);
+    font-size: .85rem;
+}
+
+.recording-review__context {
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.recording-review__context strong {
+    display: inline-block;
+    margin-left: 6px;
+}
+
+body.page-recording-review .recording-review-focus {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    align-items: start;
+    gap: 16px;
+}
+
+body.page-recording-review .recording-review-focus > *, .recording-review__time-jump > * {
+    min-width: 0;
+}
+
+body.page-recording-review .recording-review-focus__stage {
+    padding: 14px;
+    gap: 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fff;
+}
+
+body.page-recording-review .recording-review-focus__overlay {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 0;
+    background: none;
+    gap: 8px;
+}
+
+body.page-recording-review .recording-review-focus__identity strong {
+    color: var(--text);
+    font-size: 1.1rem;
+    overflow-wrap: anywhere;
+}
+
+body.page-recording-review .recording-review-focus__identity p {
+    color: var(--muted);
+    font-size: .85rem;
+}
+
+body.page-recording-review .recording-review-focus__overlay .recording-review-tile__eyebrow {
+    display: none;
+}
+
+body.page-recording-review .recording-review-focus__overlay-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+body.page-recording-review .recording-review-focus__overlay .status-pill {
+    background: #f1f5f9;
+    color: #475569;
+    border: 0;
+    font-size: .75rem;
+}
+
+body.page-recording-review .recording-review-focus__overlay [data-role='asset-status'], body.page-recording-review .recording-review-focus__overlay [data-role='size-label'] {
+    display: none;
+}
+
+body.page-recording-review .recording-review-focus__viewer {
+    width: 100%;
+    height: clamp(200px, 40dvh, 500px);
+    max-height: none;
+    border-radius: 8px;
+}
+
+body.page-recording-review .recording-review-focus__empty {
+    padding: 16px;
+    align-content: center;
+    font-size: .9rem;
+}
+
+.recording-review__transport {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+    gap: 8px;
+}
+
+body.page-recording-review .recording-review-focus__actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+body.page-recording-review .recording-review-focus__audio-toolbar {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    width: auto;
+    gap: 8px;
+}
+
+body.page-recording-review .recording-review-focus__volume {
+    display: flex;
+    flex: 1 1 130px;
+    width: auto;
+    min-width: 0;
+    max-width: 240px;
+    padding: 0 8px;
+    gap: 8px;
+    min-height: 44px;
+    border-radius: 8px;
+}
+
+body.page-recording-review .recording-review-focus__volume-slider {
+    width: 100%;
+    min-width: 40px;
+    min-height: 44px;
+}
+
+body.page-recording-review .recording-review-focus__volume-label {
+    display: none;
+}
+
+body.page-recording-review .recording-review-focus__volume-value {
+    min-width: 42px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    text-align: right;
+}
+
+body.page-recording-review .recording-review-focus__playback-toggle, body.page-recording-review .recording-review-focus__audio-toggle {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+body.page-recording-review .recording-review .button, body.page-recording-review .recording-review-focus__rail-zoom-button {
+    min-height: 44px;
+}
+
+body.page-recording-review .recording-review :is(button, a, summary, input):focus-visible {
+    outline: 3px solid #2563eb;
+    outline-offset: 3px;
+}
+
+.recording-review__playback-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: #334155;
+    background: #eff6ff;
+}
+
+.recording-review__playback-notice p {
+    flex: 1;
+    margin: 0;
+}
+
+.recording-review__playback-notice[data-state='error'] {
+    background: #fff1f2;
+    color: #9f1239;
+}
+
+body.page-recording-review .recording-review [hidden] {
+    display: none !important;
+}
+
+body.page-recording-review .recording-review-switcher {
+    padding: 14px;
+    gap: 10px;
+}
+
+.recording-review__count {
+    margin-left: 4px;
+    font-size: .8rem;
+    color: var(--muted);
+}
+
+body.page-recording-review .recording-review-switcher__header p {
+    margin: 2px 0 0;
+}
+
+body.page-recording-review .recording-review-switcher__list {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px;
+    padding: 3px 3px 8px;
+    scroll-snap-type: x proximity;
+}
+
+body.page-recording-review .recording-review-switcher__camera {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+    flex: 0 0 220px;
+    grid-template-columns: 56px minmax(0, 1fr);
+    border-radius: 10px;
+    padding: 8px;
+    gap: 10px;
+    scroll-snap-align: start;
+}
+
+body.page-recording-review .recording-review-switcher__camera-thumb {
+    width: 56px;
+    height: 48px;
+}
+
+body.page-recording-review .recording-review-switcher__camera-copy small {
+    display: none;
+}
+
+body.page-recording-review .recording-review-focus__rail {
+    padding: 14px;
+}
+
+body.page-recording-review .recording-review-focus__rail-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+}
+
+body.page-recording-review .recording-review-focus__rail-header strong {
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom {
+    width: auto;
+    flex: 0 1 auto;
+    gap: 4px;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom-button {
+    padding: 6px 10px;
+    border-radius: 8px;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom-button--reset {
+    min-width: 64px;
+    justify-content: center;
+    letter-spacing: 0;
+    gap: 4px;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom-button--reset > span {
+    display: none;
+}
+
+body.page-recording-review [data-role='visible-range-label'] {
+    grid-column: 1 / -1;
+    display: block;
+    font-size: .8rem;
+    color: var(--muted);
+    font-weight: 400;
+    margin-top: 3px;
+}
+
+body.page-recording-review .recording-review-focus__rail-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom {
+    flex: 0 0 auto;
+}
+
+.recording-review__help {
+    width: 100%;
+    font-size: .85rem;
+}
+
+.recording-review__help summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.recording-review__help summary::before {
+    content: '?';
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+}
+
+.recording-review__help p {
+    margin-bottom: 8px;
+}
+
+.recording-review__time-jump {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+}
+
+.recording-review__time-jump .field-stack > span {
+    font-size: .75rem;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.recording-review__time-jump input {
+    min-width: 0;
+    width: 100%;
+    padding-inline: 8px;
+    font-size: .85rem;
+}
+
+.recording-review__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: .75rem;
+    color: #2563eb;
+}
+
+.recording-review__legend span:last-child {
+    color: #a65b06;
+}
+
+body.page-recording-review .recording-review-focus__rail-viewport {
+    height: clamp(320px, 54vh, 680px);
+    min-height: 0;
+    max-height: none;
+    overscroll-behavior-y: auto;
+}
+
+body.page-recording-review .recording-review-focus__rail-cursor {
+    height: 44px;
+    background: transparent;
+    transform: translateY(-50%);
+    touch-action: none;
+}
+
+body.page-recording-review .recording-review-focus__rail-cursor::before {
+    position: absolute;
+    top: 21px;
+    left: 0;
+    right: 0;
+    width: auto;
+    height: 2px;
+    transform: none;
+    background: #2563eb;
+    content: '';
+}
+
+body.page-recording-review .recording-review-focus__rail-cursor::after {
+    top: 9px;
+    left: -4px;
+    width: 26px;
+    height: 26px;
+    transform: none;
+    background: #fff;
+}
+
+body.page-recording-review .recording-review__mobile-link {
+    display: none;
+}
+
+#review-player, #review-timeline {
+    /* The shared document scroll padding already accounts for the header. */
+    scroll-margin-top: 0;
+}
+
+@media (max-width: 1000px) {
+    body.page-recording-review .recording-review {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    body.page-recording-review .recording-review-focus {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body.page-recording-review .recording-review__mobile-link {
+        display: inline-flex;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-toolbar {
+        grid-column: 1 / -1;
+    }
+
+    body.page-recording-review .recording-review-focus__rail-viewport {
+        height: min(60dvh, 600px);
+    }
+
+    body.page-recording-review .recording-review-focus__viewer {
+        width: min(100%, calc(60dvh * 16 / 9));
+        height: auto;
+    }
+
+}
+
+@media (max-width: 600px) {
+    body.page-recording-review .recording-review__hero {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    body.page-recording-review .recording-review__hero-copy p {
+        display: none;
+    }
+
+    body.page-recording-review .recording-review__hero > .button {
+        font-size: .8rem;
+        width: auto;
+    }
+
+    .recording-review__filter-hint {
+        display: none;
+    }
+
+    .recording-review__filters > summary {
+        padding: 10px 12px;
+        flex-wrap: nowrap;
+        font-size: .85rem;
+    }
+
+    .recording-review__filter-form {
+        padding: 0 12px 12px;
+    }
+
+    body.page-recording-review .recording-review-focus__stage, body.page-recording-review .recording-review-focus__rail, body.page-recording-review .recording-review-switcher {
+        padding: 10px;
+    }
+
+    body.page-recording-review .recording-review__hero > .button {
+        display: none;
+    }
+
+    body.page-recording-review .recording-review__context {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        font-size: .75rem;
+        align-items: center;
+    }
+
+    body.page-recording-review .recording-review__context > .button {
+        padding: 6px 8px;
+        font-size: .75rem;
+    }
+
+    .recording-review__context strong {
+        display: block;
+        margin-left: 0;
+    }
+
+    .recording-review__transport {
+        grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+        gap: 6px;
+    }
+
+    body.page-recording-review .recording-review__transport .button {
+        padding: 6px;
+        font-size: .75rem;
+    }
+
+    body.page-recording-review .recording-review-focus__overlay-badges {
+        display: none;
+    }
+
+    body.page-recording-review .recording-review-focus__actions > .button {
+        flex: 1 1 auto;
+        width: auto;
+    }
+
+    body.page-recording-review .recording-review-focus__audio-toolbar {
+        width: 100%;
+    }
+
+    body.page-recording-review .recording-review .form-input {
+        font-size: 16px;
+    }
+
+    .recording-review__time-jump {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body.page-recording-review .recording-review-focus__empty {
+        font-size: .8rem;
+        gap: 4px;
+        padding: 8px;
+    }
+
+    body.page-recording-review .recording-review-focus__empty p {
+        font-size: .75rem;
+    }
+
+}
+
+/* A persistent, native clip scrubber remains usable in fullscreen and on touch. */
+.recording-review__playline {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 2;
+    padding: 14px 14px 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .88));
+    color: #fff;
+}
+
+.recording-review__playline-labels {
+    position: absolute;
+    bottom: 34px;
+    left: 14px;
+    right: 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 3px #000;
+}
+
+body.page-recording-review .recording-review__playline-slider {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    min-height: 44px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    touch-action: none;
+    --clip-progress: 0%;
+}
+
+.recording-review__playline-slider::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 6px;
+    background: linear-gradient(to right, #60a5fa var(--clip-progress), rgba(255,255,255,.5) var(--clip-progress));
+}
+
+.recording-review__playline-slider::-moz-range-track {
+    height: 6px;
+    border-radius: 6px;
+    background: linear-gradient(to right, #60a5fa var(--clip-progress), rgba(255,255,255,.5) var(--clip-progress));
+}
+
+.recording-review__playline-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    margin-top: -7px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #2563eb;
+    box-shadow: 0 1px 5px #000;
+}
+
+.recording-review__playline-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #2563eb;
+    box-shadow: 0 1px 5px #000;
+}
+
+body.page-recording-review .recording-review__playline-slider:focus-visible {
+    outline-color: #fff;
+    outline-offset: 0;
+}
+
+.recording-review__playline-slider:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.recording-review__scrub-hint {
+    margin: 0 0 6px;
+    font-size: .8rem;
+    color: var(--muted);
+}
+
+.recording-review__focus-time {
+    position: absolute;
+    top: 8px;
+    right: 0;
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #fff;
+    font-size: .75rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+body.page-recording-review .recording-review-focus__rail-cursor::after {
+    content: '↕';
+    display: grid;
+    place-items: center;
+    color: #2563eb;
+    font-size: 18px;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom-button--reset > span {
+    display: inline;
+    font-size: .75rem;
+}
+
+body.page-recording-review .recording-review-focus__rail-zoom-button--reset [data-role='zoom-label'] {
+    display: none;
+}
+
+
+/* The rail already virtualizes offscreen entries. Keep retained previews painted. */
+body.page-recording-review .recording-review-focus__rail-thumbnail {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+}
+
+body.page-recording-review .recording-review-focus__rail-viewport {
+    overflow-anchor: none;
+}
+
+.recording-review__rail-feedback {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 24px;
+    z-index: 8;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.recording-review__rail-feedback > :not([hidden]) {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 2px 8px #14233b14;
+    pointer-events: auto;
+}
+
+body.page-recording-review [data-role='visible-range-label'] {
+    white-space: pre-line;
+    line-height: 1.4;
+    min-height: 2.8em;
+    font-variant-numeric: tabular-nums;
+}

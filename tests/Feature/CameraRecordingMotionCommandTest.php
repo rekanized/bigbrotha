@@ -91,7 +91,7 @@ class CameraRecordingMotionCommandTest extends TestCase
         $arguments = (string) File::get($argumentLog);
 
         $this->assertStringContainsString("-flush_packets\n1\n", $arguments);
-        $this->assertStringContainsString("-segment_format_options\nflush_packets=1\n", $arguments);
+        $this->assertStringContainsString("-segment_format_options\nflush_packets=1:cluster_time_limit=250\n", $arguments);
     }
 
     public function test_it_ignores_single_frame_refresh_spikes_in_hevc_motion_segments(): void
@@ -349,6 +349,36 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertTrue($motion['detected']);
         $this->assertSame(8, $motion['changed_pixels']);
         $this->assertEqualsCanonicalizing([0, 1, 4, 5], $motion['changed_indexes']);
+    }
+
+    public function test_preview_activity_returns_to_quiet_while_the_segment_still_qualifies_for_recording(): void
+    {
+        config()->set('recording.motion.grid_width', 4);
+        config()->set('recording.motion.grid_height', 4);
+        $binary = storage_path('app/private/test-binaries/motion-editor-latest.sh');
+        File::ensureDirectoryExists(dirname($binary));
+        $quiet = str_repeat(chr(0), 16);
+        $moving = chr(255).chr(255).chr(0).chr(0).chr(255).chr(255).str_repeat(chr(0), 10);
+        $frames = $quiet.$moving.$quiet.$quiet.$quiet.$quiet;
+        File::put($binary, "#!/bin/sh\nprintf '%s' '".base64_encode($frames)."' | base64 -d\n");
+        chmod($binary, 0755);
+        config()->set('ffmpeg.ffmpeg.binaries', [$binary]);
+        $camera = new Camera([
+            'recording_motion_trigger_pixels' => 3,
+            'recording_motion_mask' => ['version' => 1, 'grid_width' => 4, 'grid_height' => 4, 'runs' => [[0, 15]]],
+        ]);
+
+        try {
+            $motion = app(RecordingMotionDetectorService::class)->detectPreviewClip($camera, '/unused-fixture.mkv');
+        } finally {
+            File::delete($binary);
+        }
+
+        $this->assertTrue($motion['detected']);
+        $this->assertGreaterThan(0, $motion['changed_pixels']);
+        $this->assertFalse($motion['latest']['detected']);
+        $this->assertSame(0, $motion['latest']['effective_trigger_pixels']);
+        $this->assertSame([], $motion['latest']['changed_indexes']);
     }
 
     public function test_live_preview_treats_an_incomplete_active_snapshot_as_waiting(): void

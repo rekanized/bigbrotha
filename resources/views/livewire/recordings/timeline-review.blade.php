@@ -1,4 +1,13 @@
 <div class="recording-review">
+    <header class="recording-review__hero">
+        <div class="recording-review__hero-copy">
+            <h1 class="recording-review__title">Timeline Review</h1>
+            <p>Find a moment. Compare cameras. Review the recording.</p>
+        </div>
+        <a class="button button--soft" href="{{ route('recordings.index') }}" wire:navigate>Back to recordings</a>
+    </header>
+
+    @include('livewire.recordings.timeline-filters')
     @if ($timelineCameraOptions === [])
         <section class="screen-card screen-card--spacious">
             <div class="empty-state">
@@ -12,30 +21,6 @@
         <section class="screen-card screen-card--spacious">
             <div class="empty-state">
                 <strong>No saved clips are ready for timeline review.</strong>
-                <div class="recording-review__date-range-card recording-review__date-range-card--empty">
-                    <form class="recording-review__date-range recording-review__date-range--compact" method="GET" action="{{ route('recordings.timeline') }}">
-                        @foreach ($selectedCameraIds as $selectedCameraId)
-                            <input type="hidden" name="camera_ids[]" value="{{ $selectedCameraId }}">
-                        @endforeach
-
-                        <span class="recording-review__date-range-title">Date range</span>
-
-                        <label class="field-stack field-stack--compact">
-                            <span>From</span>
-                            <input class="form-input" type="date" name="date_from" value="{{ $dateFrom }}">
-                        </label>
-
-                        <label class="field-stack field-stack--compact">
-                            <span>To</span>
-                            <input class="form-input" type="date" name="date_to" value="{{ $dateTo }}">
-                        </label>
-
-                        <div class="probe-actions recording-review__date-range-actions">
-                            <button class="button button--primary" type="submit">Apply</button>
-                            <a class="button button--soft" href="{{ route('recordings.timeline', $selectedCameraIds !== [] ? ['camera_ids' => $selectedCameraIds] : []) }}" wire:navigate>Default</a>
-                        </div>
-                    </form>
-                </div>
                 <p>No completed clips were found inside the selected date range. Adjust the range above, return to the recordings browser, or wait for current processing to finish.</p>
                 <a class="button button--primary" href="{{ route('recordings.index') }}" wire:navigate>Back to recordings</a>
             </div>
@@ -61,72 +46,13 @@
             data-secondary-tick-min-label-spacing-px="20"
             style="--recording-review-hours: {{ $timelineHours }}; --recording-review-rail-hour-height: {{ $timelineBaseHourHeightPx }}px; --recording-review-rail-min-height: {{ $timelineMinTrackHeightPx }}px;"
         >
-            <header class="recording-review__hero">
-                <div class="recording-review__hero-copy">
-                    <h1 class="recording-review__title">Timeline Review</h1>
-                </div>
-
-                <div class="recording-review__hero-actions">
-                    <span class="status-pill">Focus <span data-role="focus-label">{{ $focusLabel }}</span></span>
-                    <span class="status-pill">Range {{ $reviewRangeLabel }}</span>
-                    <a class="button button--soft" href="{{ route('recordings.index') }}" wire:navigate>Back to recordings</a>
-                </div>
-            </header>
-
-            <div class="recording-review__summary-grid">
-                <article class="recording-review__summary-card">
-                    <span>Total clips</span>
-                    <strong>{{ number_format($summary['total'] ?? 0) }}</strong>
-                    <p>Saved segments across the visible review range.</p>
-                </article>
-
-                <article class="recording-review__summary-card">
-                    <span>Recorded cameras</span>
-                    <strong>{{ number_format($summary['cameras'] ?? 0) }}</strong>
-                    <p>Recorded feeds available in the camera strip.</p>
-                </article>
-
-                <article class="recording-review__summary-card">
-                    <span>Movement clips</span>
-                    <strong>{{ number_format($summary['motion'] ?? 0) }}</strong>
-                    <p>Motion-triggered events inside the loaded time span.</p>
-                </article>
-
-                <article class="recording-review__summary-card">
-                    <span>Failures</span>
-                    <strong>{{ number_format($summary['failed'] ?? 0) }}</strong>
-                    <p>Recorder jobs that failed during the same range.</p>
-                </article>
+            <div class="recording-review__context">
+                <span>Selected time <strong data-role="focus-label">{{ $focusLabel }}</strong></span>
+                <a class="button button--soft recording-review__mobile-link" href="#review-timeline">Timeline ↓</a>
             </div>
-
             <section class="recording-review-focus" aria-label="Timeline review workspace">
                 <div class="recording-review-focus__main">
-                    <section class="recording-review__date-range-card" aria-label="Timeline date range">
-                        <form class="recording-review__date-range recording-review__date-range--compact" method="GET" action="{{ route('recordings.timeline') }}">
-                            @foreach ($selectedCameraIds as $selectedCameraId)
-                                <input type="hidden" name="camera_ids[]" value="{{ $selectedCameraId }}">
-                            @endforeach
-
-                            <span class="recording-review__date-range-title">Date range</span>
-
-                            <label class="field-stack field-stack--compact">
-                                <span>From</span>
-                                <input class="form-input" type="date" name="date_from" value="{{ $dateFrom }}">
-                            </label>
-
-                            <label class="field-stack field-stack--compact">
-                                <span>To</span>
-                                <input class="form-input" type="date" name="date_to" value="{{ $dateTo }}">
-                            </label>
-
-                            <div class="probe-actions recording-review__date-range-actions">
-                                <button class="button button--primary" type="submit">Apply</button>
-                                <a class="button button--soft" href="{{ route('recordings.timeline', $selectedCameraIds !== [] ? ['camera_ids' => $selectedCameraIds] : []) }}" wire:navigate>Default</a>
-                            </div>
-                        </form>
-                    </section>
-
-                    <div wire:ignore>
+                    <div id="review-player" class="recording-review__player-anchor" tabindex="-1" wire:ignore>
                         @include('livewire.recordings.timeline-stage', [
                             'tile' => $currentTile ?? [],
                             'segment' => $currentSegment,
@@ -139,9 +65,8 @@
                     <section class="recording-review-switcher" aria-label="Loaded cameras">
                         <div class="recording-review-switcher__header">
                             <div>
-                                <span class="recording-review-tile__eyebrow">Camera strip</span>
-                                <strong>Switch which loaded camera is shown on the stage.</strong>
-                                <p>The current timeline focus stays fixed while you change feeds here, so comparing the same moment across loaded cameras stays fast.</p>
+                                <h2>Cameras <span class="recording-review__count">{{ count($reviewTiles) }}</span></h2>
+                                <p>Switch cameras to compare the same moment.</p>
                             </div>
                         </div>
 
@@ -169,8 +94,8 @@
                                                 alt="{{ $cameraPreviewAlt }}"
                                                 loading="lazy"
                                                 decoding="async"
-                                                onload="this.parentElement.dataset.hasPreview='true'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'true'); }"
-                                                onerror="this.parentElement.dataset.hasPreview='false'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'false'); } this.remove();"
+                                                onload="if (!this.parentElement) return; this.parentElement.dataset.hasPreview='true'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'true'); }"
+                                                onerror="if (!this.parentElement) return; this.parentElement.dataset.hasPreview='false'; if (this.nextElementSibling) { this.nextElementSibling.setAttribute('aria-hidden', 'false'); } this.remove();"
                                             >
                                         @endif
 
@@ -180,7 +105,7 @@
                                     <span class="recording-review-switcher__camera-copy">
                                         <strong>{{ $reviewTile['cameraName'] }}</strong>
                                         <small>{{ $reviewTile['cameraIp'] ?: 'IP unavailable' }}</small>
-                                        <span>{{ $reviewTile['segmentCount'] }} clip{{ (int) ($reviewTile['segmentCount'] ?? 0) === 1 ? '' : 's' }}{{ !empty($reviewTile['previewTimeLabel']) ? ' · '.$reviewTile['previewTimeLabel'] : '' }}</span>
+                                        <span>{{ $reviewTile['segmentCount'] }} clip{{ (int) ($reviewTile['segmentCount'] ?? 0) === 1 ? '' : 's' }} in range</span>
                                     </span>
                                 </button>
                             @endforeach

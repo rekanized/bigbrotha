@@ -109,6 +109,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
         }
 
         $snapshotPath = null;
+        $sampleId = null;
 
         try {
             $snapshotDirectory = storage_path('app/private/ffmpeg-temp/motion-editor');
@@ -127,6 +128,8 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             }
 
             $motion = $detector->detectPreviewClip($analysisCamera, $snapshotPath);
+            // Audio packets and request time do not prove that video advanced.
+            $sampleId = basename($segment['path']).':'.(int) $motion['frame_count'];
 
             if ((int) $motion['frame_count'] < 3) {
                 return $this->waitingResponse(
@@ -162,6 +165,13 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 'ended_at' => $segment['ended_at']->toIso8601String(),
                 'sampled_at' => now()->utc()->toIso8601String(),
                 'live' => true,
+                'sample_id' => $sampleId,
+            ],
+            'activity' => $motion['latest'] ?? [
+                'detected' => (bool) $motion['detected'],
+                'activity_ratio' => (float) $motion['activity_ratio'],
+                'effective_trigger_pixels' => (int) $motion['changed_pixels'],
+                'changed_indexes' => array_values(array_map('intval', $motion['changed_indexes'] ?? [])),
             ],
             'decision' => [
                 'detected' => (bool) $motion['detected'],
