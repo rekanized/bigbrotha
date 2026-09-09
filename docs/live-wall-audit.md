@@ -16,6 +16,14 @@ Scope: the configured live wall, standalone camera player, stream lifecycle, cam
 
 Monitor sizing and interaction styles live in `public/css/pages/live-wall.css`, after the shared theme and responsive rules. The application remains Composer-only with standard CSS, Blade, and plain JavaScript.
 
+## Mobile controls follow-up — 9 September 2026
+
+At widths up to 960px, camera identity, stream status, focus, and audio controls occupy a compact row below the picture instead of covering the video. Icons are 18px with 44×44 touch targets. Landscape, portrait, and square pictures retain their configured proportions; focused mode reserves space for the control row within the viewport. Desktop controls retain their existing overlay layout. Connection and error messages stay within the picture area.
+
+Chromium touch/viewport checks cover 320×568, 390×844, 768×1024, and 844×390, plus desktop at 1440×900. Checks verify no overlap between mobile video and controls, no horizontal overflow, control hit targets, focus/return behavior, and portrait/square proportions. Physical-device testing remains outside this validation.
+
+The existing live-wall feature suite passed all 19 tests (112 assertions). The change was built into `rekanized/bigbrotha-app:20260909-mobile-wall` and deployed to the `bigbrotha` test stack; all four services are healthy. The deployed page passed the same browser layout checks, and served asset hashes match the source. Production container image IDs and start times remained unchanged. The build excludes unrelated uncommitted camera-editor work.
+
 ## Validation and limits
 
 The test environment has one accessible Tapo C200 camera. Multi-receiver checks clone its tile in the browser, exercising simultaneous WebRTC delivery through the existing shared camera source without creating additional hardware camera connections. A temporary non-default wall exercises actual server-rendered portrait layout, long names, and Livewire wall switching; it is removed after validation.

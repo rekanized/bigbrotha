@@ -125,12 +125,18 @@ class RecordingMotionDetectorService
             '-hide_banner',
             '-loglevel',
             'error',
+            '-threads',
+            '1',
+            '-filter_threads',
+            '1',
         ], $inputArguments, [
             '-an',
             '-sn',
             '-dn',
             '-vf',
-            sprintf('fps=%d,scale=%d:%d,format=gray,showinfo', $analysisFps, $gridWidth, $gridHeight),
+            sprintf('fps=%d,scale=%d:%d,format=gray', $analysisFps, $gridWidth, $gridHeight),
+            '-threads',
+            '1',
             '-f',
             'rawvideo',
             'pipe:1',
@@ -158,23 +164,9 @@ class RecordingMotionDetectorService
         }
 
         $output = $process->getOutput();
-        $errorOutput = $process->getErrorOutput();
         $frameCount = $frameSize > 0 ? intdiv(strlen($output), $frameSize) : 0;
 
         if ($frameCount < 2) {
-            $legacyHits = preg_match_all('/showinfo/', $errorOutput) ?: 0;
-
-            if ($legacyHits > 0) {
-                return [
-                    'detected' => true,
-                    'activity_ratio' => 1.0,
-                    'changed_pixels' => $selectedPixels,
-                    'selected_pixels' => $selectedPixels,
-                    'frame_count' => max(2, $legacyHits + 1),
-                    'changed_indexes' => $selectedIndexes,
-                ];
-            }
-
             return [
                 'detected' => false,
                 'activity_ratio' => 0.0,
@@ -222,6 +214,7 @@ class RecordingMotionDetectorService
         $detected = false;
         $latestChangedPixels = 0;
         $latestChangedIndexes = [];
+        $latestReason = 'quiet';
         $frames = [];
 
         for ($frameIndex = 0; $frameIndex < $frameCount; $frameIndex++) {
@@ -237,26 +230,20 @@ class RecordingMotionDetectorService
             // quiet or rejected frames. The recorder still uses the segment peak.
             $latestChangedPixels = 0;
             $latestChangedIndexes = [];
+            $latestReason = 'quiet';
+            $rawChangedIndexes = $this->changedIndexes(
+                $frames[$frameIndex - 1], $frames[$frameIndex], $selectedIndexes, $pixelDeltaThreshold,
+            );
             $changedIndexes = $this->filterIsolatedChangedIndexes(
-                $this->changedIndexes(
-                    $frames[$frameIndex - 1],
-                    $frames[$frameIndex],
-                    $selectedIndexes,
-                    $pixelDeltaThreshold,
-                ),
+                $rawChangedIndexes,
                 $gridWidth,
                 $gridHeight,
                 $isolatedPixelRadius,
                 $minimumClusterPixels,
             );
-            $changedPixels = $this->weightedTriggerPixels(
-                $changedIndexes,
-                $gridWidth,
-                $gridHeight,
-                $clusterBonusMinSize,
-                $clusterBonusMultiplier,
-            );
-            if ($changedPixels < 1) {
+            if ($changedIndexes === []) {
+                $latestReason = $rawChangedIndexes === [] ? 'quiet' : 'noise';
+
                 continue;
             }
 
@@ -271,6 +258,8 @@ class RecordingMotionDetectorService
                 $artifactLuminanceCoverageRatio,
                 $artifactLuminancePixelDelta,
             )) {
+                $latestReason = 'frame_artifact';
+
                 continue;
             }
 
@@ -283,9 +272,20 @@ class RecordingMotionDetectorService
                 $refreshSpikeActivityRatio,
                 $refreshSpikeWindowFrames,
             )) {
+                $latestReason = 'refresh_spike';
+
                 continue;
             }
 
+            $changedPixels = $this->weightedTriggerPixels(
+                $changedIndexes,
+                $gridWidth,
+                $gridHeight,
+                $clusterBonusMinSize,
+                $clusterBonusMultiplier,
+            );
+
+            $latestReason = 'movement';
             $latestChangedPixels = $changedPixels;
             $latestChangedIndexes = $changedIndexes;
 
@@ -307,6 +307,7 @@ class RecordingMotionDetectorService
             'frame_count' => $frameCount,
             'changed_indexes' => $peakChangedIndexes,
             'latest' => [
+                'reason' => $latestReason,
                 'detected' => $latestChangedPixels >= $triggerPixelThreshold,
                 'activity_ratio' => round(min(1.0, $latestChangedPixels / $selectedPixels), 4),
                 'effective_trigger_pixels' => $latestChangedPixels,

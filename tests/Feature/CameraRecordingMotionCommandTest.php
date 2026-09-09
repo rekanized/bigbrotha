@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Symfony\Component\Process\Process;
 use Tests\Feature\Concerns\BuildsFakeRecordingFfmpegBinary;
 use Tests\TestCase;
 
@@ -30,6 +31,60 @@ class CameraRecordingMotionCommandTest extends TestCase
         parent::setUp();
 
         Queue::fake();
+    }
+
+    public function test_decoder_log_messages_without_video_never_trigger_motion(): void
+    {
+        $binary = storage_path('app/private/test-binaries/motion-log-only.sh');
+        File::ensureDirectoryExists(dirname($binary));
+        File::put($binary, "#!/bin/sh\nprintf 'showinfo: diagnostic only\\n' >&2\n");
+        chmod($binary, 0755);
+        config()->set('ffmpeg.ffmpeg.binaries', [$binary]);
+        $camera = new Camera(['recording_motion_trigger_pixels' => 1]);
+
+        $motion = app(RecordingMotionDetectorService::class)->detectClip($camera, '/unused.mkv');
+
+        $this->assertFalse($motion['detected']);
+        $this->assertSame(0, $motion['frame_count']);
+        $this->assertSame([], $motion['changed_indexes']);
+    }
+
+    public function test_real_ffmpeg_keeps_local_movement_and_returns_to_quiet(): void
+    {
+        $quiet = str_repeat(chr(40), 32 * 18);
+        $moving = $quiet;
+        for ($y = 3; $y < 11; $y++) {
+            for ($x = 3; $x < 11; $x++) {
+                $moving[$y * 32 + $x] = chr(220);
+            }
+        }
+        $raw = storage_path('app/private/real-motion.gray');
+        $clip = storage_path('app/private/real-motion.mkv');
+        File::put($raw, $quiet.$moving.$quiet.$quiet.$quiet.$quiet);
+        $encode = new Process([
+            '/usr/bin/ffmpeg', '-nostdin', '-v', 'error', '-f', 'rawvideo', '-pixel_format', 'gray',
+            '-video_size', '32x18', '-framerate', '3', '-i', $raw, '-c:v', 'ffv1', '-threads', '1', $clip,
+        ]);
+        $encode->mustRun();
+        config()->set('ffmpeg.ffmpeg.binaries', ['/usr/bin/ffmpeg']);
+        config()->set('recording.motion.analysis_fps', 3);
+        $camera = new Camera([
+            'recording_motion_trigger_pixels' => 10,
+            'recording_motion_mask' => ['grid_width' => 32, 'grid_height' => 18, 'runs' => [[0, 575]]],
+        ]);
+        $detector = app(RecordingMotionDetectorService::class);
+        $preview = $detector->detectPreviewClip($camera, $clip);
+        $recording = $detector->detectClip($camera, $clip);
+
+        $this->assertTrue($preview['detected']);
+        $this->assertTrue($recording['detected']);
+        $this->assertSame(64, count($preview['changed_indexes']));
+        $this->assertSame(188, $preview['changed_pixels']);
+        $this->assertSame($recording['changed_pixels'], $preview['changed_pixels']);
+        $this->assertSame(6, $preview['frame_count']);
+        $this->assertFalse($preview['latest']['detected']);
+        $this->assertSame('quiet', $preview['latest']['reason']);
+        $this->assertSame([], $preview['latest']['changed_indexes']);
     }
 
     public function test_it_skips_motion_recording_when_the_detection_window_is_quiet(): void

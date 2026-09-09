@@ -4,13 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Camera;
 use App\Models\CameraMotionState;
+use App\Services\MotionEditorSampleService;
 use App\Services\MotionRecordingSegmenterService;
-use App\Services\RecordingMotionDetectorService;
 use App\Services\RecordingMotionMaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -20,7 +19,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
         Request $request,
         Camera $camera,
         MotionRecordingSegmenterService $segmenter,
-        RecordingMotionDetectorService $detector,
+        MotionEditorSampleService $samples,
         RecordingMotionMaskService $maskService,
     ): JsonResponse {
         abort_unless($camera->supports_rtsp, Response::HTTP_NOT_FOUND);
@@ -61,6 +60,10 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             && $triggerPixels === $camera->motionTriggerPixels($selectedPixels);
         $state = CameraMotionState::query()->where('camera_id', $camera->getKey())->first();
 
+        if ($selectedPixels < 1) {
+            return $this->waitingResponse('Paint an area to monitor movement.', 0, $triggerPixels, $settingsSaved, $state?->active_recording_id !== null);
+        }
+
         if ($camera->recording_mode !== Camera::RECORDING_MODE_MOTION) {
             return $this->waitingResponse(
                 'Save this camera in motion mode before testing the recorder decision.',
@@ -92,7 +95,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 $selectedPixels,
                 $triggerPixels,
                 $settingsSaved,
-                false,
+                $state?->active_recording_id !== null,
             );
         }
 
@@ -104,22 +107,29 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 $selectedPixels,
                 $triggerPixels,
                 $settingsSaved,
-                false,
+                $state?->active_recording_id !== null,
             );
         }
 
-        $snapshotPath = null;
-        $sampleId = null;
+        clearstatcache(true, $segment['path']);
+        $modifiedAt = @filemtime($segment['path']);
+
+        if (is_int($modifiedAt) && now()->getTimestamp() - $modifiedAt > 3) {
+            return $this->waitingResponse(
+                'Waiting for fresh recorder frames. The buffer is not receiving data.',
+                $selectedPixels,
+                $triggerPixels,
+                $settingsSaved,
+                $state?->active_recording_id !== null,
+            );
+        }
 
         try {
-            $snapshotDirectory = storage_path('app/private/ffmpeg-temp/motion-editor');
-            File::ensureDirectoryExists($snapshotDirectory);
-            $extension = trim((string) pathinfo($segment['path'], PATHINFO_EXTENSION)) ?: 'mkv';
-            $snapshotPath = $snapshotDirectory.'/camera-'.(int) $camera->getKey().'-'.Str::uuid().'.'.$extension;
+            $sample = $samples->sample($analysisCamera, $segment['path']);
 
-            if (! @copy($segment['path'], $snapshotPath) || ! is_file($snapshotPath) || filesize($snapshotPath) < 1) {
+            if ($sample === null) {
                 return $this->waitingResponse(
-                    'Waiting for the live recorder segment to contain video.',
+                    'Waiting for the next recorder sample.',
                     $selectedPixels,
                     $triggerPixels,
                     $settingsSaved,
@@ -127,9 +137,18 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 );
             }
 
-            $motion = $detector->detectPreviewClip($analysisCamera, $snapshotPath);
-            // Audio packets and request time do not prove that video advanced.
-            $sampleId = basename($segment['path']).':'.(int) $motion['frame_count'];
+            $motion = $sample['motion'];
+            $sampleId = $sample['sample_id'];
+
+            if (((now()->getTimestampMs() / 1000) - $sample['observed_at']) > 3) {
+                return $this->waitingResponse(
+                    'Waiting for fresh recorder frames. The previous sample has expired.',
+                    $selectedPixels,
+                    $triggerPixels,
+                    $settingsSaved,
+                    $state?->active_recording_id !== null,
+                );
+            }
 
             if ((int) $motion['frame_count'] < 3) {
                 return $this->waitingResponse(
@@ -146,33 +165,39 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'The recorder could not analyze the live motion segment.',
-            ], Response::HTTP_SERVICE_UNAVAILABLE);
-        } finally {
-            if (is_string($snapshotPath)) {
-                File::delete($snapshotPath);
-            }
+            ], Response::HTTP_SERVICE_UNAVAILABLE)->header('Cache-Control', 'private, no-store');
         }
+
+        $activity = $motion['latest'] ?? [
+            'detected' => (bool) $motion['detected'],
+            'activity_ratio' => (float) $motion['activity_ratio'],
+            'effective_trigger_pixels' => (int) $motion['changed_pixels'],
+            'changed_indexes' => array_values(array_map('intval', $motion['changed_indexes'] ?? [])),
+        ];
+        $activity['moving_pixels'] = count($activity['changed_indexes']);
+        $activity['mask_activity_ratio'] = round($activity['moving_pixels'] / $selectedPixels, 4);
 
         return response()->json([
             'status' => 'ready',
-            'message' => $motion['detected']
-                ? 'The live recorder detector qualifies motion in this segment.'
-                : 'The live recorder detector does not qualify motion in this segment.',
+            'message' => match ($activity['reason'] ?? '') {
+                'frame_artifact' => 'A camera-wide image change was filtered out.',
+                'refresh_spike' => 'A brief image refresh was filtered out.',
+                'noise' => 'Isolated pixel noise was filtered out.',
+                default => $activity['detected']
+                    ? 'Movement in the latest confirmed sample meets this threshold.'
+                    : 'Movement in the latest confirmed sample is below this threshold.',
+            },
             'settings_saved' => $settingsSaved,
             'recording_event_active' => $state?->active_recording_id !== null,
             'segment' => [
                 'started_at' => $segment['started_at']->toIso8601String(),
                 'ended_at' => $segment['ended_at']->toIso8601String(),
-                'sampled_at' => now()->utc()->toIso8601String(),
+                'sampled_at' => Carbon::createFromTimestampUTC($sample['observed_at'])->toIso8601String(),
+                'sample_age_ms' => max(0, (int) round(((now()->getTimestampMs() / 1000) - $sample['observed_at']) * 1000)),
                 'live' => true,
                 'sample_id' => $sampleId,
             ],
-            'activity' => $motion['latest'] ?? [
-                'detected' => (bool) $motion['detected'],
-                'activity_ratio' => (float) $motion['activity_ratio'],
-                'effective_trigger_pixels' => (int) $motion['changed_pixels'],
-                'changed_indexes' => array_values(array_map('intval', $motion['changed_indexes'] ?? [])),
-            ],
+            'activity' => $activity,
             'decision' => [
                 'detected' => (bool) $motion['detected'],
                 'activity_ratio' => (float) $motion['activity_ratio'],
@@ -182,7 +207,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 'frame_count' => (int) $motion['frame_count'],
                 'changed_indexes' => array_values(array_map('intval', $motion['changed_indexes'] ?? [])),
             ],
-        ]);
+        ])->header('Cache-Control', 'private, no-store');
     }
 
     private function waitingResponse(
@@ -206,6 +231,6 @@ class CameraFleetMotionEditorAnalysisController extends Controller
                 'frame_count' => 0,
                 'changed_indexes' => [],
             ],
-        ]);
+        ])->header('Cache-Control', 'private, no-store');
     }
 }

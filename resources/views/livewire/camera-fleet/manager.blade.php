@@ -884,7 +884,7 @@
                             <label class="field-stack">
                                 <span>Pre-roll buffer seconds</span>
                                 <input class="form-input" type="number" min="0" max="30" wire:model="form.recording_motion_pre_roll_seconds">
-                                <small class="probe-note">Saved as context before the monitored span begins.</small>
+                                <small class="probe-note">Footage kept before the first detected movement.</small>
                                 @error('form.recording_motion_pre_roll_seconds')
                                     <small class="field-error">{{ $message }}</small>
                                 @enderror
@@ -893,22 +893,23 @@
                             <label class="field-stack">
                                 <span>Post-trigger seconds</span>
                                 <input class="form-input" type="number" min="1" max="60" wire:model="form.recording_motion_post_trigger_seconds">
-                                <small class="probe-note">Extra clip length kept after monitoring starts and motion qualifies.</small>
+                                <small class="probe-note">Keep recording this long after the last detected movement. New movement restarts this timer.</small>
                                 @error('form.recording_motion_post_trigger_seconds')
                                     <small class="field-error">{{ $message }}</small>
                                 @enderror
                             </label>
 
                             <article class="detail-card detail-card--inline">
-                                <span class="detail-card__label">Buffered clip length</span>
-                                <strong>{{ $motionPreRollSeconds + max(3, (int) config('recording.motion.analysis_seconds', 5)) + $motionPostTriggerSeconds }} seconds</strong>
+                                <span class="detail-card__label">Event length</span>
+                                <strong>Extends while movement continues</strong>
+                                <small class="probe-note">Includes {{ $motionPreRollSeconds }} seconds before movement and {{ $motionPostTriggerSeconds }} quiet seconds afterward. Timing follows recorder segment boundaries.</small>
                             </article>
                         </div>
 
                         <div class="motion-threshold-card" wire:key="motion-threshold-{{ $selectedCameraId ?? 'new' }}" wire:ignore>
                             <div>
                                 <h4 class="panel-title">Motion trigger pixels</h4>
-                                <p class="panel-copy">Recording starts when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
+                                <p class="panel-copy">Lower values trigger on smaller movements; higher values require more movement. Recording starts when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
                             </div>
 
                             <div class="motion-threshold-card__control">
@@ -929,7 +930,7 @@
                             <small class="field-error">{{ $message }}</small>
                         @enderror
 
-                        <p class="probe-note">The painter starts with the full viewport selected. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to see exactly which cells are active before the recorder trips on effective trigger pixels.</p>
+                        <p class="probe-note">New masks start with the full image selected; saved masks keep your chosen areas. Paint to keep areas active, erase to ignore noisy zones, and use the live preview to see exactly which cells are active before the recorder trips on effective trigger pixels.</p>
 
                         <div class="motion-editor-shell">
                             @if ($editingCameraId === null)
@@ -985,19 +986,25 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells select where motion counts. Amber cells show activity below the threshold; red cells meet it. Activity comes from the recorder's latest confirmed sample and can trail the live video. Connected pixels carry extra weight. This preview uses the saved recording path; save stream changes to apply them.</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells select where motion counts. Amber cells show activity below the threshold; red cells meet it. Activity comes from the recorder's latest confirmed sample and can trail the live video. Moving cells are counted once; connected groups also earn bonus trigger pixels. These settings control BigBrotha recording, not the camera’s built-in motion alarm. This preview uses the saved recording path; save stream changes to apply them.</p>
                                     <p class="probe-note" data-role="motion-analysis-note">Waiting for the recorder detector…</p>
                                     <p class="probe-note" data-role="motion-sample-age">Waiting for sample</p>
+                                    <p class="probe-note" data-role="motion-draft-note">Checking saved settings…</p>
+                                    <label class="motion-editor__meter">
+                                        <span>Movement toward trigger threshold</span>
+                                        <meter data-role="motion-trigger-meter" min="0" max="{{ $motionTriggerPixels }}" value="0">Waiting for movement data</meter>
+                                    </label>
 
                                     <div class="motion-editor__stats">
                                         <article class="motion-editor__stat-card">
-                                            <span>Current activity</span>
-                                            <strong data-role="motion-activity-value">0%</strong>
+                                            <span>Moving cells</span>
+                                            <strong data-role="motion-moving-pixels">—</strong>
+                                            <small><span data-role="motion-activity-value">—</span> of selected area</small>
                                         </article>
 
                                         <article class="motion-editor__stat-card">
                                             <span>Effective trigger pixels</span>
-                                            <strong data-role="motion-trigger-pixels">0</strong>
+                                            <strong data-role="motion-trigger-pixels">—</strong>
                                         </article>
 
                                         <article class="motion-editor__stat-card">
@@ -1011,10 +1018,11 @@
                                         </article>
 
                                         <article class="motion-editor__stat-card">
-                                            <span>Recorder state</span>
+                                            <span>Saved recording event</span>
                                             <strong data-role="motion-state-value">Waiting for buffer</strong>
                                         </article>
                                     </div>
+                                    <p class="probe-note" data-role="motion-segment-decision">Buffer decision: waiting for current movement data.</p>
                                 </div>
                             @endif
                         </div>

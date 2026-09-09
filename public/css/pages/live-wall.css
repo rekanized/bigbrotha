@@ -13,6 +13,10 @@ body.page-live-wall .wall-monitor-tile__feed {
     height: 100%;
 }
 
+body.page-live-wall .wall-monitor-tile__picture {
+    display: contents;
+}
+
 body.page-live-wall .wall-monitor-tile[data-orientation='portrait'] .wall-monitor-tile__feed {
     aspect-ratio: 9 / 16;
 }
@@ -161,6 +165,75 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
 }
 
 @media (max-width: 960px) {
+    /* Keep touch controls in their own row, outside the camera picture. */
+    body.page-live-wall .wall-monitor-tile {
+        --wall-picture-ratio: 16 / 9;
+    }
+
+    body.page-live-wall .wall-monitor-tile[data-orientation='portrait'] {
+        --wall-picture-ratio: 9 / 16;
+    }
+
+    body.page-live-wall .wall-monitor-tile[data-orientation='square'] {
+        --wall-picture-ratio: 1;
+    }
+
+    body.page-live-wall .wall-monitor-tile__feed,
+    body.page-live-wall .wall-monitor-tile[data-orientation] .wall-monitor-tile__feed {
+        height: auto;
+        aspect-ratio: auto;
+    }
+
+    body.page-live-wall .wall-monitor-tile__stream {
+        height: auto;
+    }
+
+    body.page-live-wall .wall-monitor-tile .webrtc-player {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        height: auto;
+    }
+
+    body.page-live-wall .wall-monitor-tile__picture {
+        display: block;
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        aspect-ratio: var(--wall-picture-ratio);
+    }
+
+    body.page-live-wall .wall-monitor-tile__overlay {
+        position: static;
+        align-items: center;
+        padding: 4px 8px;
+        border-top: 1px solid #334155;
+        background: #0f172a;
+    }
+
+    body.page-live-wall .wall-monitor-tile__identity {
+        width: 100%;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        gap: 3px;
+    }
+
+    body.page-live-wall .wall-monitor-tile__focus-toggle svg,
+    body.page-live-wall .wall-monitor-tile__audio-icon,
+    body.page-live-wall .wall-monitor-tile__audio-svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    body.page-live-wall .webrtc-player__message:not(:empty) {
+        padding: 12px;
+    }
+
+    body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-monitor-tile[data-layout-state='focused'] .wall-monitor-tile__picture {
+        aspect-ratio: auto;
+    }
+
     body.page-live-wall .live-wall-wall-switcher__mobile-bar {
         grid-template-columns: 44px minmax(0, 1fr) 44px auto;
         gap: 6px;

@@ -4457,3 +4457,18 @@ body.camera-editor-open {
         padding: 22px;
     }
 }
+
+.motion-editor__meter {
+    display: grid;
+    gap: 6px;
+    font-weight: 700;
+}
+
+.motion-editor__meter meter {
+    width: 100%;
+    height: 20px;
+}
+
+.motion-editor__stat-card strong {
+    font-variant-numeric: tabular-nums;
+}

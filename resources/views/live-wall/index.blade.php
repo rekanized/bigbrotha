@@ -85,8 +85,10 @@
                                         data-expected-audio-sample-rate="{{ $streamFormat['audio_sample_rate'] ?? 48000 }}"
                                         data-player-label="{{ $camera->name }}"
                                     >
-                                        <video class="webrtc-player__video" data-role="video" autoplay muted playsinline preload="none" disablepictureinpicture></video>
-                                        <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
+                                        <div class="wall-monitor-tile__picture">
+                                            <video class="webrtc-player__video" data-role="video" autoplay muted playsinline preload="none" disablepictureinpicture></video>
+                                            <div class="webrtc-player__message" data-role="message" aria-live="polite">Connecting to secure stream...</div>
+                                        </div>
                                         <div class="wall-monitor-tile__overlay">
                                             <div class="wall-monitor-tile__identity">
                                                 <span class="wall-monitor-tile__label" data-role="stream-status">Connecting</span>

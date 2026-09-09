@@ -72,6 +72,7 @@
             this.lastSampleId = null;
             this.analysisTimeout = null;
             this.analysisFailures = 0;
+            this.analysisBlockedStatus = null;
             this.draftTriggerPixels = null;
             this.analysisNote = root.querySelector('[data-role="motion-analysis-note"]');
             this.sampleAge = root.querySelector('[data-role="motion-sample-age"]');
@@ -85,6 +86,10 @@
             this.maskPayloadNode = root.querySelector('[data-role="motion-mask-json"]');
             this.statusBadge = root.querySelector('[data-role="motion-status"]');
             this.activityValue = root.querySelector('[data-role="motion-activity-value"]');
+            this.movingPixelsValue = root.querySelector('[data-role="motion-moving-pixels"]');
+            this.triggerMeter = root.querySelector('[data-role="motion-trigger-meter"]');
+            this.segmentDecisionValue = root.querySelector('[data-role="motion-segment-decision"]');
+            this.draftNote = root.querySelector('[data-role="motion-draft-note"]');
             this.triggerPixelsValue = root.querySelector('[data-role="motion-trigger-pixels"]');
             this.pixelsNeededValue = root.querySelector('[data-role="motion-pixels-needed"]');
             this.selectedPixelsValue = root.querySelector('[data-role="motion-selected-pixels"]');
@@ -121,9 +126,14 @@
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
             this.gridHeight = Math.max(1, Number.parseInt(root.dataset.gridHeight || '90', 10) || 90);
             this.totalPixels = this.gridWidth * this.gridHeight;
+            this.cachedMask = null;
+            this.cachedSelectedPixels = null;
             this.maskBits = new Uint8Array(this.totalPixels);
             this.changedBits = new Uint8Array(this.totalPixels);
             this.currentChangedPixels = 0;
+            this.currentMovingPixels = 0;
+            this.segmentPeakPixels = 0;
+            this.segmentTriggered = false;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 
@@ -147,10 +157,12 @@
                 } else {
                     this.resetDetectionState();
                     this.renderActivity();
+                    this.refreshMetrics();
                     this.queueAnalysis(0);
                 }
             };
             this.handleRetry = () => {
+                this.analysisBlockedStatus = null;
                 this.restartPlayer();
                 this.queueAnalysis(0);
             };
@@ -362,6 +374,7 @@
 
         handleResetMaskClick() {
             this.maskBits.fill(1);
+            this.invalidateMask();
             this.markAnalysisDraftChanged();
             this.resetDetectionState();
             this.renderMask();
@@ -372,6 +385,7 @@
 
         handleClearMaskClick() {
             this.maskBits.fill(0);
+            this.invalidateMask();
             this.markAnalysisDraftChanged();
             this.resetDetectionState();
             this.renderMask();
@@ -444,6 +458,7 @@
 
             const radius = this.brushRadius();
             const nextValue = this.tool === 'erase' ? 0 : 1;
+            let changed = false;
 
             const previous = this.lastPaintPoint || point;
             const steps = Math.max(1, Math.ceil(Math.hypot(point.x - previous.x, point.y - previous.y)));
@@ -458,16 +473,22 @@
                         const dx = x - sample.x;
                         const dy = y - sample.y;
                         if ((dx * dx) + (dy * dy) <= radius * radius) {
-                            this.maskBits[(y * this.gridWidth) + x] = nextValue;
+                            const index = (y * this.gridWidth) + x;
+                            if (this.maskBits[index] !== nextValue) {
+                                this.maskBits[index] = nextValue;
+                                changed = true;
+                            }
                         }
                     }
                 }
             }
             this.lastPaintPoint = point;
 
+            if (!changed) return;
+            this.invalidateMask();
+            this.markAnalysisDraftChanged(200);
             this.renderMask();
             this.refreshMetrics();
-            this.markAnalysisDraftChanged(200);
         }
 
         gridPointFromEvent(event) {
@@ -496,7 +517,8 @@
             if (this.maskCanvas.height !== this.gridHeight) this.maskCanvas.height = this.gridHeight;
             this.maskContext.imageSmoothingEnabled = false;
 
-            const image = this.maskContext.createImageData(this.gridWidth, this.gridHeight);
+            const image = this.maskImage ||= this.maskContext.createImageData(this.gridWidth, this.gridHeight);
+            image.data.fill(0);
 
             for (let index = 0; index < this.totalPixels; index += 1) {
                 if (this.maskBits[index] !== 1) {
@@ -527,7 +549,8 @@
                 return;
             }
 
-            const image = this.activityContext.createImageData(this.gridWidth, this.gridHeight);
+            const image = this.activityImage ||= this.activityContext.createImageData(this.gridWidth, this.gridHeight);
+            image.data.fill(0);
             for (let index = 0; index < this.totalPixels; index += 1) {
                 if (this.changedBits[index] !== 1 || this.maskBits[index] !== 1) continue;
                 const offset = index * 4;
@@ -563,7 +586,7 @@
 
         refreshFreshness() {
             const age = this.lastReadyAt ? Date.now() - this.lastReadyAt : null;
-            if (this.sampleAge) this.sampleAge.textContent = age === null ? 'Waiting for sample' : `${Math.floor(age / 1000)}s since new sample`;
+            if (this.sampleAge) this.sampleAge.textContent = age === null ? 'Waiting for sample' : `${(Math.max(0, age) / 1000).toFixed(1)}s since recorder sample advanced`;
             if (age !== null && age > 3000 && this.analysisStatus === 'ready') {
                 this.resetDetectionState();
                 this.analysisMessage = 'Waiting for fresh recorder frames. The previous overlay has expired.';
@@ -629,25 +652,30 @@
                 this.selectedPixelsValue.textContent = String(selectedPixels);
             }
 
-            if (this.stateValue instanceof HTMLElement) {
-                if (selectedPixels < 1) {
-                    this.stateValue.textContent = 'Mask empty';
-                } else if (this.analysisStatus === 'error') {
-                    this.stateValue.textContent = 'Unavailable';
-                } else if (this.analysisStatus === 'waiting') {
-                    this.stateValue.textContent = 'Waiting for buffer';
-                } else if (this.recordingEventActive && this.settingsSaved) {
-                    this.stateValue.textContent = 'Recording event active';
-                } else if (this.isTriggered) {
-                    this.stateValue.textContent = this.settingsSaved
-                        ? (this.recordingEventActive ? 'Recording event active' : 'Would trigger recorder')
-                        : 'Would trigger after save';
-                } else if (this.currentChangedPixels > 0) {
-                    this.stateValue.textContent = this.settingsSaved ? 'Below threshold' : 'Draft below threshold';
-                } else {
-                    this.stateValue.textContent = this.settingsSaved ? 'No recorder trigger' : 'Draft has no trigger';
-                }
+            const available = this.analysisStatus === 'ready' && selectedPixels > 0;
+            if (this.movingPixelsValue) this.movingPixelsValue.textContent = available ? String(this.currentMovingPixels) : '—';
+            if (!available) {
+                if (this.activityValue) this.activityValue.textContent = '—';
+                if (this.triggerPixelsValue) this.triggerPixelsValue.textContent = '—';
             }
+            if (this.triggerMeter) {
+                this.triggerMeter.max = Math.max(1, pixelsNeeded);
+                this.triggerMeter.value = available ? Math.min(pixelsNeeded, this.currentChangedPixels) : 0;
+                this.triggerMeter.setAttribute('aria-valuetext', available
+                    ? `${this.currentChangedPixels} of ${pixelsNeeded} effective trigger pixels`
+                    : 'Waiting for current movement data');
+            }
+            if (this.draftNote) this.draftNote.textContent = this.settingsSaved
+                ? 'Mask and threshold match the saved settings.'
+                : 'Draft preview. Save changes to apply this mask and threshold to recording.';
+            if (this.segmentDecisionValue) this.segmentDecisionValue.textContent = available
+                ? `Peak in this buffer: ${this.segmentPeakPixels} effective pixels. ${this.segmentTriggered ? 'Threshold reached earlier or now.' : 'Threshold not reached.'}`
+                : 'Buffer decision: waiting for current movement data.';
+            if (this.stateValue) this.stateValue.textContent = this.analysisStatus === 'error'
+                ? 'Recorder status unavailable'
+                : this.recordingEventActive
+                ? 'Saved recording event open'
+                : (available ? 'No recording event open' : 'Awaiting recorder status');
 
             if (this.statusBadge instanceof HTMLElement) {
                 if (selectedPixels < 1) {
@@ -662,8 +690,8 @@
                 } else if (this.isTriggered) {
                     this.statusBadge.dataset.state = 'triggered';
                     this.statusBadge.textContent = this.settingsSaved
-                        ? (this.recordingEventActive ? 'Recording event active' : 'Recorder would trigger')
-                        : 'Draft would trigger after save';
+                        ? 'Movement meets threshold'
+                        : 'Draft movement meets threshold';
                 } else if (this.currentChangedPixels > 0) {
                     this.statusBadge.dataset.state = 'active';
                     this.statusBadge.textContent = 'Recorder activity below threshold';
@@ -705,7 +733,7 @@
         }
 
         queueAnalysis(delay = this.analysisIntervalMs) {
-            if (this.disposed || document.hidden) return;
+            if (this.disposed || document.hidden || this.analysisBlockedStatus) return;
             if (this.analysisTimer !== null) {
                 window.clearTimeout(this.analysisTimer);
             }
@@ -717,7 +745,7 @@
         }
 
         async requestRecorderAnalysis() {
-            if (this.disposed || document.hidden || !document.body.contains(this.root) || this.analysisUrl() === '') {
+            if (this.disposed || document.hidden || this.isPainting || !document.body.contains(this.root) || this.analysisUrl() === '') {
                 return;
             }
 
@@ -755,6 +783,10 @@
                 });
                 const payload = await response.json().catch(() => null);
 
+                if ([401, 403, 404, 419].includes(response.status) || (response.status === 422 && requestedRevision === this.analysisRevision)) this.analysisBlockedStatus = response.status;
+                if ([401, 419].includes(response.status)) {
+                    throw new Error('Session expired. Sign in again in another tab, then select Reconnect preview.');
+                }
                 if (!response.ok || !payload || typeof payload !== 'object') {
                     throw new Error(typeof payload?.message === 'string' ? payload.message : 'Recorder analysis failed.');
                 }
@@ -762,7 +794,7 @@
                 if (this.disposed || document.hidden) return;
                 this.analysisFailures = 0;
                 if (requestedRevision === this.analysisRevision) {
-                    this.applyRecorderAnalysis(payload);
+                    this.applyRecorderAnalysis(payload, performance.now() - startedAt);
                 } else {
                     this.analysisPending = true;
                 }
@@ -794,12 +826,13 @@
         }
 
         markAnalysisDraftChanged(delay = 0) {
+            if (this.analysisBlockedStatus === 422) this.analysisBlockedStatus = null;
             this.analysisRevision += 1;
             this.settingsSaved = false;
             this.draftTriggerPixels = this.triggerPixelsThreshold();
             this.resetDetectionState();
             this.renderActivity();
-            this.syncDraft();
+            if (!this.isPainting) this.syncDraft();
 
             if (this.analysisInFlight) {
                 this.analysisPending = true;
@@ -808,7 +841,7 @@
             this.queueAnalysis(delay);
         }
 
-        applyRecorderAnalysis(payload) {
+        applyRecorderAnalysis(payload, requestDuration = 0) {
             const decision = payload.activity || payload.decision || {};
             const changedIndexes = Array.isArray(decision.changed_indexes) ? decision.changed_indexes : [];
 
@@ -821,11 +854,18 @@
                 return;
             }
 
+            this.settingsSaved = payload.settings_saved === true;
+            this.recordingEventActive = payload.recording_event_active === true;
             const sampleId = payload.segment?.sample_id ?? payload.segment?.sampled_at;
             if (payload.status === 'ready' && (sampleId === undefined || sampleId !== this.lastSampleId)) {
-                this.lastReadyAt = Date.now();
+                this.lastReadyAt = Date.now() - Math.max(0, Number(payload.segment?.sample_age_ms) || 0) - requestDuration;
                 this.lastSampleId = sampleId;
-            } else if (payload.status === 'ready' && Date.now() - this.lastReadyAt > 3000) {
+            }
+            if (payload.status === 'ready' && Date.now() - this.lastReadyAt > 3000) {
+                this.resetDetectionState();
+                this.analysisMessage = 'Waiting for fresh recorder frames. The previous overlay has expired.';
+                this.renderActivity();
+                this.refreshMetrics();
                 this.refreshFreshness();
                 return;
             }
@@ -844,13 +884,22 @@
             this.settingsSaved = payload.settings_saved === true;
             this.recordingEventActive = payload.recording_event_active === true;
             this.currentChangedPixels = Math.max(0, Number.parseInt(decision.effective_trigger_pixels || '0', 10) || 0);
-            this.currentActivityRatio = Math.max(0, Math.min(1, Number.parseFloat(decision.activity_ratio || '0') || 0));
+            this.currentMovingPixels = this.changedBits.reduce((sum, bit) => sum + bit, 0);
+            this.currentActivityRatio = this.selectedPixels() ? this.currentMovingPixels / this.selectedPixels() : 0;
+            this.segmentPeakPixels = Math.max(0, Number(payload.decision?.effective_trigger_pixels) || 0);
+            this.segmentTriggered = payload.decision?.detected === true;
             this.isTriggered = decision.detected === true;
             this.renderActivity();
             this.refreshMetrics();
         }
 
+        invalidateMask() {
+            this.cachedMask = null;
+            this.cachedSelectedPixels = null;
+        }
+
         maskPayload() {
+            if (this.cachedMask) return this.cachedMask;
             const runs = [];
             let runStart = null;
 
@@ -871,7 +920,7 @@
                 runs.push([runStart, this.totalPixels - 1]);
             }
 
-            return {
+            return this.cachedMask = {
                 version: 1,
                 grid_width: this.gridWidth,
                 grid_height: this.gridHeight,
@@ -900,13 +949,14 @@
         }
 
         selectedPixels() {
+            if (this.cachedSelectedPixels !== null) return this.cachedSelectedPixels;
             let count = 0;
 
             for (let index = 0; index < this.totalPixels; index += 1) {
                 count += this.maskBits[index] === 1 ? 1 : 0;
             }
 
-            return count;
+            return this.cachedSelectedPixels = count;
         }
 
         triggerPixelsNeeded(selectedPixels = this.selectedPixels()) {
@@ -928,6 +978,9 @@
         resetDetectionState(resetStatus = true) {
             this.changedBits.fill(0);
             this.currentChangedPixels = 0;
+            this.currentMovingPixels = 0;
+            this.segmentPeakPixels = 0;
+            this.segmentTriggered = false;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 

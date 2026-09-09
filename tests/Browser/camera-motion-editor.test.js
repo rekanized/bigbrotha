@@ -26,7 +26,7 @@ window.runCameraMotionEditorTests = async (source) => {
     win.fetch = async (url, options) => {
         requests.push(JSON.parse(options.body));
         const payload = await new Promise(resolve => { releaseResponse = resolve; });
-        return new win.Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return new win.Response(JSON.stringify(payload), { status: payload.http_status || 200, headers: { 'Content-Type': 'application/json' } });
     };
     win.BigBrothaWhepPlayer = class {
         constructor(root) { this.root = root; players.push(this); }
@@ -55,6 +55,8 @@ window.runCameraMotionEditorTests = async (source) => {
                 <span data-role="motion-activity-value"></span><span data-role="motion-trigger-pixels"></span>
                 <span data-role="motion-pixels-needed"></span><span data-role="motion-selected-pixels"></span>
                 <span data-role="motion-state-value"></span><p data-role="motion-analysis-note"></p><p data-role="motion-sample-age"></p>
+                <span data-role="motion-moving-pixels"></span><meter data-role="motion-trigger-meter"></meter>
+                <p data-role="motion-segment-decision"></p><p data-role="motion-draft-note"></p>
             </div>`;
         doc.body.append(host);
         return host;
@@ -80,11 +82,28 @@ window.runCameraMotionEditorTests = async (source) => {
         releaseResponse(latest);
         await tick();
         assert(host.querySelector('[data-role=motion-trigger-pixels]').textContent === '0', 'Overlay shows latest quiet sample instead of earlier segment peak');
+        assert(host.querySelector('[data-role=motion-segment-decision]').textContent.includes('8 effective pixels'), 'Earlier buffer peak remains separate from the current quiet overlay');
+        await tick(700);
+        const moving = response();
+        moving.recording_event_active = true;
+        moving.activity = { detected: true, effective_trigger_pixels: 8, changed_indexes: [0, 1, 1, -1, 99999] };
+        releaseResponse(moving); await tick();
+        assert(host.querySelector('[data-role=motion-moving-pixels]').textContent === '2', 'Moving cells count unique valid selected cells, without cluster bonus');
+        assert(host.querySelector('[data-role=motion-trigger-pixels]').textContent === '8', 'Effective trigger pixels retain cluster bonus');
+        assert(host.querySelector('[data-role=motion-activity-value]').textContent === '1%', 'Area percentage uses actual cells rather than weighted pixels');
+        assert(host.querySelector('meter').value === host.querySelector('meter').max, 'Threshold meter fills when movement qualifies');
+        assert(host.querySelector('[data-role=motion-state-value]').textContent === 'Saved recording event open', 'Saved recording event remains visible while testing a draft');
+        assert(host.querySelector('[data-role=motion-draft-note]').textContent.includes('Draft preview'), 'Draft is clearly distinguished from the saved event');
         const originalNow = win.Date.now;
         win.Date.now = () => originalNow() + 4000;
         await tick(1100);
         assert(host.querySelector('[data-role=motion-status]').dataset.state === 'waiting', 'Stale detector samples expire instead of remaining armed indefinitely');
+        assert(host.querySelector('[data-role=motion-moving-pixels]').textContent === '—' && host.querySelector('meter').value === 0, 'Missing movement data is not shown as a measured zero');
         win.Date.now = originalNow;
+        const cached = response(); cached.segment.sample_age_ms = 5000;
+        releaseResponse(cached); await tick();
+        assert(host.querySelector('[data-role=motion-status]').dataset.state === 'waiting', 'An already-stale server sample is never marked live on arrival');
+
         // Exact contain geometry, including pillarboxing.
         const video = host.querySelector('video');
         Object.defineProperty(video, 'videoWidth', { value: 640 });
@@ -124,6 +143,12 @@ window.runCameraMotionEditorTests = async (source) => {
         const reopened = fixture(); await tick();
         assert(players.length === 3 && players[2].started, 'Reopening creates a working new preview');
         releaseResponse(response()); await tick();
+        await tick(700);
+        releaseResponse({ http_status: 419, message: 'CSRF token mismatch.' }); await tick();
+        assert(reopened.querySelector('[data-role=motion-analysis-note]').textContent.includes('Sign in again'), 'Expired sessions explain how to recover without losing the draft');
+        const expiredCount = requests.length;
+        await tick(2200);
+        assert(requests.length === expiredCount, 'Expired sessions do not keep polling');
         reopened.remove(); await tick();
         return { passed: checks.length, checks: [...new Set(checks)] };
     } finally { frame.remove(); }
