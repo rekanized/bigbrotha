@@ -49,6 +49,26 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame([], $motion['changed_indexes']);
     }
 
+    public function test_latest_only_evaluation_retains_full_window_artifact_and_motion_results(): void
+    {
+        $quiet = str_repeat(chr(0), 16);
+        $local = chr(255).chr(255).chr(0).chr(0).chr(255).chr(255).str_repeat(chr(0), 10);
+        $refresh = str_repeat(chr(255), 16);
+        $frames = [$quiet, $local, $quiet, $refresh, $quiet, $local, $local, $quiet];
+        $camera = new Camera([
+            'recording_motion_mask' => ['grid_width' => 4, 'grid_height' => 4, 'runs' => [[0, 15]]],
+            'recording_motion_trigger_pixels' => 3,
+        ]);
+        $detector = app(RecordingMotionDetectorService::class);
+        for ($count = 3; $count <= count($frames); $count++) {
+            $output = implode('', array_slice($frames, 0, $count));
+            $full = $detector->analyzeFrames($camera, $output);
+            $current = $detector->analyzeFrames($camera, $output, true, true);
+            $this->assertSame($full['latest'], $current['latest']);
+            $this->assertSame($current['latest']['effective_trigger_pixels'], $current['changed_pixels']);
+        }
+    }
+
     public function test_real_ffmpeg_keeps_local_movement_and_returns_to_quiet(): void
     {
         $quiet = str_repeat(chr(40), 32 * 18);

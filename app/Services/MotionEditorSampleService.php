@@ -4,100 +4,63 @@ namespace App\Services;
 
 use App\Models\Camera;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
-use RuntimeException;
 
 class MotionEditorSampleService
 {
-    public function __construct(private readonly RecordingMotionDetectorService $detector) {}
+    public function __construct(
+        private readonly RecordingMotionDetectorService $detector,
+        private readonly MotionEditorStreamService $stream,
+    ) {}
 
-    /**
-     * One bounded cache entry and one non-blocking decode lock per camera.
-     * Drafts never write camera settings or compete with the recorder's lock.
-     */
-    public function sample(Camera $camera, string $path): ?array
+    public function waitingMessage(Camera $camera): string
     {
-        $cache = Cache::store(config('recording.motion.editor_cache_store', 'file'));
-        $key = 'motion-editor:v2:'.$camera->getKey();
-        $lock = $cache->lock($key.':lock', 60);
+        return $this->stream->waitingMessage($camera);
+    }
 
-        if (! $lock->get()) {
+    /** Drafts share decoding; comparison spacing remains identical to the recorder. */
+    public function sample(Camera $camera): ?array
+    {
+        $window = $this->stream->frames($camera);
+        $stride = $this->stream->frameStride();
+        if ($window === null || count($window['frames']) < (2 * $stride) + 1) {
             return null;
         }
 
-        $snapshot = null;
+        $frames = [];
+        for ($index = count($window['frames']) - 1; $index >= 0; $index -= $stride) {
+            $frames[] = $window['frames'][$index];
+        }
+        $confirmedIndex = count($window['frames']) - 1 - $stride;
+        $observedAt = $window['receivedAt'][$confirmedIndex];
+        if ((now()->getTimestampMs() / 1000) - $observedAt > 3) {
+            return null;
+        }
+        $sampleId = $window['generation'].':'.($window['sequence'] - $stride);
+        $settings = hash('sha256', serialize([$camera->recordingMotionMask(), $camera->motionTriggerPixels(), config('recording.motion')]));
+        $cache = Cache::store(config('recording.motion.editor_cache_store', 'file'));
+        $key = 'motion-editor:v3:'.$camera->getKey();
+        $cached = $cache->get($key);
+        if (is_array($cached) && $cached['sample_id'] === $sampleId && $cached['settings'] === $settings) {
+            return $cached;
+        }
 
+        $lock = $cache->lock($key.':lock', 10);
+        if (! $lock->get()) {
+            return null;
+        }
         try {
-            clearstatcache(true, $path);
-            $stat = @stat($path);
-
-            if ($stat === false || $stat['size'] < 1) {
-                return null;
-            }
-
-            $fingerprint = hash('sha256', implode(':', [$path, $stat['ino'], $stat['size'], $stat['mtime'], $stat['ctime']]));
-            $settings = hash('sha256', serialize([$camera->recordingMotionMask(), $camera->motionTriggerPixels(), config('recording.motion')]));
-            $cached = $cache->get($key);
-
-            $now = now()->getTimestampMs() / 1000;
-            $minimumInterval = 1 / max(1, (int) config('recording.motion.analysis_fps', 3));
-
-            if (is_array($cached) && $cached['settings'] === $settings
-                && ($cached['fingerprint'] === $fingerprint
-                    || ($cached['path'] === $path && $now - $cached['decoded_at'] < $minimumInterval))) {
-                return $cached;
-            }
-
-            $directory = storage_path('app/private/ffmpeg-temp/motion-editor');
-            File::ensureDirectoryExists($directory);
-            $snapshot = $directory.'/camera-'.$camera->getKey().'-'.Str::uuid().'.mkv';
-            $source = @fopen($path, 'rb');
-
-            if ($source === false) {
-                return null;
-            }
-
-            try {
-                $target = @fopen($snapshot, 'wb');
-
-                if ($target === false) {
-                    throw new RuntimeException('Unable to create the motion preview snapshot.');
-                }
-
-                try {
-                    // Do not chase a growing writer or decode a moving file.
-                    $copied = stream_copy_to_stream($source, $target, $stat['size']);
-                } finally {
-                    fclose($target);
-                }
-            } finally {
-                fclose($source);
-            }
-
-            if ($copied !== $stat['size']) {
-                return null;
-            }
-
-            $motion = $this->detector->detectPreviewClip($camera, $snapshot);
-            $sampleId = basename($path).':'.(int) $motion['frame_count'];
-            // Audio growth, a different draft, and cache hits do not refresh video.
-            $observedAt = is_array($cached) && $cached['sample_id'] === $sampleId
-                ? $cached['observed_at']
-                : now()->getTimestampMs() / 1000;
-            $sample = compact('fingerprint', 'settings', 'motion', 'path') + [
-                'decoded_at' => now()->getTimestampMs() / 1000,
+            $motion = $this->detector->analyzeFrames($camera, implode('', array_reverse($frames)), true, true);
+            $sample = compact('motion', 'settings') + [
                 'sample_id' => $sampleId,
                 'observed_at' => $observedAt,
+                'started_at' => $window['receivedAt'][0],
+                'ended_at' => end($window['receivedAt']),
+                'sample_fps' => $this->stream->frameRate(),
             ];
-            $cache->put($key, $sample, 60);
+            $cache->put($key, $sample, 10);
 
             return $sample;
         } finally {
-            if ($snapshot !== null) {
-                File::delete($snapshot);
-            }
-
             $lock->release();
         }
     }

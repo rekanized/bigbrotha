@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Camera;
 use App\Models\CameraMotionState;
 use App\Services\MotionEditorSampleService;
-use App\Services\MotionRecordingSegmenterService;
 use App\Services\RecordingMotionMaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +17,6 @@ class CameraFleetMotionEditorAnalysisController extends Controller
     public function __invoke(
         Request $request,
         Camera $camera,
-        MotionRecordingSegmenterService $segmenter,
         MotionEditorSampleService $samples,
         RecordingMotionMaskService $maskService,
     ): JsonResponse {
@@ -84,52 +82,12 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             );
         }
 
-        // Include the currently-written segment. A private snapshot gives ffmpeg a
-        // stable file while keeping the editor on the recorder's canonical feed.
-        $segments = $segmenter->closedSegmentsSince($camera, null, false);
-        $segment = $segments === [] ? null : end($segments);
-
-        if (! is_array($segment)) {
-            return $this->waitingResponse(
-                'Waiting for a segment from the rolling motion recorder.',
-                $selectedPixels,
-                $triggerPixels,
-                $settingsSaved,
-                $state?->active_recording_id !== null,
-            );
-        }
-
-        $maximumSegmentAgeSeconds = max(10, ((int) config('recording.motion.segment_seconds', 4) * 3) + 5);
-
-        if ($segment['ended_at']->lt(now()->utc()->subSeconds($maximumSegmentAgeSeconds))) {
-            return $this->waitingResponse(
-                'Waiting for a current segment from the rolling motion recorder.',
-                $selectedPixels,
-                $triggerPixels,
-                $settingsSaved,
-                $state?->active_recording_id !== null,
-            );
-        }
-
-        clearstatcache(true, $segment['path']);
-        $modifiedAt = @filemtime($segment['path']);
-
-        if (is_int($modifiedAt) && now()->getTimestamp() - $modifiedAt > 3) {
-            return $this->waitingResponse(
-                'Waiting for fresh recorder frames. The buffer is not receiving data.',
-                $selectedPixels,
-                $triggerPixels,
-                $settingsSaved,
-                $state?->active_recording_id !== null,
-            );
-        }
-
         try {
-            $sample = $samples->sample($analysisCamera, $segment['path']);
+            $sample = $samples->sample($analysisCamera);
 
             if ($sample === null) {
                 return $this->waitingResponse(
-                    'Waiting for the next recorder sample.',
+                    $samples->waitingMessage($analysisCamera),
                     $selectedPixels,
                     $triggerPixels,
                     $settingsSaved,
@@ -152,7 +110,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
 
             if ((int) $motion['frame_count'] < 3) {
                 return $this->waitingResponse(
-                    'Waiting for the live recorder segment to contain confirmed frames.',
+                    'Waiting for confirmed live motion frames.',
                     $selectedPixels,
                     $triggerPixels,
                     $settingsSaved,
@@ -164,7 +122,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'The recorder could not analyze the live motion segment.',
+                'message' => 'Live motion analysis is temporarily unavailable.',
             ], Response::HTTP_SERVICE_UNAVAILABLE)->header('Cache-Control', 'private, no-store');
         }
 
@@ -190,8 +148,10 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             'settings_saved' => $settingsSaved,
             'recording_event_active' => $state?->active_recording_id !== null,
             'segment' => [
-                'started_at' => $segment['started_at']->toIso8601String(),
-                'ended_at' => $segment['ended_at']->toIso8601String(),
+                'started_at' => Carbon::createFromTimestampUTC($sample['started_at'])->toIso8601String(),
+                'ended_at' => Carbon::createFromTimestampUTC($sample['ended_at'])->toIso8601String(),
+                'source' => 'shared_recording_source',
+                'sample_fps' => $sample['sample_fps'],
                 'sampled_at' => Carbon::createFromTimestampUTC($sample['observed_at'])->toIso8601String(),
                 'sample_age_ms' => max(0, (int) round(((now()->getTimestampMs() / 1000) - $sample['observed_at']) * 1000)),
                 'live' => true,
@@ -199,6 +159,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             ],
             'activity' => $activity,
             'decision' => [
+                'scope' => 'latest_transition',
                 'detected' => (bool) $motion['detected'],
                 'activity_ratio' => (float) $motion['activity_ratio'],
                 'effective_trigger_pixels' => (int) $motion['changed_pixels'],
@@ -223,6 +184,7 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             'settings_saved' => $settingsSaved,
             'recording_event_active' => $recordingEventActive,
             'decision' => [
+                'scope' => 'latest_transition',
                 'detected' => false,
                 'activity_ratio' => 0.0,
                 'effective_trigger_pixels' => 0,

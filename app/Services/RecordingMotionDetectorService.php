@@ -163,7 +163,25 @@ class RecordingMotionDetectorService
                 : 'Unable to evaluate motion for this camera.');
         }
 
-        $output = $process->getOutput();
+        return $this->analyzeFrames($camera, $process->getOutput(), $requirePreviewLookahead);
+    }
+
+    /** Analyze packed grayscale frames without starting a decoder. */
+    public function analyzeFrames(Camera $camera, string $output, bool $requirePreviewLookahead = true, bool $latestOnly = false): array
+    {
+        $mask = $camera->recordingMotionMask();
+        $gridWidth = $mask['grid_width'];
+        $gridHeight = $mask['grid_height'];
+        $frameSize = $gridWidth * $gridHeight;
+        $selectedIndexes = $this->maskService->selectedIndexes($mask);
+        $selectedPixels = count($selectedIndexes);
+        $analysisFps = max(1, (int) config('recording.motion.analysis_fps', 3));
+
+        if ($selectedPixels === 0) {
+            return ['detected' => false, 'activity_ratio' => 0.0, 'changed_pixels' => 0,
+                'selected_pixels' => 0, 'frame_count' => 0, 'changed_indexes' => []];
+        }
+
         $frameCount = $frameSize > 0 ? intdiv(strlen($output), $frameSize) : 0;
 
         if ($frameCount < 2) {
@@ -225,7 +243,9 @@ class RecordingMotionDetectorService
             ? $frameCount - 2
             : $frameCount - 1;
 
-        for ($frameIndex = 1; $frameIndex <= $lastFrameIndex; $frameIndex++) {
+        $firstFrameIndex = $latestOnly ? max(1, $lastFrameIndex) : 1;
+
+        for ($frameIndex = $firstFrameIndex; $frameIndex <= $lastFrameIndex; $frameIndex++) {
             // The overlay follows the newest confirmed transition, including
             // quiet or rejected frames. The recorder still uses the segment peak.
             $latestChangedPixels = 0;

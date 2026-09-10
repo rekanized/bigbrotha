@@ -4,10 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Camera;
 use App\Models\User;
-use App\Services\MotionRecordingSegmenterService;
-use App\Services\RecordingMotionDetectorService;
+use App\Services\MotionEditorSampleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\File;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
@@ -15,270 +13,77 @@ class CameraFleetMotionEditorAnalysisTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected function setUp(): void
+    private function camera(): Camera
     {
-        parent::setUp();
-        config()->set('recording.motion.editor_cache_store', 'array');
+        return Camera::query()->create([
+            'name' => 'Live motion', 'local_ip' => '192.168.1.80', 'supports_rtsp' => true,
+            'is_enabled' => true, 'recording_mode' => Camera::RECORDING_MODE_MOTION,
+            'recording_motion_trigger_pixels' => 10,
+            'recording_motion_mask' => ['grid_width' => 4, 'grid_height' => 4, 'runs' => [[0, 15]]],
+        ]);
     }
 
-    public function test_empty_masks_skip_video_work_and_motion_endpoints_require_authentication(): void
+    public function test_motion_endpoints_require_authentication_and_empty_masks_skip_sampling(): void
     {
-        $camera = Camera::query()->create([
-            'name' => 'Empty mask', 'local_ip' => '192.168.1.80', 'supports_rtsp' => true,
-            'is_enabled' => true, 'recording_mode' => Camera::RECORDING_MODE_MOTION,
-        ]);
+        $camera = $this->camera();
         $mask = $camera->recordingMotionMask();
         $mask['runs'] = [];
-        $this->mock(MotionRecordingSegmenterService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('closedSegmentsSince'));
-        $this->mock(RecordingMotionDetectorService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('detectPreviewClip'));
+        $this->mock(MotionEditorSampleService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('sample'));
         $url = route('camera-fleet.motion-editor-analysis', $camera);
         $this->postJson($url, ['mask' => $mask, 'trigger_pixels' => 3])->assertUnauthorized();
         $this->getJson(route('camera-fleet.motion-editor-session', $camera))->assertUnauthorized();
         $this->actingAs(User::factory()->create())->postJson($url, ['mask' => $mask, 'trigger_pixels' => 3])
-            ->assertOk()->assertJsonPath('status', 'waiting')
-            ->assertJsonPath('message', 'Paint an area to monitor movement.')
-            ->assertJsonPath('decision.selected_pixels', 0);
+            ->assertOk()->assertJsonPath('status', 'waiting')->assertJsonPath('decision.selected_pixels', 0);
     }
 
-    public function test_opening_an_editor_does_not_make_an_old_buffer_live(): void
+    public function test_it_rejects_different_grids_and_unsaved_motion_mode_without_sampling(): void
     {
-        $camera = Camera::query()->create([
-            'name' => 'Stalled buffer', 'local_ip' => '192.168.1.80', 'supports_rtsp' => true,
-            'is_enabled' => true, 'recording_mode' => Camera::RECORDING_MODE_MOTION,
-        ]);
-        $path = storage_path('app/private/stalled.mkv');
-        File::put($path, 'old data');
-        touch($path, now()->getTimestamp() - 10);
-        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock) use ($path): void {
-            $mock->shouldReceive('closedSegmentsSince')->once()->andReturn([[
-                'path' => $path, 'started_at' => now()->subSeconds(10), 'ended_at' => now()->subSeconds(6),
-            ]]);
+        $camera = $this->camera();
+        $this->mock(MotionEditorSampleService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('sample'));
+        $this->actingAs(User::factory()->create())->postJson(route('camera-fleet.motion-editor-analysis', $camera), [
+            'mask' => ['grid_width' => 5, 'grid_height' => 4, 'runs' => [[0, 19]]], 'trigger_pixels' => 3,
+        ])->assertUnprocessable();
+        $camera->update(['recording_mode' => Camera::RECORDING_MODE_OFF]);
+        $this->postJson(route('camera-fleet.motion-editor-analysis', $camera), [
+            'mask' => $camera->recordingMotionMask(), 'trigger_pixels' => 3,
+        ])->assertOk()->assertJsonPath('settings_saved', false)->assertJsonPath('status', 'waiting');
+    }
+
+    public function test_live_sampling_uses_drafts_without_saving_and_separates_pixels_from_weighting(): void
+    {
+        $camera = $this->camera();
+        $now = now()->getTimestampMs() / 1000;
+        $this->mock(MotionEditorSampleService::class, function (MockInterface $mock) use ($camera, $now): void {
+            $mock->shouldReceive('sample')->once()->withArgs(fn (Camera $draft) => $draft->getKey() === $camera->getKey() && $draft->motionTriggerPixels() === 3
+            )->andReturn([
+                'sample_id' => 'generation:30', 'observed_at' => $now - 0.4,
+                'started_at' => $now - 2, 'ended_at' => $now, 'sample_fps' => 6,
+                'motion' => [
+                    'frame_count' => 6, 'detected' => true, 'activity_ratio' => 0.5, 'changed_pixels' => 8,
+                    'changed_indexes' => [0, 1, 4, 5], 'selected_pixels' => 16,
+                    'latest' => ['detected' => true, 'effective_trigger_pixels' => 5,
+                        'changed_indexes' => [0, 1, 4], 'activity_ratio' => 0.3125, 'reason' => 'movement'],
+                ],
+            ]);
         });
-        $this->mock(RecordingMotionDetectorService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('detectPreviewClip'));
         $this->actingAs(User::factory()->create())->postJson(route('camera-fleet.motion-editor-analysis', $camera), [
             'mask' => $camera->recordingMotionMask(), 'trigger_pixels' => 3,
-        ])->assertOk()->assertJsonPath('status', 'waiting')
-            ->assertJsonPath('message', 'Waiting for fresh recorder frames. The buffer is not receiving data.');
-    }
-
-    public function test_it_rejects_a_different_grid_before_decoding(): void
-    {
-        $camera = Camera::query()->create([
-            'name' => 'Grid validation', 'local_ip' => '192.168.1.80', 'supports_rtsp' => true,
-        ]);
-        $this->mock(RecordingMotionDetectorService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('detectPreviewClip'));
-        $this->actingAs(User::factory()->create())->postJson(route('camera-fleet.motion-editor-analysis', $camera), [
-            'mask' => ['grid_width' => 4, 'grid_height' => 4, 'runs' => [[0, 15]]], 'trigger_pixels' => 3,
-        ])->assertUnprocessable();
-    }
-
-    public function test_it_uses_the_recorder_detector_and_current_buffer_snapshot_for_draft_settings(): void
-    {
-        $operator = User::factory()->create();
-        $camera = Camera::query()->create([
-            'name' => 'Backyard',
-            'local_ip' => '192.168.1.80',
-            'rtsp_port' => 554,
-            'rtsp_path' => '/stream1',
-            'supports_onvif' => false,
-            'supports_rtsp' => true,
-            'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_MOTION,
-            'recording_retention_days' => 1,
-            'recording_motion_trigger_pixels' => 10,
-            'recording_motion_mask' => [
-                'version' => 1,
-                'grid_width' => 4,
-                'grid_height' => 4,
-                'selected_pixels' => 16,
-                'runs' => [[0, 15]],
-            ],
-        ]);
-        $draftMask = [
-            'version' => 1,
-            'grid_width' => 4,
-            'grid_height' => 4,
-            'selected_pixels' => 4,
-            'runs' => [[0, 1], [4, 5]],
-        ];
-        $startedAt = now()->utc()->startOfSecond()->subSeconds(4);
-        $segmentPath = storage_path('app/private/test-motion-editor-live-buffer.mkv');
-        $snapshotPattern = storage_path('app/private/ffmpeg-temp/motion-editor/camera-'.$camera->id.'-*');
-        File::ensureDirectoryExists(dirname($segmentPath));
-        File::put($segmentPath, 'live-buffer-contents');
-        File::delete(File::glob($snapshotPattern));
-
-        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock) use ($camera, $startedAt, $segmentPath): void {
-            $mock->shouldReceive('closedSegmentsSince')->once()->withArgs(
-                fn (Camera $candidate): bool => $candidate->is($camera),
-                null,
-                false,
-            )->andReturn([
-                [
-                    'path' => $segmentPath,
-                    'started_at' => $startedAt,
-                    'ended_at' => $startedAt->copy()->addSeconds(4),
-                ],
-            ]);
-        });
-        $this->mock(RecordingMotionDetectorService::class, function (MockInterface $mock) use ($camera, $draftMask, $segmentPath): void {
-            $mock->shouldReceive('detectPreviewClip')->once()->withArgs(
-                function (Camera $candidate) use ($camera, $draftMask): bool {
-                    return $candidate->getKey() === $camera->getKey()
-                        && $candidate->recordingMotionMask() === $draftMask
-                        && $candidate->motionTriggerPixels(4) === 3;
-                },
-                function (string $candidate) use ($segmentPath): bool {
-                    return $candidate !== $segmentPath
-                        && is_file($candidate)
-                        && file_get_contents($candidate) === 'live-buffer-contents';
-                },
-            )->andReturn([
-                'detected' => true,
-                'activity_ratio' => 1.0,
-                'changed_pixels' => 7,
-                'selected_pixels' => 4,
-                'frame_count' => 12,
-                'changed_indexes' => [0, 1, 4],
-                'latest' => [
-                    'detected' => false,
-                    'activity_ratio' => 0.0,
-                    'effective_trigger_pixels' => 0,
-                    'changed_indexes' => [],
-                ],
-            ]);
-        });
-
-        try {
-            $this->actingAs($operator)
-                ->postJson(route('camera-fleet.motion-editor-analysis', ['camera' => $camera->id]), [
-                    'mask' => $draftMask,
-                    'trigger_pixels' => 3,
-                ])
-                ->assertOk()
-                ->assertJsonPath('status', 'ready')
-                ->assertJsonPath('settings_saved', false)
-                ->assertJsonPath('recording_event_active', false)
-                ->assertJsonPath('segment.started_at', $startedAt->toIso8601String())
-                ->assertJsonPath('segment.live', true)
-                ->assertJsonPath('decision.detected', true)
-                ->assertJsonPath('decision.effective_trigger_pixels', 7)
-                ->assertJsonPath('decision.pixels_needed', 3)
-                ->assertJsonPath('decision.changed_indexes', [0, 1, 4])
-                ->assertJsonPath('activity.moving_pixels', 0)
-                ->assertJsonPath('activity.mask_activity_ratio', 0)
-                ->assertJsonPath('activity.detected', false)
-                ->assertJsonPath('activity.changed_indexes', [])
-                ->assertJsonPath('segment.sample_id', basename($segmentPath).':12');
-        } finally {
-            File::delete($segmentPath);
-        }
-
-        $this->assertSame([], File::glob($snapshotPattern));
+        ])->assertOk()->assertJsonPath('status', 'ready')->assertJsonPath('settings_saved', false)
+            ->assertJsonPath('segment.source', 'shared_recording_source')->assertJsonPath('segment.sample_fps', 6)
+            ->assertJsonPath('activity.moving_pixels', 3)->assertJsonPath('activity.effective_trigger_pixels', 5)
+            ->assertJsonPath('activity.mask_activity_ratio', 0.1875)->assertJsonPath('decision.effective_trigger_pixels', 8);
         $this->assertSame(10, $camera->fresh()->recording_motion_trigger_pixels);
-        $this->assertSame(16, $camera->fresh()->recordingMotionMask()['selected_pixels']);
     }
 
-    public function test_it_explains_that_unsaved_motion_mode_cannot_control_the_recorder_yet(): void
+    public function test_sampler_startup_returns_waiting_without_a_false_zero_measurement(): void
     {
-        $operator = User::factory()->create();
-        $camera = Camera::query()->create([
-            'name' => 'Garage',
-            'local_ip' => '192.168.1.81',
-            'rtsp_port' => 554,
-            'rtsp_path' => '/stream1',
-            'supports_onvif' => false,
-            'supports_rtsp' => true,
-            'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_OFF,
-            'recording_retention_days' => 1,
-            'recording_motion_trigger_pixels' => 4,
-            'recording_motion_mask' => [
-                'version' => 1,
-                'grid_width' => 4,
-                'grid_height' => 4,
-                'selected_pixels' => 16,
-                'runs' => [[0, 15]],
-            ],
-        ]);
-
-        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock): void {
-            $mock->shouldNotReceive('closedSegmentsSince');
+        $camera = $this->camera();
+        $this->mock(MotionEditorSampleService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sample')->once()->andReturnNull();
+            $mock->shouldReceive('waitingMessage')->once()->andReturn('Starting live motion analysis…');
         });
-        $this->mock(RecordingMotionDetectorService::class, function (MockInterface $mock): void {
-            $mock->shouldNotReceive('detectPreviewClip');
-        });
-
-        $this->actingAs($operator)
-            ->postJson(route('camera-fleet.motion-editor-analysis', ['camera' => $camera->id]), [
-                'mask' => $camera->recordingMotionMask(),
-                'trigger_pixels' => 4,
-            ])
-            ->assertOk()
-            ->assertJsonPath('status', 'waiting')
-            ->assertJsonPath('settings_saved', false)
-            ->assertJsonPath('decision.detected', false)
-            ->assertJsonPath('message', 'Save this camera in motion mode before testing the recorder decision.');
-    }
-
-    public function test_it_waits_until_the_active_segment_contains_confirmed_frames(): void
-    {
-        $operator = User::factory()->create();
-        $camera = Camera::query()->create([
-            'name' => 'Side gate',
-            'local_ip' => '192.168.1.82',
-            'rtsp_port' => 554,
-            'rtsp_path' => '/stream1',
-            'supports_onvif' => false,
-            'supports_rtsp' => true,
-            'is_enabled' => true,
-            'recording_mode' => Camera::RECORDING_MODE_MOTION,
-            'recording_retention_days' => 1,
-            'recording_motion_trigger_pixels' => 4,
-            'recording_motion_mask' => [
-                'version' => 1,
-                'grid_width' => 4,
-                'grid_height' => 4,
-                'selected_pixels' => 16,
-                'runs' => [[0, 15]],
-            ],
-        ]);
-        $segmentPath = storage_path('app/private/test-motion-editor-unconfirmed-buffer.mkv');
-        File::ensureDirectoryExists(dirname($segmentPath));
-        File::put($segmentPath, 'partial-live-buffer');
-
-        $this->mock(MotionRecordingSegmenterService::class, function (MockInterface $mock) use ($segmentPath): void {
-            $mock->shouldReceive('closedSegmentsSince')->once()->andReturn([
-                [
-                    'path' => $segmentPath,
-                    'started_at' => now()->utc()->subSecond(),
-                    'ended_at' => now()->utc()->addSeconds(4),
-                ],
-            ]);
-        });
-        $this->mock(RecordingMotionDetectorService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('detectPreviewClip')->once()->andReturn([
-                'detected' => false,
-                'activity_ratio' => 0.0,
-                'changed_pixels' => 0,
-                'selected_pixels' => 16,
-                'frame_count' => 2,
-                'changed_indexes' => [],
-            ]);
-        });
-
-        try {
-            $this->actingAs($operator)
-                ->postJson(route('camera-fleet.motion-editor-analysis', ['camera' => $camera->id]), [
-                    'mask' => $camera->recordingMotionMask(),
-                    'trigger_pixels' => 4,
-                ])
-                ->assertOk()
-                ->assertJsonPath('status', 'waiting')
-                ->assertJsonPath('decision.detected', false)
-                ->assertJsonPath('message', 'Waiting for the live recorder segment to contain confirmed frames.');
-        } finally {
-            File::delete($segmentPath);
-        }
+        $this->actingAs(User::factory()->create())->postJson(route('camera-fleet.motion-editor-analysis', $camera), [
+            'mask' => $camera->recordingMotionMask(), 'trigger_pixels' => 10,
+        ])->assertOk()->assertJsonPath('status', 'waiting')->assertJsonPath('settings_saved', true);
     }
 }

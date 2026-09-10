@@ -949,7 +949,7 @@
                                     data-motion-editor
                                     data-session-url-base="{{ $motionSessionUrlBase }}"
                                     data-analysis-url="{{ $motionAnalysisUrl }}"
-                                    data-analysis-interval-ms="{{ (int) config('recording.motion.editor_poll_interval_ms', 650) }}"
+                                    data-analysis-interval-ms="{{ (int) config('recording.motion.editor_poll_interval_ms', 150) }}"
                                     data-whep-player-script-url="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}"
                                     data-grid-width="{{ $motionMask['grid_width'] ?? 160 }}"
                                     data-grid-height="{{ $motionMask['grid_height'] ?? 90 }}"
@@ -967,7 +967,7 @@
 
                                         <canvas class="motion-editor__canvas motion-editor__canvas--mask" data-role="mask-canvas"></canvas>
                                         <canvas class="motion-editor__canvas motion-editor__canvas--activity" data-role="activity-canvas"></canvas>
-                                        <span class="motion-editor__status-badge" data-role="motion-status" data-state="waiting">Waiting for recorder buffer</span>
+                                        <span class="motion-editor__status-badge" data-role="motion-status" data-state="waiting">Starting live motion analysis</span>
                                     </div>
 
                                     <div class="motion-editor__toolbar">
@@ -986,8 +986,8 @@
                                         </label>
                                     </div>
 
-                                    <p class="probe-note motion-editor__hint">Blue cells select where motion counts. Amber cells show activity below the threshold; red cells meet it. Activity comes from the recorder's latest confirmed sample and can trail the live video. Moving cells are counted once; connected groups also earn bonus trigger pixels. These settings control BigBrotha recording, not the camera’s built-in motion alarm. This preview uses the saved recording path; save stream changes to apply them.</p>
-                                    <p class="probe-note" data-role="motion-analysis-note">Waiting for the recorder detector…</p>
+                                    <p class="probe-note motion-editor__hint">Blue cells select where motion counts. Amber cells show activity below the threshold; red cells meet it. Activity is sampled live from the same source as the recorder; a short confirmation delay filters out image refreshes. Moving cells are counted once; connected groups also earn bonus trigger pixels. These settings control BigBrotha recording, not the camera’s built-in motion alarm. This preview uses the saved recording path; save stream changes to apply them.</p>
+                                    <p class="probe-note" data-role="motion-analysis-note">Starting live motion analysis…</p>
                                     <p class="probe-note" data-role="motion-sample-age">Waiting for sample</p>
                                     <p class="probe-note" data-role="motion-draft-note">Checking saved settings…</p>
                                     <label class="motion-editor__meter">
@@ -1019,10 +1019,9 @@
 
                                         <article class="motion-editor__stat-card">
                                             <span>Saved recording event</span>
-                                            <strong data-role="motion-state-value">Waiting for buffer</strong>
+                                            <strong data-role="motion-state-value">Starting motion analysis</strong>
                                         </article>
                                     </div>
-                                    <p class="probe-note" data-role="motion-segment-decision">Buffer decision: waiting for current movement data.</p>
                                 </div>
                             @endif
                         </div>

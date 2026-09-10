@@ -88,7 +88,6 @@
             this.activityValue = root.querySelector('[data-role="motion-activity-value"]');
             this.movingPixelsValue = root.querySelector('[data-role="motion-moving-pixels"]');
             this.triggerMeter = root.querySelector('[data-role="motion-trigger-meter"]');
-            this.segmentDecisionValue = root.querySelector('[data-role="motion-segment-decision"]');
             this.draftNote = root.querySelector('[data-role="motion-draft-note"]');
             this.triggerPixelsValue = root.querySelector('[data-role="motion-trigger-pixels"]');
             this.pixelsNeededValue = root.querySelector('[data-role="motion-pixels-needed"]');
@@ -115,14 +114,14 @@
             this.analysisPending = false;
             this.analysisRevision = 0;
             this.analysisStatus = 'waiting';
-            this.analysisMessage = 'Waiting for the recorder detector...';
+            this.analysisMessage = 'Starting live motion analysis…';
             this.settingsSaved = true;
             this.recordingEventActive = false;
             this.isPainting = false;
             this.isSaving = false;
             this.tool = 'paint';
             this.clusterBonusMultiplier = Math.max(0, Number.parseInt(root.dataset.clusterBonusMultiplier ?? '2', 10));
-            this.analysisIntervalMs = Math.max(250, Number.parseInt(root.dataset.analysisIntervalMs || '650', 10) || 650);
+            this.analysisIntervalMs = Math.max(100, Number.parseInt(root.dataset.analysisIntervalMs || '150', 10) || 150);
             this.gridWidth = Math.max(1, Number.parseInt(root.dataset.gridWidth || '160', 10) || 160);
             this.gridHeight = Math.max(1, Number.parseInt(root.dataset.gridHeight || '90', 10) || 90);
             this.totalPixels = this.gridWidth * this.gridHeight;
@@ -132,8 +131,6 @@
             this.changedBits = new Uint8Array(this.totalPixels);
             this.currentChangedPixels = 0;
             this.currentMovingPixels = 0;
-            this.segmentPeakPixels = 0;
-            this.segmentTriggered = false;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 
@@ -586,7 +583,7 @@
 
         refreshFreshness() {
             const age = this.lastReadyAt ? Date.now() - this.lastReadyAt : null;
-            if (this.sampleAge) this.sampleAge.textContent = age === null ? 'Waiting for sample' : `${(Math.max(0, age) / 1000).toFixed(1)}s since recorder sample advanced`;
+            if (this.sampleAge) this.sampleAge.textContent = age === null ? 'Waiting for sample' : `Motion sample age: ${(Math.max(0, age) / 1000).toFixed(1)}s`;
             if (age !== null && age > 3000 && this.analysisStatus === 'ready') {
                 this.resetDetectionState();
                 this.analysisMessage = 'Waiting for fresh recorder frames. The previous overlay has expired.';
@@ -668,9 +665,6 @@
             if (this.draftNote) this.draftNote.textContent = this.settingsSaved
                 ? 'Mask and threshold match the saved settings.'
                 : 'Draft preview. Save changes to apply this mask and threshold to recording.';
-            if (this.segmentDecisionValue) this.segmentDecisionValue.textContent = available
-                ? `Peak in this buffer: ${this.segmentPeakPixels} effective pixels. ${this.segmentTriggered ? 'Threshold reached earlier or now.' : 'Threshold not reached.'}`
-                : 'Buffer decision: waiting for current movement data.';
             if (this.stateValue) this.stateValue.textContent = this.analysisStatus === 'error'
                 ? 'Recorder status unavailable'
                 : this.recordingEventActive
@@ -686,7 +680,7 @@
                     this.statusBadge.textContent = 'Recorder analysis unavailable';
                 } else if (this.analysisStatus === 'waiting') {
                     this.statusBadge.dataset.state = 'waiting';
-                    this.statusBadge.textContent = 'Waiting for recorder buffer';
+                    this.statusBadge.textContent = 'Starting live motion analysis';
                 } else if (this.isTriggered) {
                     this.statusBadge.dataset.state = 'triggered';
                     this.statusBadge.textContent = this.settingsSaved
@@ -819,7 +813,7 @@
                         this.queueAnalysis(0);
                     } else {
                         const interval = this.analysisFailures ? Math.min(10000, 1000 * 2 ** this.analysisFailures) : this.analysisIntervalMs;
-                        this.queueAnalysis(Math.max(100, interval - (performance.now() - startedAt)));
+                        this.queueAnalysis(Math.max(20, interval - (performance.now() - startedAt)));
                     }
                 }
             }
@@ -886,8 +880,6 @@
             this.currentChangedPixels = Math.max(0, Number.parseInt(decision.effective_trigger_pixels || '0', 10) || 0);
             this.currentMovingPixels = this.changedBits.reduce((sum, bit) => sum + bit, 0);
             this.currentActivityRatio = this.selectedPixels() ? this.currentMovingPixels / this.selectedPixels() : 0;
-            this.segmentPeakPixels = Math.max(0, Number(payload.decision?.effective_trigger_pixels) || 0);
-            this.segmentTriggered = payload.decision?.detected === true;
             this.isTriggered = decision.detected === true;
             this.renderActivity();
             this.refreshMetrics();
@@ -979,14 +971,12 @@
             this.changedBits.fill(0);
             this.currentChangedPixels = 0;
             this.currentMovingPixels = 0;
-            this.segmentPeakPixels = 0;
-            this.segmentTriggered = false;
             this.currentActivityRatio = 0;
             this.isTriggered = false;
 
             if (resetStatus) {
                 this.analysisStatus = 'waiting';
-                this.analysisMessage = 'Waiting for the recorder detector...';
+                this.analysisMessage = 'Starting live motion analysis…';
             }
         }
 

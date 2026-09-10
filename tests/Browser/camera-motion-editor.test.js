@@ -56,7 +56,7 @@ window.runCameraMotionEditorTests = async (source) => {
                 <span data-role="motion-pixels-needed"></span><span data-role="motion-selected-pixels"></span>
                 <span data-role="motion-state-value"></span><p data-role="motion-analysis-note"></p><p data-role="motion-sample-age"></p>
                 <span data-role="motion-moving-pixels"></span><meter data-role="motion-trigger-meter"></meter>
-                <p data-role="motion-segment-decision"></p><p data-role="motion-draft-note"></p>
+                <p data-role="motion-draft-note"></p>
             </div>`;
         doc.body.append(host);
         return host;
@@ -82,7 +82,6 @@ window.runCameraMotionEditorTests = async (source) => {
         releaseResponse(latest);
         await tick();
         assert(host.querySelector('[data-role=motion-trigger-pixels]').textContent === '0', 'Overlay shows latest quiet sample instead of earlier segment peak');
-        assert(host.querySelector('[data-role=motion-segment-decision]').textContent.includes('8 effective pixels'), 'Earlier buffer peak remains separate from the current quiet overlay');
         await tick(700);
         const moving = response();
         moving.recording_event_active = true;
