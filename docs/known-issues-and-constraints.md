@@ -443,4 +443,6 @@ When changing this platform, the most relevant tests are:
 
 ## Periodic IMOU freezes
 
+The [10 September Camera 3 follow-up](imou-camera-3-investigation.md) reproduced the issue on the test inventory and correlated video interruptions with roughly 3.1-second delays in ordinary ping replies every 34 seconds. TCP and UDP both pause. Browser buffering and paced relay experiments did not provide consistently smooth playback and were reverted. Resolving the remaining interruption requires camera/network diagnostics; forcing H.264 transcoding is already enabled for this test camera and does not fix the delivery gap.
+
 The September 2026 audit measured approximately three-second gaps in incoming camera TCP payloads on the host network interface, while the receiver continued advertising a nonzero window. These gaps precede Laravel, live transcoding, and WebRTC. Software buffering fixes reduce avoidable delay but cannot guarantee uninterrupted video during camera/network delivery gaps. See [live-streaming-audit.md](live-streaming-audit.md) for evidence and validation.
