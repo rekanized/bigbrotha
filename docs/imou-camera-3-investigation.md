@@ -58,3 +58,79 @@ For reproducible packet measurements, collect arrival times separately from medi
 - [FFmpeg format options](https://ffmpeg.org/ffmpeg-formats.html): timestamp replacement and interleaving semantics.
 - [FFmpeg 5.1 input pacing implementation](https://github.com/FFmpeg/FFmpeg/blob/n5.1.8/fftools/ffmpeg.c): real-time input pacing is based on input media timestamps.
 - [MediaMTX WebRTC codec constraints](https://mediamtx.org/docs/features/webrtc-specific-features).
+
+## Follow-up — 16 September 2026
+
+The issue remains reproducible on the `bigbrotha` test stack. Read-only ONVIF
+`GetNetworkInterfaces` now confirms an IEEE 802.11 configuration on `eth2`,
+and two successful `GetDot11Status` requests report signal strength **Bad**.
+An intervening attempt timed out. This establishes wireless operation and a
+reported poor signal; it does not prove whether radio conditions, access-point
+behavior, or camera firmware causes each interruption. No camera or access-point
+configuration was changed. The operator cannot change the connection now.
+
+Synchronized measurements through the public test site and existing canonical
+source produced these results:
+
+| Measurement | Result |
+| --- | --- |
+| Standalone Chromium player, 360 seconds | 4,890 presented frames; maximum presentation gap 3.067 seconds; 21 receiver freezes totaling 40.785 seconds; 28 dropped video frames |
+| WebRTC transport in that run | Zero reported audio or video packet loss |
+| Canonical source video arrival | Maximum gap 3.194 seconds |
+| Live relay video arrival | Maximum gap 3.203 seconds |
+| Camera ping, 1,700 requests at 200 ms spacing | 1,687 replies; median 3.37 ms; maximum 3,074.216 ms; 178 replies above 100 ms |
+| Gateway control ping, 1,700 requests | All replies received; median 0.688 ms; maximum 8.209 ms |
+| Passive host-interface capture | Two existing camera TCP connections paused together, repeatedly for approximately 3.1 seconds |
+
+The packet probes used line-buffered ffprobe output to distinguish media PTS
+from arrival time. The passive capture retained packet-header text only, and
+the probes did not save footage or open additional hardware RTSP sessions.
+For example, both captured camera connections resumed at Unix time
+`1789559495.558` after a 3.162-second payload gap; the canonical video resumed
+at `1789559495.564`, followed by the live relay at `1789559495.590`.
+This ordering places the interruption before Docker ingest and transcoding.
+
+A temporary derived path tested native input timestamps, real-time pacing,
+eight seconds of startup probing, and 10 fps output matching the camera.
+Its packet output still paused for up to 1.447 seconds. Adding a four-second
+browser jitter-buffer target also produced visible pauses and dropped frames.
+In the 240-second side-by-side browser comparison, the normal path reported
+23 freezes totaling 33.763 seconds and 111 dropped video frames; the buffered
+path reported 15 freezes totaling 21.511 seconds and 223 dropped video frames.
+The buffered path's initial four-second presentation gap includes buffer
+startup, but later multi-second gaps also occurred. Both paths reported zero
+video packet loss. These totals describe that observation, not a general
+performance guarantee or an acceptable latency tradeoff.
+These experiments did not meet the smooth-playback requirement and must not
+be enabled as a fix. They used the existing canonical source and did not alter
+the normal camera path, camera metadata, or saved recording policy.
+
+The relay and live-wall Docker regression subset passed **47 tests and 287
+assertions**, including the real FFmpeg sparse-audio buffering regression.
+Passing these tests does not establish smooth camera playback. The next
+meaningful repair remains an improved camera connection followed by at least
+five minutes of simultaneous network and presented-frame measurements.
+
+The final normal two-camera wall observation lasted 180 seconds. Camera 3
+presented 915 frames and suffered a **100.479-second presentation gap**.
+Relay logs show source and live-publisher I/O timeouts, followed by automatic
+restart and browser recovery. This gap includes relay/browser recovery time;
+it must not be described as a measured 100-second Wi-Fi blackout. Camera 2
+remained connected, presented 2,427 frames, and had a maximum presentation gap
+of 0.417 seconds. Receiver counters reset when camera 3 reconnected, so its
+last connection's freeze totals cannot represent the entire wall observation.
+
+Camera focus, exclusive audio selection, and simulated browser offline/online
+recovery succeeded; both receivers resumed presenting frames. No unhandled
+JavaScript errors were observed. All **26 browser regression checks** passed,
+and an unauthenticated camera-session request returned HTTP 401. The test
+stack was healthy after deployment, and production container IDs, image IDs,
+and start times were unchanged. Temporary experimental paths and diagnostic
+sessions were removed. Playback is still **not fixed**.
+
+The test image `rekanized/bigbrotha-app:20260916-camera3-audit-final` derives from
+the deployed `20260910-motion-live-v2` image and adds this investigation
+record at `/app/docs/imou-camera-3-investigation.md`. Application code,
+dependencies, and media binaries are inherited unchanged. No buffering
+workaround is enabled. Existing uncommitted recording/storage work is
+excluded from this image. This is an investigation build, not a playback fix.

@@ -47,7 +47,7 @@ class ProcessCameraRecordingJob implements ShouldQueue
     {
         $recording = CameraRecording::query()->with('camera')->find($this->recordingId);
 
-        if (!$recording instanceof CameraRecording) {
+        if (!$recording instanceof CameraRecording || ! $recording->isPending()) {
             return;
         }
 
@@ -79,6 +79,12 @@ class ProcessCameraRecordingJob implements ShouldQueue
         }
 
         try {
+            $recording = $recording->fresh();
+
+            if (! $recording instanceof CameraRecording || ! $recording->isPending()) {
+                return;
+            }
+
             $recordings->markRecordingProcessing(
                 $recording,
                 'Queue worker attempt '.$this->attempts().' of '.$this->tries.' is evaluating the recording segment.',

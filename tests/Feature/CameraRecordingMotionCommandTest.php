@@ -33,6 +33,23 @@ class CameraRecordingMotionCommandTest extends TestCase
         Queue::fake();
     }
 
+    public function test_motion_sync_skips_another_process_that_is_still_finalizing(): void
+    {
+        $camera = Camera::query()->create(['name' => 'Locked', 'local_ip' => '192.168.1.82', 'recording_mode' => 'motion']);
+        $directory = storage_path('app/private/motion-recorders');
+        File::ensureDirectoryExists($directory);
+        $handle = fopen($directory.'/camera-'.$camera->id.'.sync.lock', 'c');
+        $this->assertTrue(flock($handle, LOCK_EX | LOCK_NB));
+        try {
+            $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+            $this->assertSame(0, $result['finalized']);
+            $this->assertDatabaseCount('camera_recordings', 0);
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
     public function test_decoder_log_messages_without_video_never_trigger_motion(): void
     {
         $binary = storage_path('app/private/test-binaries/motion-log-only.sh');
@@ -1083,6 +1100,9 @@ class CameraRecordingMotionCommandTest extends TestCase
             ],
         ]);
 
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
         $recording = CameraRecording::query()->create([
             'camera_id' => $camera->id,
             'capture_mode' => Camera::RECORDING_MODE_MOTION,
@@ -1090,10 +1110,6 @@ class CameraRecordingMotionCommandTest extends TestCase
             'scheduled_for' => now()->utc()->startOfMinute(),
             'message' => 'Retrying the same motion event.',
         ]);
-
-        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
-
-        app(CameraRecordingService::class)->processRecording($recording);
 
         app(CameraRecordingService::class)->syncMotionRecorder($camera, $recording);
 

@@ -51,7 +51,7 @@ class RecordingReviewAssetService
 
     public function lockSeconds(): int
     {
-        return max(60, (int) config('recording.review_assets.lock_seconds', 120));
+        return max($this->jobTimeoutSeconds() + 60, (int) config('recording.review_assets.lock_seconds', 120));
     }
 
     public function dispatchSuppressionSeconds(): int
@@ -568,6 +568,10 @@ class RecordingReviewAssetService
 
         $normalizedFileSize = is_file($targetPlaybackPath) ? filesize($targetPlaybackPath) : null;
 
+        // Publish and verify before advertising the replacement in the database.
+        // Keep the completed staged copy for sprite generation and upload retries.
+        $this->storage->finalizeStagedWrite($targetRelativePath, $targetPlaybackPath, false);
+
         $recording->forceFill([
             'relative_path' => $targetRelativePath,
             'file_size_bytes' => is_int($normalizedFileSize) ? $normalizedFileSize : $recording->file_size_bytes,
@@ -855,17 +859,13 @@ class RecordingReviewAssetService
     {
         $targetRelativePath = $this->playbackRelativePath($recording);
         $targetAbsolutePath = $this->playbackAbsolutePath($recording, true);
-        $normalizedSourcePath = $this->storage->normalizePrivateStorageRelativePath($sourceRelativePath);
-
         if ($targetRelativePath === null || $targetAbsolutePath === null) {
             return null;
         }
 
-        if ($normalizedSourcePath !== $targetRelativePath) {
-            return $targetAbsolutePath;
-        }
-
         $temporaryDirectory = rtrim((string) config('ffmpeg.temporary_directory', storage_path('app/private/ffmpeg-temp')), '/');
+        // Work in isolation: availability checks may recover files from the
+        // network staging tree, so an unfinished encode must never live there.
         $workspacePath = $temporaryDirectory.'/normalized-recordings/'.ltrim($targetRelativePath, '/');
         File::ensureDirectoryExists(dirname($workspacePath));
 

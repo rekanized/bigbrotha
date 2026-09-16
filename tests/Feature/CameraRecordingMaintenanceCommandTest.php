@@ -148,6 +148,45 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertDatabaseCount('camera_recordings', 0);
     }
 
+    public function test_it_recovers_a_stale_source_path_when_the_normalized_mp4_exists(): void
+    {
+        $camera = Camera::query()->create(['name' => 'Recovery', 'local_ip' => '192.168.1.80', 'recording_retention_days' => 7]);
+        $source = 'cameras/'.$camera->id.'/recordings/2026/09/11/recover.mkv';
+        $target = str_replace('.mkv', '.mp4', $source);
+        File::ensureDirectoryExists(dirname(storage_path('app/private/'.$target)));
+        File::put(storage_path('app/private/'.$target), 'verified-mp4');
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id, 'capture_mode' => 'motion', 'status' => 'failed',
+            'scheduled_for' => now()->subMinutes(5), 'ended_at' => now()->subMinutes(4),
+            'relative_path' => $source,
+            'message' => 'Saved recording file is missing from active storage. Marked failed by the hourly maintenance pass.',
+        ]);
+
+        Artisan::call('camera-recordings:prune');
+
+        $this->assertSame('recorded', $recording->fresh()->status);
+        $this->assertSame($target, $recording->fresh()->relative_path);
+        $this->assertSame(12, $recording->fresh()->file_size_bytes);
+    }
+
+    public function test_maintenance_skips_a_recording_while_review_publication_holds_its_lock(): void
+    {
+        $camera = Camera::query()->create(['name' => 'Publishing', 'local_ip' => '192.168.1.81', 'recording_retention_days' => 1]);
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id, 'capture_mode' => 'motion', 'status' => 'recorded',
+            'scheduled_for' => now()->subDays(2), 'ended_at' => now()->subDays(2),
+            'created_at' => now()->subDays(2), 'relative_path' => 'cameras/'.$camera->id.'/recordings/publishing.mp4',
+        ]);
+        $lock = Cache::lock('camera-recordings:review-assets:'.$recording->id, 300);
+        $this->assertTrue($lock->get());
+        try {
+            Artisan::call('camera-recordings:prune');
+            $this->assertSame('recorded', $recording->fresh()->status);
+        } finally {
+            $lock->release();
+        }
+    }
+
     public function test_it_marks_recorded_rows_failed_when_the_segment_file_is_missing(): void
     {
         $camera = Camera::query()->create([

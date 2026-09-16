@@ -794,7 +794,9 @@ class CameraStorageService
         }
 
         try {
-            $this->finalizeStagedWrite($relativePath, $stagedPath);
+            // A publisher may still be using this completed staged clip for review
+            // assets. Recovery must never remove another process's input file.
+            $this->finalizeStagedWrite($relativePath, $stagedPath, false);
         } catch (Throwable) {
             return false;
         }

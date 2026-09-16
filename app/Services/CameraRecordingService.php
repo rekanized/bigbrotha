@@ -459,6 +459,32 @@ class CameraRecordingService
      */
     public function syncMotionRecorder(Camera $camera, ?CameraRecording $preferredRecording = null): array
     {
+        // Scheduler invocations and legacy queue jobs share this process lock.
+        // Unlike a timed lease it cannot expire while ffmpeg or SMB is still busy.
+        $directory = storage_path('app/private/motion-recorders');
+        File::ensureDirectoryExists($directory);
+        $handle = fopen($directory.'/camera-'.$camera->getKey().'.sync.lock', 'c');
+
+        if ($handle === false) {
+            throw new RuntimeException('Unable to open the motion recorder synchronization lock.');
+        }
+
+        try {
+            if (! flock($handle, LOCK_EX | LOCK_NB)) {
+                return ['started' => false, 'finalized' => 0, 'running' => true];
+            }
+
+            $preferredRecording = $preferredRecording?->fresh();
+
+            return $this->syncLockedMotionRecorder($camera, $preferredRecording);
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    private function syncLockedMotionRecorder(Camera $camera, ?CameraRecording $preferredRecording = null): array
+    {
         if (! $camera->hasRecordingEnabled() || $camera->recording_mode !== Camera::RECORDING_MODE_MOTION) {
             $this->motionSegmenter->stop($camera);
 
@@ -677,7 +703,7 @@ class CameraRecordingService
         $this->captureSegment($camera, $recording, $source, $motionScore);
     }
 
-    public function pruneExpiredRecordings(): int
+    public function pruneExpiredRecordings(?int $cameraId = null): int
     {
         $deleted = 0;
 
@@ -685,7 +711,7 @@ class CameraRecordingService
             if ($this->pruneRecording($recording)) {
                 $deleted++;
             }
-        });
+        }, $cameraId);
 
         return $deleted;
     }
@@ -796,6 +822,21 @@ class CameraRecordingService
 
     private function pruneRecording(CameraRecording $recording): bool
     {
+        $lock = Cache::lock('camera-recordings:review-assets:'.$recording->getKey(), $this->reviewAssets->lockSeconds());
+
+        if (! $lock->get()) {
+            return false;
+        }
+
+        try {
+            return $this->pruneRecordingLocked($recording);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function pruneRecordingLocked(CameraRecording $recording): bool
+    {
         try {
             return DB::transaction(function () use ($recording): bool {
                 $lockedRecording = CameraRecording::query()
@@ -834,6 +875,21 @@ class CameraRecordingService
     }
 
     private function reconcileMissingRecordedFile(CameraRecording $recording): bool
+    {
+        $lock = Cache::lock('camera-recordings:review-assets:'.$recording->getKey(), $this->reviewAssets->lockSeconds());
+
+        if (! $lock->get()) {
+            return false;
+        }
+
+        try {
+            return $this->reconcileMissingRecordedFileLocked($recording);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function reconcileMissingRecordedFileLocked(CameraRecording $recording): bool
     {
         if ($this->storage->recordingAvailability($recording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_MISSING) {
             return false;
@@ -883,7 +939,22 @@ class CameraRecordingService
 
     private function recoverPreviouslyMissingRecordedFile(CameraRecording $recording): bool
     {
-        if ($this->storage->recordingAvailability($recording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_PRESENT) {
+        $lock = Cache::lock('camera-recordings:review-assets:'.$recording->getKey(), $this->reviewAssets->lockSeconds());
+
+        if (! $lock->get()) {
+            return false;
+        }
+
+        try {
+            return $this->recoverPreviouslyMissingRecordedFileLocked($recording);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function recoverPreviouslyMissingRecordedFileLocked(CameraRecording $recording): bool
+    {
+        if ($this->recoverableRecordingPath($recording) === null) {
             return false;
         }
 
@@ -901,17 +972,20 @@ class CameraRecordingService
                     return false;
                 }
 
-                if ($this->storage->recordingAvailability($lockedRecording->relative_path) !== CameraStorageService::RECORDING_AVAILABILITY_PRESENT) {
+                $recoveredPath = $this->recoverableRecordingPath($lockedRecording);
+
+                if ($recoveredPath === null) {
                     return false;
                 }
 
-                $metadata = $this->storage->recordingStreamMetadata($lockedRecording->relative_path);
+                $metadata = $this->storage->recordingStreamMetadata($recoveredPath);
 
                 $this->markRecording(
                     $lockedRecording,
                     CameraRecording::STATUS_RECORDED,
                     'Recovered the recorded segment after storage became reachable again.',
                     [
+                        'relative_path' => $recoveredPath,
                         'file_size_bytes' => is_int($metadata['size'] ?? null)
                             ? (int) $metadata['size']
                             : $lockedRecording->file_size_bytes,
@@ -931,6 +1005,31 @@ class CameraRecordingService
 
             return false;
         }
+    }
+
+    private function recoverableRecordingPath(CameraRecording $recording): ?string
+    {
+        $path = $recording->relative_path;
+        $availability = $this->storage->recordingAvailability($path);
+
+        if ($availability === CameraStorageService::RECORDING_AVAILABILITY_PRESENT) {
+            return $path;
+        }
+
+        if ($availability !== CameraStorageService::RECORDING_AVAILABILITY_MISSING || ! is_string($path)
+            || strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'mp4') {
+            return null;
+        }
+
+        $replacement = preg_replace('/\.[^.\/]+$/', '.mp4', $path);
+
+        if (! is_string($replacement) || $replacement === $path) {
+            return null;
+        }
+
+        $metadata = $this->storage->recordingStreamMetadata($replacement);
+
+        return ($metadata['size'] ?? 0) > 0 ? $replacement : null;
     }
 
     public function playbackResponse(CameraRecording $recording): Response|BinaryFileResponse|StreamedResponse

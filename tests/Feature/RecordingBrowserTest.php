@@ -853,6 +853,75 @@ class RecordingBrowserTest extends TestCase
         $this->assertFileDoesNotExist(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/20260415_092801-continuous.mkv'));
     }
 
+    public function test_failed_mp4_publication_preserves_the_original_row_and_completed_staged_clip(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'administrator',
+            'secret-pass',
+        );
+
+        config()->set('filesystems.disks.camera_private', [
+            'driver' => 'local',
+            'root' => storage_path('app/private/test-camera-private-disk'),
+            'throw' => true,
+            'report' => false,
+        ]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
+
+        $camera = Camera::query()->create([
+            'name' => 'IPC-C26E-V2',
+            'local_ip' => '192.168.1.65',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream1',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'recording_retention_days' => 1,
+        ]);
+
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'started_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 28, 1),
+            'ended_at' => now()->utc()->setDate(2026, 4, 15)->setTime(9, 29, 0),
+            'relative_path' => 'cameras/'.$camera->id.'/recordings/20260415_092801-continuous.mkv',
+            'file_size_bytes' => 16,
+            'message' => 'Recorded continuously via the FFmpeg segment muxer.',
+        ]);
+
+        $storage = app(CameraStorageService::class);
+        $sourceStagedPath = $storage->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($sourceStagedPath));
+        File::put($sourceStagedPath, 'download-segment');
+        $storage->finalizeStagedWrite($recording->relative_path, $sourceStagedPath);
+
+        $sourcePath = $recording->relative_path;
+        $targetPath = preg_replace('/\.mkv$/', '.mp4', $sourcePath);
+        $failedStorage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
+        $failedStorage->shouldReceive('finalizeStagedWrite')->with($targetPath, \Mockery::type('string'), false)
+            ->once()->andReturnUsing(function ($path, $localPath) use ($recording, $sourcePath): void {
+                $this->assertSame($sourcePath, $recording->fresh()->relative_path);
+                $this->assertFileExists($localPath);
+                throw new \RuntimeException('Simulated SMB upload failure');
+            });
+
+        try {
+            (new RecordingReviewAssetService($failedStorage))->generateForRecording($recording);
+            $this->fail('Expected the upload failure.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Simulated SMB upload failure', $exception->getMessage());
+        }
+
+        $this->assertSame($sourcePath, $recording->fresh()->relative_path);
+        $this->assertTrue($storage->recordingExists($sourcePath));
+        $this->assertFileExists($storage->writableAbsolutePath($targetPath));
+    }
+
     public function test_review_stream_uses_a_writable_fallback_temp_directory_when_the_configured_directory_is_not_writable(): void
     {
         $operator = User::factory()->create();
@@ -1918,7 +1987,8 @@ class RecordingBrowserTest extends TestCase
         $this->assertInstanceOf(BinaryFileResponse::class, $reviewStreamResponse->baseResponse);
         $this->assertSame('playback-stream', file_get_contents($reviewStreamResponse->baseResponse->getFile()->getPathname()));
         $this->assertFileExists(storage_path('app/private/test-camera-private-disk/'.$camera->id.'/recordings/20260415_092801-continuous.mkv'));
-        $this->assertFalse(is_file($stagedPath));
+        // Availability recovery must preserve another publisher's staged input.
+        $this->assertFileExists($stagedPath);
     }
 
     public function test_recorded_hevc_playback_transcodes_video_for_the_browser(): void

@@ -68,6 +68,14 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
         }
 
         try {
+            $recording = $recording->fresh();
+
+            if (! $recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED) {
+                $reviewAssets->clearQueued($this->recordingId);
+
+                return;
+            }
+
             $reviewAssets->generateForRecording($recording);
             $reviewAssets->clearQueued($recording->getKey());
         } catch (Throwable $exception) {
