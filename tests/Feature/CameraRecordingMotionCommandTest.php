@@ -1074,8 +1074,6 @@ class CameraRecordingMotionCommandTest extends TestCase
         config()->set('recording.motion.grid_height', 4);
         config()->set('recording.motion.pre_roll_seconds', 2);
         config()->set('recording.motion.post_trigger_seconds', 4);
-        config()->set('recording.motion.pre_roll_seconds', 2);
-        config()->set('recording.motion.post_trigger_seconds', 4);
 
         $camera = Camera::query()->create([
             'name' => 'Retry Bay',
@@ -1101,7 +1099,40 @@ class CameraRecordingMotionCommandTest extends TestCase
         ]);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-corner')]);
-        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        // Supply closed segments explicitly: the background fake can otherwise
+        // finish the entire motion event before the preferred row even exists.
+        $startedAt = Carbon::create(2026, 4, 10, 15, 0, 0, 'UTC');
+        $segments = [
+            [
+                'path' => storage_path('app/private/preferred-preroll.mkv'),
+                'started_at' => $startedAt->copy()->subSeconds(2),
+                'ended_at' => $startedAt->copy(),
+            ],
+            [
+                'path' => storage_path('app/private/preferred-motion.mkv'),
+                'started_at' => $startedAt->copy(),
+                'ended_at' => $startedAt->copy()->addSecond(),
+            ],
+            [
+                'path' => storage_path('app/private/preferred-quiet.mkv'),
+                'started_at' => $startedAt->copy()->addSecond(),
+                'ended_at' => $startedAt->copy()->addSeconds(5),
+            ],
+        ];
+        File::put($segments[0]['path'], 'quiet');
+        File::put($segments[1]['path'], 'motion');
+        File::put($segments[2]['path'], 'quiet');
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->twice()
+            ->andReturn(['started' => false, 'running' => true, 'pid' => 1234]);
+        $segmenter->shouldReceive('closedSegmentsSince')->twice()
+            ->andReturn([$segments[1]], [$segments[2]]);
+        $segmenter->shouldReceive('segmentsForWindow')->twice()
+            ->andReturn(array_slice($segments, 0, 2), $segments);
+        $segmenter->shouldReceive('pruneSegments')->twice()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
 
         $recording = CameraRecording::query()->create([
             'camera_id' => $camera->id,
@@ -1118,6 +1149,55 @@ class CameraRecordingMotionCommandTest extends TestCase
         $this->assertSame(CameraRecording::STATUS_PROCESSING, $recording->status);
         $this->assertNotNull($recording->started_at);
         $this->assertNull($recording->relative_path);
+        $this->assertDatabaseCount('camera_recordings', 1);
+        $this->assertDatabaseHas('camera_motion_states', [
+            'camera_id' => $camera->id,
+            'active_recording_id' => $recording->id,
+        ]);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera, $recording);
+
+        $recording->refresh();
+
+        $this->assertSame(CameraRecording::STATUS_RECORDED, $recording->status);
+        $this->assertTrue($recording->ended_at->equalTo($segments[2]['ended_at']));
+        $this->assertSame('capture-3', file_get_contents(storage_path('app/private/'.$recording->relative_path)));
+        $this->assertDatabaseCount('camera_recordings', 1);
+        $this->assertDatabaseHas('camera_motion_states', [
+            'camera_id' => $camera->id,
+            'active_recording_id' => null,
+        ]);
+        Queue::assertPushed(GenerateRecordingReviewAssetsJob::class, fn ($job) => $job->recordingId === $recording->id);
+    }
+
+    public function test_it_discards_a_preferred_motion_row_when_no_motion_event_claims_it(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Quiet Retry Bay',
+            'local_ip' => '192.168.1.86',
+            'rtsp_path' => '/stream15',
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_QUEUED,
+            'scheduled_for' => now()->utc()->startOfMinute(),
+        ]);
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->once()
+            ->andReturn(['started' => false, 'running' => true, 'pid' => 1234]);
+        $segmenter->shouldReceive('closedSegmentsSince')->once()->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')->once()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera, $recording);
+
+        $this->assertModelMissing($recording);
+        $this->assertDatabaseCount('camera_recordings', 0);
     }
 
     public function test_it_skips_creating_motion_rows_when_the_rolling_recorder_cannot_start(): void

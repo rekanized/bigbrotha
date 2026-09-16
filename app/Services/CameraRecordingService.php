@@ -639,6 +639,10 @@ class CameraRecordingService
 
         $this->motionSegmenter->pruneSegments($camera, $keepFrom, $segmenter['running']);
 
+        // Finalization updates a separately loaded active recording. Refresh the
+        // preferred row so its stale pending status cannot delete a saved clip.
+        $preferredRecording = $preferredRecording?->fresh();
+
         if ($preferredRecording instanceof CameraRecording
             && $preferredRecording->capture_mode === Camera::RECORDING_MODE_MOTION
             && $preferredRecording->isPending()

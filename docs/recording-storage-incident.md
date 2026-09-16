@@ -48,6 +48,15 @@ Maintenance recovery can reconnect stale source paths to a nonempty saved MP4.
 Unavailable footage is not presented as recovered, and historical failure/audit
 rows are not erased to conceal missing files. Normal retention still applies.
 
+The 16 September test follow-up found a second stale-state deletion path:
+motion finalization saves a separately loaded active recording, while the
+preferred queued-row instance can still report `processing`. Cleanup now
+reloads that preferred row before deciding whether to discard it, preserving
+the completed recording and its file reference. The preferred-row regression
+supplies explicit closed segments to verify promotion, finalization, and row
+identity without racing the background fake FFmpeg process. A quiet,
+unclaimed preferred row is still discarded.
+
 Regression coverage includes overlapping motion synchronization, maintenance
 during publication, failed SMB publication preserving the original path and staged
 copy, and recovery of stale source paths.
