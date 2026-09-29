@@ -305,7 +305,7 @@ Camera storage routing notes:
 - when admin settings leave network storage disabled, `filesystems.camera_private` points at the local `storage/app/private/cameras` directory.
 - when admin settings enable a valid SMB path, `App\Services\ApplicationSettingsService` normalizes the configured SMB root onto the dedicated `cameras` directory on the NAS, and `App\Providers\CameraStorageServiceProvider` registers the `camera_private` disk with the SMB adapter so camera-tree reads or writes are routed there instead.
 - ffmpeg capture, continuous segment muxing, and review-asset generation still use local filesystem paths while processing, then `App\Services\CameraStorageService` finalizes those staged files onto the active camera storage disk and keeps the local staged copy if post-upload verification cannot confirm the remote file.
-- streamed previews, downloads, and playback build temporary local cache files on demand when the active camera storage disk is remote.
+- downloads and playback build temporary local cache files on demand when the active camera storage disk is remote. Previews and review assets remain local.
 
 Older `storage/app/private/stream-previews` folders may still exist from previous iterations, but new preview writes should use the per-camera layout above.
 

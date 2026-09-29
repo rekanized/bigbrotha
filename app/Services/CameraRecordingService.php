@@ -786,7 +786,7 @@ class CameraRecordingService
                     ? $recording->ended_at->copy()->utc()->format('Y-m-d H:i:s')
                     : 'n/a',
                 'cutoff_at' => $cutoff->copy()->utc()->format('Y-m-d H:i:s'),
-                'file_present' => $this->storage->resolveRecordingAbsolutePath($recording->relative_path) !== null ? 'yes' : 'no',
+                'file_present' => $this->storage->recordingExists($recording->relative_path) ? 'yes' : 'no',
                 'relative_path' => (string) ($recording->relative_path ?? ''),
             ];
         }, $cameraId);

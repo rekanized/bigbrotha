@@ -34,10 +34,18 @@ class GoogleTestCallbackController extends Controller
             return redirect()->to($tester->returnUrl($pending['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
         }
 
+        $testedEmail = Str::lower(trim((string) $googleUser->getEmail()));
+
+        if ($testedEmail === '') {
+            $tester->storeFailure($request, $pending['context'] ?? null, 'Google did not return an email address for the test account.');
+
+            return redirect()->to($tester->returnUrl($pending['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
+        }
+
         $tester->storeSuccess(
             $request,
             $pending,
-            Str::lower(trim((string) $googleUser->getEmail())),
+            $testedEmail,
             trim((string) ($googleUser->getName() ?: $googleUser->getNickname() ?: $googleUser->getEmail())),
         );
 

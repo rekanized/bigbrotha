@@ -66,6 +66,14 @@ class SetupWizard extends Component
             $this->googleRedirectUri = $draft['redirect_uri'];
         }
 
+        $verified = $tester->verified($request, GoogleOAuthTestService::CONTEXT_SETUP);
+
+        if ($verified !== null) {
+            $this->googleVerifiedFingerprint = $verified['fingerprint'];
+            $this->googleVerifiedAt = $verified['tested_at'];
+            $this->googleVerifiedEmail = $verified['tested_email'];
+        }
+
         $result = $tester->consumeResult($request, GoogleOAuthTestService::CONTEXT_SETUP);
 
         if (is_array($result)) {
@@ -83,8 +91,10 @@ class SetupWizard extends Component
 
     public function getGoogleVerificationIsCurrentProperty(): bool
     {
-        return $this->googleVerifiedFingerprint !== null
-            && hash_equals($this->googleVerifiedFingerprint, $this->currentGoogleFingerprint());
+        $verified = app(GoogleOAuthTestService::class)->verified(request(), GoogleOAuthTestService::CONTEXT_SETUP);
+
+        return $verified !== null
+            && hash_equals($verified['fingerprint'], $this->currentGoogleFingerprint());
     }
 
     public function beginGoogleTest(GoogleOAuthTestService $tester)
@@ -191,6 +201,10 @@ class SetupWizard extends Component
             }
         }
 
+        $verified = $googleEnabled
+            ? app(GoogleOAuthTestService::class)->verified(request(), GoogleOAuthTestService::CONTEXT_SETUP)
+            : null;
+
         $settings->saveConfiguration(
             $manualEnabled,
             $googleEnabled,
@@ -199,10 +213,10 @@ class SetupWizard extends Component
                 'client_secret' => $validated['googleClientSecret'],
                 'redirect_uri' => $validated['googleRedirectUri'],
             ],
-            $googleEnabled && $this->googleVerificationIsCurrent ? [
-                'fingerprint' => $this->googleVerifiedFingerprint,
-                'tested_at' => $this->googleVerifiedAt,
-                'tested_email' => $this->googleVerifiedEmail,
+            $googleEnabled && $verified !== null ? [
+                'fingerprint' => $verified['fingerprint'],
+                'tested_at' => $verified['tested_at'],
+                'tested_email' => $verified['tested_email'],
             ] : null,
             markSetupComplete: true,
         );
@@ -212,6 +226,8 @@ class SetupWizard extends Component
         if ($request->hasSession()) {
             $request->session()->forget(self::SESSION_DRAFT_KEY);
         }
+
+        app(GoogleOAuthTestService::class)->forgetVerified($request, GoogleOAuthTestService::CONTEXT_SETUP);
 
         if ($user !== null) {
             auth()->login($user, true);
@@ -263,9 +279,6 @@ class SetupWizard extends Component
             'googleClientId' => $this->googleClientId,
             'googleClientSecret' => $this->googleClientSecret,
             'googleRedirectUri' => $this->googleRedirectUri,
-            'googleVerifiedFingerprint' => $this->googleVerifiedFingerprint,
-            'googleVerifiedAt' => $this->googleVerifiedAt,
-            'googleVerifiedEmail' => $this->googleVerifiedEmail,
         ]);
     }
 
@@ -288,8 +301,5 @@ class SetupWizard extends Component
         $this->googleClientId = (string) ($draft['googleClientId'] ?? $this->googleClientId);
         $this->googleClientSecret = (string) ($draft['googleClientSecret'] ?? $this->googleClientSecret);
         $this->googleRedirectUri = (string) ($draft['googleRedirectUri'] ?? $this->googleRedirectUri);
-        $this->googleVerifiedFingerprint = isset($draft['googleVerifiedFingerprint']) ? (string) $draft['googleVerifiedFingerprint'] : $this->googleVerifiedFingerprint;
-        $this->googleVerifiedAt = isset($draft['googleVerifiedAt']) ? (string) $draft['googleVerifiedAt'] : $this->googleVerifiedAt;
-        $this->googleVerifiedEmail = isset($draft['googleVerifiedEmail']) ? (string) $draft['googleVerifiedEmail'] : $this->googleVerifiedEmail;
     }
 }

@@ -19,8 +19,7 @@ class GoogleCallbackController extends Controller
         Request $request,
         AuthenticationSettingsService $settings,
         GoogleOAuthTestService $tester,
-    ): RedirectResponse
-    {
+    ): RedirectResponse {
         $pendingTest = $tester->applyPendingConfiguration($request);
 
         if ($pendingTest !== null) {
@@ -36,17 +35,25 @@ class GoogleCallbackController extends Controller
                 return redirect()->to($tester->returnUrl($pendingTest['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
             }
 
+            $testedEmail = Str::lower(trim((string) $googleUser->getEmail()));
+
+            if ($testedEmail === '') {
+                $tester->storeFailure($request, $pendingTest['context'] ?? null, 'Google did not return an email address for the test account.');
+
+                return redirect()->to($tester->returnUrl($pendingTest['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
+            }
+
             $tester->storeSuccess(
                 $request,
                 $pendingTest,
-                Str::lower(trim((string) $googleUser->getEmail())),
+                $testedEmail,
                 trim((string) ($googleUser->getName() ?: $googleUser->getNickname() ?: $googleUser->getEmail())),
             );
 
             return redirect()->to($tester->returnUrl($pendingTest['context']));
         }
 
-        if (!$settings->googleAuthEnabled()) {
+        if (! $settings->googleAuthEnabled()) {
             return redirect()
                 ->route('login')
                 ->with('auth_error', 'Google sign-in is not enabled for this application.');
@@ -61,7 +68,7 @@ class GoogleCallbackController extends Controller
         }
 
         $email = Str::lower(trim((string) $googleUser->getEmail()));
-        $isBootstrapSignIn = !User::query()->where('is_admin', true)->exists();
+        $isBootstrapSignIn = ! User::query()->where('is_admin', true)->exists();
 
         if ($email === '') {
             return redirect()
@@ -69,7 +76,15 @@ class GoogleCallbackController extends Controller
                 ->with('auth_error', 'Google did not return an email address for this account.');
         }
 
-        if (!$isBootstrapSignIn && !AllowedLoginEmail::isAllowed($email)) {
+        $verifiedSetupEmail = Str::lower(trim((string) ($settings->googleConfiguration()['tested_email'] ?? '')));
+
+        if ($isBootstrapSignIn && $verifiedSetupEmail !== '' && $email !== $verifiedSetupEmail) {
+            return redirect()
+                ->route('login')
+                ->with('auth_error', 'Sign in first with the Google account used to validate this application during setup.');
+        }
+
+        if (! $isBootstrapSignIn && ! AllowedLoginEmail::isAllowed($email)) {
             return redirect()
                 ->route('login')
                 ->with('auth_error', 'This Google email address is not approved for operator access yet. Ask an admin to add it under Admin > Operator access.');
@@ -78,7 +93,7 @@ class GoogleCallbackController extends Controller
         $user = User::query()
             ->when($googleUser->getId(), fn ($query, string $googleId) => $query->where('google_id', $googleId))
             ->orWhere('email', $email)
-            ->first() ?? new User();
+            ->first() ?? new User;
 
         $attributes = [
             'name' => trim((string) ($googleUser->getName() ?: $googleUser->getNickname() ?: $email)),
@@ -89,14 +104,14 @@ class GoogleCallbackController extends Controller
             'local_auth_enabled' => $user->exists ? $user->hasLocalAuth() : false,
         ];
 
-        if (!$user->exists) {
+        if (! $user->exists) {
             $attributes['password'] = Str::random(40);
             $attributes['password_updated_at'] = null;
         }
 
         $user->forceFill($attributes)->save();
 
-        if (!User::query()->where('is_admin', true)->exists()) {
+        if (! User::query()->where('is_admin', true)->exists()) {
             $user->forceFill(['is_admin' => true])->save();
         }
 

@@ -45,7 +45,7 @@ Current design assumptions:
 - Brand-new deployments remain on `/setup` until onboarding chooses at least one active sign-in method.
 - Manual local accounts and Google OAuth can be enabled together.
 - The setup and admin auth flows require a successful Google round-trip before Google credentials are saved in an enabled state.
-- The first authenticated Google operator is promoted to admin automatically if no admin account exists yet.
+- In Google-only first setup, the account used for OAuth validation must make the first sign-in and becomes the initial admin. Older installations without a recorded validation email retain the legacy first-user bootstrap behavior.
 - After that bootstrap login, only Google email addresses stored in the admin allowlist may complete Google sign-in.
 - MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
@@ -89,7 +89,9 @@ Older `storage/app/private/stream-previews` directories may still remain from pr
 
 ## SMB Camera Storage Requirements
 
-The admin settings page at `/admin/settings` can now route the logical camera storage tree onto an SMB share.
+See [SMB recording storage audit](smb-storage-audit.md) for the complete connection, upload, read, retry, and cleanup flow.
+
+The admin settings page at `/admin/settings` can route durable camera recording clips onto an SMB share.
 
 Current constraints:
 
@@ -97,14 +99,16 @@ Current constraints:
 - the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrotha/cameras`.
 - if an older saved path points at the parent directory above `cameras`, the application now normalizes it onto that directory's `cameras` child for compatibility. New operator-facing values should still use the explicit `.../cameras` path.
 - older recordings that were already uploaded before that normalization fix can still exist under the legacy parent-root layout such as `Applications/bigbrotha/{camera}/recordings/...`; SMB-backed reads now fall back to that legacy layout so timeline playback and downloads continue to work while the share is cleaned up or migrated.
-- active FFmpeg work files stay local under `storage/app/private/ffmpeg-temp`, including network-backed camera staging files. The SMB share is only contacted when a finished clip or asset is published, and the publish step now creates the full normalized remote directory chain when needed.
+- active FFmpeg work files stay local under `storage/app/private/ffmpeg-temp`, including network-backed camera staging files. The SMB share is contacted when a finished clip is published, and the publish step creates the full normalized remote directory chain when needed.
 - the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
-- SMB paths reject embedded URI credentials, control characters, query/fragment suffixes, and `.` / `..` traversal segments. Credentials reject line breaks so they cannot alter Samba authentication-file fields.
+- SMB paths reject embedded URI credentials, control characters, query/fragment suffixes, `.` / `..` traversal segments, and SMB command separators or quotes. The host must be a DNS name or IPv4 address. Credentials reject line breaks so they cannot alter Samba authentication-file fields.
 - the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
-- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads the finished clip under a temporary remote name, promotes that complete upload onto the final path, verifies the remote size, and only then deletes the local staged clip. Retry uploads reuse an already-complete matching remote file.
+- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads the finished clip under a temporary remote name, verifies its size, promotes it onto the final path, verifies the final size, and only then deletes the local staged clip. A replacement keeps the previous remote file as a backup until promotion succeeds. Retry uploads reuse an already-complete matching remote file.
+- the app checks the final recording directory first, avoiding repeated checks of every ancestor on routine uploads. Upload timeouts scale with clip size up to 180 seconds. When remote size cannot be confirmed, the local staged clip is kept for retry.
+- SMB settings are saved without a live connection probe. After enabling them, check recording jobs and the background container's health. Camera deletion stops if the network directory cannot be removed, leaving the database row and local files for retry.
 - direct `smbclient` fallbacks use a per-operation mode-0600 authentication file that is deleted immediately after the command; the SMB password is not placed in the process argument list.
 - temporary motion buffers, continuous segmenter work files, previews, and review-asset outputs stay on container-local private storage even when clip storage is network-backed.
-- previews, review assets, playback downloads, and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage.
+- playback downloads and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage. Previews and review assets are local.
 
 ## Preview Rendering Behavior
 

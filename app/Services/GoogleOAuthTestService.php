@@ -16,9 +16,9 @@ class GoogleOAuthTestService
 
     private const SESSION_RESULT_KEY = 'auth.google_test.results';
 
-    public function __construct(private readonly AuthenticationSettingsService $settings)
-    {
-    }
+    private const SESSION_VERIFIED_KEY = 'auth.google_test.verified';
+
+    public function __construct(private readonly AuthenticationSettingsService $settings) {}
 
     /**
      * @param  array{client_id: string, client_secret: string, redirect_uri: string}  $configuration
@@ -37,6 +37,10 @@ class GoogleOAuthTestService
      */
     public function draft(Request $request, string $context): ?array
     {
+        if (! $request->hasSession()) {
+            return null;
+        }
+
         $draft = $request->session()->get(self::SESSION_FORM_KEY.'.'.$context);
 
         return is_array($draft) ? $draft : null;
@@ -98,6 +102,10 @@ class GoogleOAuthTestService
      */
     public function consumeResult(Request $request, string $context): ?array
     {
+        if (! $request->hasSession()) {
+            return null;
+        }
+
         $key = self::SESSION_RESULT_KEY.'.'.$context;
         $result = $request->session()->get($key);
         $request->session()->forget($key);
@@ -105,8 +113,35 @@ class GoogleOAuthTestService
         return is_array($result) ? $result : null;
     }
 
+    /**
+     * @return array{fingerprint: string, tested_email: string, tested_at: string}|null
+     */
+    public function verified(Request $request, string $context): ?array
+    {
+        if (! $request->hasSession()) {
+            return null;
+        }
+
+        $verified = $request->session()->get(self::SESSION_VERIFIED_KEY.'.'.$context);
+
+        return is_array($verified) ? $verified : null;
+    }
+
+    public function forgetVerified(Request $request, string $context): void
+    {
+        if ($request->hasSession()) {
+            $request->session()->forget(self::SESSION_VERIFIED_KEY.'.'.$context);
+        }
+    }
+
     public function storeSuccess(Request $request, array $pending, string $email, string $name): void
     {
+        $request->session()->put(self::SESSION_VERIFIED_KEY.'.'.$pending['context'], [
+            'fingerprint' => $pending['fingerprint'],
+            'tested_email' => $email,
+            'tested_at' => now()->toIso8601String(),
+        ]);
+
         $request->session()->put(self::SESSION_RESULT_KEY.'.'.$pending['context'], [
             'status' => 'success',
             'message' => 'Google OAuth credentials were verified successfully.',

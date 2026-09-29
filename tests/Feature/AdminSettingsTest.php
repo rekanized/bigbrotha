@@ -5,18 +5,24 @@ namespace Tests\Feature;
 use App\Livewire\Admin\AdminJobQueue;
 use App\Livewire\Admin\NetworkStorageSettingsPanel;
 use App\Livewire\Recordings\TimelineReview;
+use App\Models\AllowedLoginEmail;
 use App\Models\Camera;
 use App\Models\CameraRecording;
-use App\Models\AllowedLoginEmail;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
+use App\Services\AuthenticationSettingsService;
 use App\Services\CameraStorageService;
+use Database\Seeders\AuthenticationSettingsSeeder;
+use Database\Seeders\CameraFleetSeeder;
+use Database\Seeders\NetworkStorageSettingsSeeder;
 use Illuminate\Contracts\Filesystem\Filesystem as FilesystemContract;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -772,6 +778,33 @@ class AdminSettingsTest extends TestCase
         $this->assertNull($settings->parseNetworkStoragePath('smb://operator:secret@fileserver/share/cameras'));
         $this->assertNull($settings->parseNetworkStoragePath('//fileserver/share/../private'));
         $this->assertNull($settings->parseNetworkStoragePath("//fileserver/share/cameras\nother"));
+        $this->assertNull($settings->parseNetworkStoragePath('//fileserver/share/cameras";del "other'));
+        $this->assertNull($settings->parseNetworkStoragePath('//file"server/share/cameras'));
+        $this->assertNotNull($settings->parseNetworkStoragePath('//fileserver/share/Camera Archive/cameras'));
+    }
+
+    public function test_camera_storage_skips_parent_directory_checks_when_the_target_exists(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//fileserver/share/cameras',
+            'operator',
+            'secret-pass',
+        );
+
+        $disk = \Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('directoryExists')
+            ->once()
+            ->with('7/recordings/2026/09/29')
+            ->andReturn(true);
+        $disk->shouldNotReceive('makeDirectory');
+
+        Storage::shouldReceive('disk')
+            ->once()->with('camera_private')->andReturn($disk);
+
+        $storage = app(CameraStorageService::class);
+        $method = new \ReflectionMethod($storage, 'ensureCameraDiskDirectory');
+        $method->invoke($storage, '7/recordings/2026/09/29');
     }
 
     public function test_smbclient_fallback_uses_a_private_authentication_file_instead_of_process_arguments(): void
@@ -915,7 +948,7 @@ BASH
             'local_auth_enabled' => true,
         ]);
 
-        $service = app(\App\Services\AuthenticationSettingsService::class);
+        $service = app(AuthenticationSettingsService::class);
         $configuration = [
             'client_id' => 'google-client',
             'client_secret' => 'google-secret',
@@ -942,10 +975,10 @@ BASH
             'SEED_GOOGLE_REDIRECT_URI' => null,
             'SEED_GOOGLE_TESTED_EMAIL' => null,
         ], function (): void {
-            (new \Database\Seeders\AuthenticationSettingsSeeder())->run();
+            (new AuthenticationSettingsSeeder)->run();
         });
 
-        $freshService = app(\App\Services\AuthenticationSettingsService::class);
+        $freshService = app(AuthenticationSettingsService::class);
 
         $this->assertTrue($freshService->manualAuthEnabled());
         $this->assertTrue($freshService->googleAuthEnabled());
@@ -966,7 +999,7 @@ BASH
             'SEED_SMB_USERNAME' => null,
             'SEED_SMB_PASSWORD' => null,
         ], function (): void {
-            (new \Database\Seeders\NetworkStorageSettingsSeeder())->run();
+            (new NetworkStorageSettingsSeeder)->run();
         });
 
         $settings = app(ApplicationSettingsService::class)->networkStorageSettings();
@@ -997,7 +1030,7 @@ BASH
         $this->withTemporaryEnv([
             'SEED_CAMERA_FLEET' => 'true',
         ], function (): void {
-            (new \Database\Seeders\CameraFleetSeeder())->run();
+            (new CameraFleetSeeder)->run();
         });
 
         $camera->refresh();
@@ -1517,6 +1550,134 @@ BASH
         $method->invoke($storage, '7/recordings/2026/04/10/size-fallback.mkv', $localPath);
 
         $this->assertFileExists($localPath);
+    }
+
+    public function test_camera_storage_keeps_staging_when_both_remote_size_checks_fail(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//fileserver/share/cameras',
+            'operator',
+            'secret-pass',
+        );
+
+        $diskPath = '7/recordings/2026/09/29/unverified.mkv';
+        $localPath = storage_path('app/private/ffmpeg-temp/camera-network-staging/cameras/'.$diskPath);
+        File::ensureDirectoryExists(dirname($localPath));
+        File::put($localPath, 'recording-data');
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('size')->once()->with($diskPath)->andThrow(new \RuntimeException('metadata unavailable'));
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->twice()->andReturn($disk);
+        $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
+            ->once()->with($diskPath)->andReturn(CameraStorageService::RECORDING_AVAILABILITY_PRESENT);
+        $storage->shouldReceive('cameraDiskFileSizeWithSmbClient')->once()->with($diskPath)->andReturn(null);
+
+        $method = new \ReflectionMethod($storage, 'verifyCameraDiskWrite');
+
+        try {
+            $method->invoke($storage, $diskPath, $localPath);
+            $this->fail('An upload without a verified remote size must fail.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Unable to verify the uploaded file size', $exception->getMessage());
+        }
+
+        $this->assertFileExists($localPath);
+    }
+
+    public function test_adapter_upload_does_not_promote_a_partial_remote_file(): void
+    {
+        $localPath = storage_path('app/private/ffmpeg-temp/camera-network-staging/cameras/7/recordings/2026/09/29/partial-adapter.mkv');
+        File::ensureDirectoryExists(dirname($localPath));
+        File::put($localPath, 'recording-data');
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('writeStream')->once()->andReturn(true);
+        $disk->shouldReceive('size')->once()->andReturn(1);
+        $disk->shouldReceive('delete')->once()->andReturn(true);
+        $disk->shouldNotReceive('move');
+
+        Storage::shouldReceive('disk')->once()->with('camera_private')->andReturn($disk);
+        $storage = app(CameraStorageService::class);
+
+        $method = new \ReflectionMethod($storage, 'writeCameraDiskPathWithAdapter');
+
+        try {
+            $method->invoke($storage, '7/recordings/2026/09/29/partial-adapter.mkv', $localPath);
+            $this->fail('A partial adapter upload must fail.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('temporary SMB upload size', $exception->getMessage());
+        }
+
+        $this->assertFileExists($localPath);
+    }
+
+    public function test_camera_storage_does_not_report_a_failed_network_delete_as_missing(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//fileserver/share/cameras',
+            'operator',
+            'secret-pass',
+        );
+
+        $diskPath = '7/recordings/2026/09/29/delete-failure.mkv';
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('delete')->once()->with($diskPath)->andReturn(false);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->once()->andReturn($disk);
+        $storage->shouldReceive('networkCameraDiskAvailability')
+            ->twice()->with($diskPath)->andReturn(CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE);
+        $storage->shouldReceive('deleteCameraDiskPathWithSmbClient')->once()->with($diskPath)->andReturn(null);
+
+        $this->assertFalse($storage->deleteRecordingFile('cameras/'.$diskPath));
+    }
+
+    public function test_camera_directory_delete_keeps_local_files_when_smb_cleanup_fails(): void
+    {
+        app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
+            true,
+            '//fileserver/share/cameras',
+            'operator',
+            'secret-pass',
+        );
+
+        $camera = Camera::query()->create([
+            'name' => 'Deletion failure lane',
+            'local_ip' => '192.168.1.214',
+            'rtsp_port' => 554,
+            'rtsp_path' => '/stream',
+            'supports_onvif' => false,
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_OFF,
+            'recording_retention_days' => 1,
+        ]);
+
+        $preview = storage_path('app/private/cameras/'.$camera->id.'/previews/sample.jpg');
+        File::ensureDirectoryExists(dirname($preview));
+        File::put($preview, 'preview');
+
+        $disk = \Mockery::mock(FilesystemContract::class);
+        $disk->shouldReceive('deleteDirectory')->once()->with((string) $camera->id)->andReturn(false);
+
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()->shouldAllowMockingProtectedMethods();
+        $storage->shouldReceive('cameraDisk')->once()->andReturn($disk);
+
+        $this->expectException(\RuntimeException::class);
+
+        try {
+            $storage->deleteCameraDirectories($camera);
+        } finally {
+            $this->assertFileExists($preview);
+        }
     }
 
     public function test_camera_storage_network_availability_reports_missing_when_parent_listing_does_not_contain_the_file(): void

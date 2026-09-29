@@ -62,6 +62,7 @@ Expected result:
 - Choose whether local sign-in, Google OAuth, or both should be active.
 - Create the initial local administrator if local sign-in is enabled.
 - Enter the Google client ID, client secret, and redirect URI in the setup wizard and run the built-in validation flow before enabling Google sign-in.
+- For Google-only setup, the account used for validation must make the first sign-in and becomes the initial administrator.
 
 If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d --remove-orphans`.
 

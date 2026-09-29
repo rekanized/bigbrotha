@@ -4,10 +4,12 @@ namespace Tests;
 
 use App\Services\AuthenticationSettingsService;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -15,6 +17,23 @@ abstract class TestCase extends BaseTestCase
 
     protected function setUp(): void
     {
+        if (is_file(dirname(__DIR__).'/bootstrap/cache/config.php')) {
+            throw new RuntimeException('Refusing to run tests with cached application configuration. Clear the cache before running PHPUnit.');
+        }
+
+        if (Env::get('APP_ENV') !== 'testing'
+            || Env::get('DB_CONNECTION') !== 'sqlite'
+            || Env::get('DB_DATABASE') !== ':memory:'
+            || filled(Env::get('DB_URL'))) {
+            throw new RuntimeException(sprintf(
+                'Refusing unsafe test database environment (app=%s, driver=%s, database=%s, url=%s).',
+                Env::get('APP_ENV') === 'testing' ? 'testing' : 'other',
+                Env::get('DB_CONNECTION') === 'sqlite' ? 'sqlite' : 'other',
+                Env::get('DB_DATABASE') === ':memory:' ? 'memory' : 'other',
+                filled(Env::get('DB_URL')) ? 'set' : 'empty',
+            ));
+        }
+
         parent::setUp();
 
         $this->testStoragePath = base_path('storage/framework/testing/'.Str::random(20));
@@ -41,6 +60,21 @@ abstract class TestCase extends BaseTestCase
         $this->primeDefaultAuthenticationSettings();
     }
 
+    public function createApplication()
+    {
+        $app = parent::createApplication();
+        $database = $app['config']->get('database');
+
+        if ($app->environment() !== 'testing'
+            || ($database['default'] ?? null) !== 'sqlite'
+            || ($database['connections']['sqlite']['database'] ?? null) !== ':memory:'
+            || filled($database['connections']['sqlite']['url'] ?? null)) {
+            throw new RuntimeException('Refusing to run tests unless the effective database is in-memory SQLite in the testing environment.');
+        }
+
+        return $app;
+    }
+
     protected function tearDown(): void
     {
         if (isset($this->testStoragePath)) {
@@ -52,7 +86,7 @@ abstract class TestCase extends BaseTestCase
 
     protected function primeDefaultAuthenticationSettings(): void
     {
-        if (!Schema::hasTable('app_settings')) {
+        if (! Schema::hasTable('app_settings')) {
             return;
         }
 
@@ -69,7 +103,7 @@ abstract class TestCase extends BaseTestCase
 
     protected function clearAuthenticationSetupState(): void
     {
-        if (!Schema::hasTable('app_settings')) {
+        if (! Schema::hasTable('app_settings')) {
             return;
         }
 

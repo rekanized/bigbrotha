@@ -292,8 +292,9 @@ class ApplicationSettingsService
         ), static fn (string $segment): bool => $segment !== ''));
 
         if (count($segments) < 2
-            || preg_match('/[@:]/', $segments[0]) === 1
-            || collect($segments)->contains(static fn (string $segment): bool => in_array(trim($segment), ['.', '..'], true))) {
+            || preg_match('/^[a-z0-9][a-z0-9._-]*$/i', $segments[0]) !== 1
+            || collect($segments)->contains(static fn (string $segment): bool => in_array($segment, ['.', '..'], true)
+                || preg_match('/[";]/', $segment) === 1)) {
             return null;
         }
 

@@ -44,6 +44,14 @@ class AuthSettingsPanel extends Component
             $this->googleRedirectUri = $draft['redirect_uri'];
         }
 
+        $verified = $tester->verified(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
+
+        if ($verified !== null) {
+            $this->googleVerifiedFingerprint = $verified['fingerprint'];
+            $this->googleVerifiedAt = $verified['tested_at'];
+            $this->googleVerifiedEmail = $verified['tested_email'];
+        }
+
         $result = $tester->consumeResult(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
 
         if (is_array($result)) {
@@ -61,8 +69,18 @@ class AuthSettingsPanel extends Component
 
     public function getGoogleVerificationIsCurrentProperty(): bool
     {
-        return $this->googleVerifiedFingerprint !== null
-            && hash_equals($this->googleVerifiedFingerprint, $this->currentGoogleFingerprint());
+        $fingerprint = $this->currentGoogleFingerprint();
+        $verified = app(GoogleOAuthTestService::class)->verified(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
+
+        if ($verified !== null && hash_equals($verified['fingerprint'], $fingerprint)) {
+            return true;
+        }
+
+        $saved = app(AuthenticationSettingsService::class)->googleConfiguration();
+
+        return $saved['verified']
+            && $saved['fingerprint'] !== null
+            && hash_equals($saved['fingerprint'], $fingerprint);
     }
 
     public function beginGoogleTest(GoogleOAuthTestService $tester)
@@ -99,21 +117,26 @@ class AuthSettingsPanel extends Component
         $manualEnabled = $validated['manualAuthEnabled'] === '1';
         $googleEnabled = $validated['googleAuthEnabled'] === '1';
 
-        if (!$manualEnabled && !$googleEnabled) {
+        if (! $manualEnabled && ! $googleEnabled) {
             $this->addError('manualAuthEnabled', 'At least one authentication method must remain enabled.');
         }
 
-        if ($googleEnabled && !$this->googleVerificationIsCurrent) {
+        if ($googleEnabled && ! $this->googleVerificationIsCurrent) {
             $this->addError('googleClientId', 'Validate the Google OAuth credentials before enabling Google sign-in.');
         }
 
-        if (!$settings->adminCanAuthenticateWith($manualEnabled, $googleEnabled)) {
+        if (! $settings->adminCanAuthenticateWith($manualEnabled, $googleEnabled)) {
             $this->addError('manualAuthEnabled', 'The selected authentication state would leave no admin able to sign in. Keep one admin available through local sign-in or a linked Google account.');
         }
 
         if ($this->getErrorBag()->isNotEmpty()) {
             return;
         }
+
+        $verified = app(GoogleOAuthTestService::class)->verified(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
+        $verified = $verified !== null && hash_equals($verified['fingerprint'], $this->currentGoogleFingerprint())
+            ? $verified
+            : null;
 
         $settings->saveConfiguration(
             $manualEnabled,
@@ -123,13 +146,11 @@ class AuthSettingsPanel extends Component
                 'client_secret' => $validated['googleClientSecret'],
                 'redirect_uri' => $validated['googleRedirectUri'],
             ],
-            $this->googleVerificationIsCurrent ? [
-                'fingerprint' => $this->googleVerifiedFingerprint,
-                'tested_at' => $this->googleVerifiedAt,
-                'tested_email' => $this->googleVerifiedEmail,
-            ] : null,
+            $verified,
             markSetupComplete: true,
         );
+
+        app(GoogleOAuthTestService::class)->forgetVerified(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
 
         $this->loadFromSettings($settings);
         $this->statusMessage = 'Authentication settings updated.';

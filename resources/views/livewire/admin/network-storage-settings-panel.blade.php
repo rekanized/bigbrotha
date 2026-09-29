@@ -2,7 +2,7 @@
     <div class="panel-heading">
         <div>
             <h2 class="panel-title">Network camera storage</h2>
-            <p class="panel-copy">Route the camera recordings and preview tree to an SMB share instead of the local private cameras directory. Use a path such as <strong>//fileserver/cameras/bigbrotha</strong> or <strong>smb://fileserver/cameras/bigbrotha</strong>.</p>
+            <p class="panel-copy">Store finished recording clips on an SMB share. Previews, review assets, and working files stay on local private storage. Use a dedicated path such as <strong>//fileserver/share/cameras</strong> or <strong>smb://fileserver/share/cameras</strong>.</p>
         </div>
     </div>
 
@@ -45,7 +45,7 @@
         <label class="field-stack field-stack--wide">
             <span>SMB path</span>
             <input class="form-input" type="text" wire:model.blur="networkStoragePath" placeholder="//fileserver/share/cameras">
-            <small>Point this at the remote directory that should replace the local cameras tree.</small>
+            <small>Point this at the dedicated cameras directory. Saving settings does not check share access; monitor recording jobs after enabling it.</small>
             @error('networkStoragePath')
                 <span class="field-error">{{ $message }}</span>
             @enderror

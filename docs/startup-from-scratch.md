@@ -88,6 +88,7 @@ After the containers are healthy on a brand-new deployment, open `/setup` on the
 - choose whether local sign-in, Google OAuth, or both should be enabled
 - create the initial local administrator when local sign-in is enabled
 - enter the Google client ID, client secret, and redirect URI there and run the built-in Google validation flow before enabling Google OAuth
+- for Google-only setup, sign in first with the same Google account used for validation; it becomes the initial administrator
 
 ## 3. Confirm Camera Reachability
 
@@ -117,7 +118,6 @@ What you should see:
 ./docker/compose.sh exec app php artisan camera-recordings:tick
 ./docker/compose.sh exec app php artisan camera-recordings:prune
 ./docker/compose.sh exec app php artisan camera-recordings:build-review-assets --missing
-./docker/compose.sh exec app php artisan test
 ```
 
 ## Notes

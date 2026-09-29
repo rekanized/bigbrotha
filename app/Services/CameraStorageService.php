@@ -6,6 +6,7 @@ use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use FilesystemIterator;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Contracts\Filesystem\Filesystem as FilesystemContract;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -35,8 +36,7 @@ class CameraStorageService
 
     public function __construct(
         private readonly ApplicationSettingsService $settings,
-    ) {
-    }
+    ) {}
 
     public function usingNetworkStorage(): bool
     {
@@ -47,7 +47,7 @@ class CameraStorageService
     {
         $cameraId = $camera->getKey();
 
-        if (!is_int($cameraId) && !is_string($cameraId)) {
+        if (! is_int($cameraId) && ! is_string($cameraId)) {
             throw new RuntimeException('The camera must be saved before its storage directories can be prepared.');
         }
 
@@ -82,7 +82,7 @@ class CameraStorageService
     {
         $cameraId = $camera->getKey();
 
-        if (!is_int($cameraId) && !is_string($cameraId)) {
+        if (! is_int($cameraId) && ! is_string($cameraId)) {
             throw new RuntimeException('The camera must be saved before a preview path can be generated.');
         }
 
@@ -91,7 +91,7 @@ class CameraStorageService
 
     public function resolvePreviewAbsolutePath(?string $previewPath): ?string
     {
-        return $this->localReadablePath($previewPath, true, self::PREVIEW_READ_TIMEOUT_SECONDS);
+        return $this->localReadablePath($previewPath, self::PREVIEW_READ_TIMEOUT_SECONDS);
     }
 
     /**
@@ -123,7 +123,7 @@ class CameraStorageService
     {
         $cameraId = $camera->getKey();
 
-        if (!is_int($cameraId) && !is_string($cameraId)) {
+        if (! is_int($cameraId) && ! is_string($cameraId)) {
             throw new RuntimeException('The camera must be saved before a recording path can be generated.');
         }
 
@@ -210,12 +210,12 @@ class CameraStorageService
 
         return $ensureDirectory
             ? $this->localWritablePath($relativePath)
-            : $this->localReadablePath($relativePath, true, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
+            : $this->localReadablePath($relativePath, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
     }
 
     public function resolveReviewAssetAbsolutePath(?string $assetPath): ?string
     {
-        return $this->localReadablePath($assetPath, true, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
+        return $this->localReadablePath($assetPath, self::REVIEW_ASSET_READ_TIMEOUT_SECONDS);
     }
 
     public function deleteRecordingReviewAssets(?string $recordingPath): void
@@ -266,17 +266,19 @@ class CameraStorageService
             }
 
             $deleted = $this->cameraDisk()->delete($diskPath);
-            $stillExists = $this->cameraDisk()->exists($diskPath);
+            $missing = $deleted || $this->networkCameraDiskAvailability($diskPath) === self::RECORDING_AVAILABILITY_MISSING;
 
-            $this->pruneEmptyRecordingDirectoriesSafely($relativePath);
+            if ($missing) {
+                $this->pruneEmptyRecordingDirectoriesSafely($relativePath);
+            }
 
-            return $deleted || !$stillExists;
+            return $missing;
         }
 
         if ($this->isCameraRelativePath($relativePath)) {
             $absolutePath = $this->privateAbsolutePath($relativePath);
 
-            if (!is_file($absolutePath)) {
+            if (! is_file($absolutePath)) {
                 $this->pruneEmptyRecordingDirectories($relativePath);
 
                 return true;
@@ -286,12 +288,12 @@ class CameraStorageService
             clearstatcache(true, $absolutePath);
             $this->pruneEmptyRecordingDirectories($relativePath);
 
-            return $deleted || !is_file($absolutePath);
+            return $deleted || ! is_file($absolutePath);
         }
 
         $absolutePath = $this->privateAbsolutePath($relativePath);
 
-        if (!is_file($absolutePath)) {
+        if (! is_file($absolutePath)) {
             return true;
         }
 
@@ -299,12 +301,12 @@ class CameraStorageService
 
         clearstatcache(true, $absolutePath);
 
-        return $deleted || !is_file($absolutePath);
+        return $deleted || ! is_file($absolutePath);
     }
 
     public function resolveRecordingAbsolutePath(?string $recordingPath, ?int $transferTimeoutSeconds = null): ?string
     {
-        return $this->localReadablePath($recordingPath, false, $transferTimeoutSeconds);
+        return $this->localReadablePath($recordingPath, $transferTimeoutSeconds);
     }
 
     /**
@@ -325,7 +327,7 @@ class CameraStorageService
             ];
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             return [
                 'relative_path' => $relativePath,
                 'storage_mode' => 'local',
@@ -409,7 +411,7 @@ class CameraStorageService
             return self::RECORDING_AVAILABILITY_MISSING;
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             return $this->privateFileAvailability($relativePath);
         }
 
@@ -443,7 +445,7 @@ class CameraStorageService
 
         $extension = strtolower((string) pathinfo($relativePath, PATHINFO_EXTENSION));
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
 
             if ($absolutePath === null) {
@@ -461,7 +463,7 @@ class CameraStorageService
 
         $diskPath = $this->cameraDiskRelativePath($relativePath);
 
-        if (!$this->cameraDisk()->exists($diskPath)) {
+        if ($this->networkCameraDiskAvailability($diskPath) !== self::RECORDING_AVAILABILITY_PRESENT) {
             return null;
         }
 
@@ -474,6 +476,8 @@ class CameraStorageService
         } catch (Throwable) {
             $size = null;
         }
+
+        $size ??= $this->cameraDiskFileSizeWithSmbClient($diskPath);
 
         try {
             $resolvedMimeType = $this->cameraDisk()->mimeType($diskPath);
@@ -502,17 +506,13 @@ class CameraStorageService
             return false;
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->resolveExistingPrivateAbsolutePath($relativePath);
 
             return $absolutePath !== null ? @fopen($absolutePath, 'rb') : false;
         }
 
         $diskPath = $this->cameraDiskRelativePath($relativePath);
-
-        if (!$this->cameraDisk()->exists($diskPath)) {
-            return false;
-        }
 
         try {
             return $this->cameraDisk()->readStream($diskPath);
@@ -558,11 +558,11 @@ class CameraStorageService
     {
         $relativePath = $this->privateStorageRelativePath($privateRelativePath);
 
-        if ($relativePath === null || !is_file($localPath)) {
+        if ($relativePath === null || ! is_file($localPath)) {
             return;
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             return;
         }
 
@@ -570,21 +570,11 @@ class CameraStorageService
         $this->ensureCameraDiskDirectory(dirname($diskPath));
 
         if ($this->shouldUseSmbClientTransfers()) {
-            if (!$this->writeCameraDiskPathWithSmbClient($diskPath, $localPath)) {
+            if (! $this->writeCameraDiskPathWithSmbClient($diskPath, $localPath)) {
                 throw new RuntimeException('Unable to upload the staged file to SMB storage: '.$localPath);
             }
         } else {
-            $stream = fopen($localPath, 'rb');
-
-            if (!is_resource($stream)) {
-                throw new RuntimeException('Unable to open the staged file for SMB upload: '.$localPath);
-            }
-
-            try {
-                $this->cameraDisk()->writeStream($diskPath, $stream);
-            } finally {
-                fclose($stream);
-            }
+            $this->writeCameraDiskPathWithAdapter($diskPath, $localPath);
         }
 
         $this->verifyCameraDiskWrite($diskPath, $localPath);
@@ -597,13 +587,13 @@ class CameraStorageService
 
     public function deleteTemporaryFile(?string $path): void
     {
-        if (!is_string($path) || trim($path) === '') {
+        if (! is_string($path) || trim($path) === '') {
             return;
         }
 
         $normalizedPath = $this->normalizeAbsolutePath($path);
 
-        if ($normalizedPath === null || !$this->isTemporaryManagedPath($normalizedPath)) {
+        if ($normalizedPath === null || ! $this->isTemporaryManagedPath($normalizedPath)) {
             return;
         }
 
@@ -620,7 +610,7 @@ class CameraStorageService
 
     public function isTemporaryManagedPath(?string $path): bool
     {
-        if (!is_string($path) || trim($path) === '') {
+        if (! is_string($path) || trim($path) === '') {
             return false;
         }
 
@@ -731,27 +721,30 @@ class CameraStorageService
     {
         $cameraId = $camera->getKey();
 
-        if (!is_int($cameraId) && !is_string($cameraId)) {
+        if (! is_int($cameraId) && ! is_string($cameraId)) {
             return;
         }
 
         $cameraDirectory = (string) $cameraId;
 
-        if (!$this->usingNetworkStorage()) {
+        if (! $this->usingNetworkStorage()) {
             File::deleteDirectory($this->privateAbsolutePath('cameras/'.$cameraDirectory));
             File::deleteDirectory($this->privateAbsolutePath('review-sprites/cameras/'.$cameraDirectory));
 
             return;
         }
 
-        $this->cameraDisk()->deleteDirectory($cameraDirectory);
+        if (! $this->cameraDisk()->deleteDirectory($cameraDirectory)) {
+            throw new RuntimeException('Unable to delete the camera directory from the active network share.');
+        }
 
+        File::deleteDirectory($this->privateAbsolutePath('cameras/'.$cameraDirectory));
         File::deleteDirectory($this->writeStagingAbsolutePath('cameras/'.$cameraDirectory));
         File::deleteDirectory($this->readCacheRoot().'/cameras/'.$cameraDirectory);
         File::deleteDirectory($this->privateAbsolutePath('review-sprites/cameras/'.$cameraDirectory));
     }
 
-    private function localReadablePath(?string $path, bool $preferDirectRead = false, ?int $transferTimeoutSeconds = null): ?string
+    private function localReadablePath(?string $path, ?int $transferTimeoutSeconds = null): ?string
     {
         $relativePath = $this->privateStorageRelativePath($path);
 
@@ -759,23 +752,15 @@ class CameraStorageService
             return null;
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             return $this->resolveExistingPrivateAbsolutePath($relativePath);
         }
 
         $diskPath = $this->cameraDiskRelativePath($relativePath);
 
         if ($this->networkCameraDiskAvailability($diskPath) !== self::RECORDING_AVAILABILITY_PRESENT
-            && !$this->recoverMissingNetworkBackedRecordingFromStaging($relativePath, $diskPath)) {
+            && ! $this->recoverMissingNetworkBackedRecordingFromStaging($relativePath, $diskPath)) {
             return null;
-        }
-
-        if ($preferDirectRead) {
-            $directReadPath = $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
-
-            if ($directReadPath !== null) {
-                return $directReadPath;
-            }
         }
 
         return $this->copyCameraDiskPathToReadCache($diskPath, $relativePath, $transferTimeoutSeconds);
@@ -783,13 +768,13 @@ class CameraStorageService
 
     private function recoverMissingNetworkBackedRecordingFromStaging(string $relativePath, ?string $diskPath = null): bool
     {
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             return false;
         }
 
         $stagedPath = $this->writeStagingAbsolutePath($relativePath);
 
-        if (!is_file($stagedPath)) {
+        if (! is_file($stagedPath)) {
             return false;
         }
 
@@ -826,40 +811,47 @@ class CameraStorageService
             return null;
         }
 
-        if (!is_resource($stream)) {
+        if (! is_resource($stream)) {
             return null;
         }
 
         $destination = $this->openReadCacheDestination($readPath, $readDirectory);
 
-        if (!is_resource($destination)) {
+        if (! is_resource($destination)) {
             fclose($stream);
 
             throw new RuntimeException('Unable to create a local cache file for SMB storage reads.');
         }
 
         try {
-            stream_copy_to_stream($stream, $destination);
+            $copied = stream_copy_to_stream($stream, $destination);
+        } catch (Throwable $exception) {
+            @unlink($readPath);
+
+            throw $exception;
         } finally {
             fclose($stream);
             fclose($destination);
         }
 
+        if ($copied === false) {
+            @unlink($readPath);
+
+            return null;
+        }
+
         return is_file($readPath) ? $readPath : null;
     }
 
-    /**
-     * @return string|false|null
-     */
     private function copyCameraDiskPathToReadCacheWithSmbClient(string $diskPath, string $relativePath, ?int $transferTimeoutSeconds = null): string|false|null
     {
-        if (!$this->shouldUseSmbClientTransfers()) {
+        if (! $this->shouldUseSmbClientTransfers()) {
             return null;
         }
 
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return null;
         }
 
@@ -912,7 +904,7 @@ class CameraStorageService
     {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return false;
         }
 
@@ -924,7 +916,7 @@ class CameraStorageService
 
         $targetPath = $this->cameraDiskSmbTargetPath($diskPath);
 
-        if (!is_string($targetPath) || $targetPath === '') {
+        if (! is_string($targetPath) || $targetPath === '') {
             return false;
         }
 
@@ -940,7 +932,10 @@ class CameraStorageService
             return false;
         }
 
-        $timeout = max(20, $transferTimeoutSeconds ?? 30);
+        $sizeBasedTimeout = is_int($localSize)
+            ? min(180, max(30, (int) ceil($localSize / 1048576)))
+            : 30;
+        $timeout = max(20, $transferTimeoutSeconds ?? $sizeBasedTimeout);
 
         try {
             $upload = $this->runSmbClientCommand(
@@ -951,6 +946,12 @@ class CameraStorageService
             );
 
             if (! $upload->isSuccessful()) {
+                return false;
+            }
+
+            $uploadedSize = $this->smbClientTargetFileSize($binary, $networkConfig, $temporaryTargetPath);
+
+            if (! is_int($localSize) || $uploadedSize !== $localSize) {
                 return false;
             }
 
@@ -965,14 +966,34 @@ class CameraStorageService
                 return true;
             }
 
-            $replace = $this->runSmbClientCommand(
+            $backupTargetPath = $targetPath.'.replacing-'.bin2hex(random_bytes(8));
+            $backup = $this->runSmbClientCommand(
                 $binary,
                 $networkConfig,
-                'del "'.$targetPath.'"; rename "'.$temporaryTargetPath.'" "'.$targetPath.'"',
+                'rename "'.$targetPath.'" "'.$backupTargetPath.'"',
                 $timeout,
             );
 
-            return $replace->isSuccessful();
+            if (! $backup->isSuccessful()) {
+                return false;
+            }
+
+            $replace = $this->runSmbClientCommand(
+                $binary,
+                $networkConfig,
+                'rename "'.$temporaryTargetPath.'" "'.$targetPath.'"',
+                $timeout,
+            );
+
+            if (! $replace->isSuccessful()) {
+                $this->runSmbClientCommand($binary, $networkConfig, 'rename "'.$backupTargetPath.'" "'.$targetPath.'"', $timeout);
+
+                return false;
+            }
+
+            $this->runSmbClientCommand($binary, $networkConfig, 'del "'.$backupTargetPath.'"', min($timeout, 10));
+
+            return true;
         } catch (Throwable) {
             return false;
         } finally {
@@ -989,6 +1010,61 @@ class CameraStorageService
         }
     }
 
+    private function writeCameraDiskPathWithAdapter(string $diskPath, string $localPath): void
+    {
+        $disk = $this->cameraDisk();
+        $temporaryPath = $diskPath.'.uploading-'.bin2hex(random_bytes(8));
+        $localSize = @filesize($localPath);
+
+        if (! is_int($localSize)) {
+            throw new RuntimeException('Unable to determine the staged recording size before SMB upload.');
+        }
+
+        $stream = @fopen($localPath, 'rb');
+
+        if (! is_resource($stream)) {
+            throw new RuntimeException('Unable to open the staged file for SMB upload: '.$localPath);
+        }
+
+        try {
+            try {
+                if (! $disk->writeStream($temporaryPath, $stream)) {
+                    throw new RuntimeException('Unable to upload the staged file to SMB storage.');
+                }
+            } finally {
+                fclose($stream);
+            }
+
+            if ($disk->size($temporaryPath) !== $localSize) {
+                throw new RuntimeException('The temporary SMB upload size does not match the staged file.');
+            }
+
+            if ($disk->move($temporaryPath, $diskPath)) {
+                return;
+            }
+
+            if (! $disk->exists($diskPath)) {
+                throw new RuntimeException('Unable to promote the temporary SMB upload.');
+            }
+
+            $backupPath = $diskPath.'.replacing-'.bin2hex(random_bytes(8));
+
+            if (! $disk->move($diskPath, $backupPath)) {
+                throw new RuntimeException('Unable to preserve the existing SMB file before replacement.');
+            }
+
+            if (! $disk->move($temporaryPath, $diskPath)) {
+                $disk->move($backupPath, $diskPath);
+
+                throw new RuntimeException('Unable to promote the replacement SMB upload.');
+            }
+
+            $disk->delete($backupPath);
+        } finally {
+            $disk->delete($temporaryPath);
+        }
+    }
+
     private function openReadCacheDestination(string $readPath, string $readDirectory)
     {
         for ($attempt = 0; $attempt < 3; $attempt++) {
@@ -1001,7 +1077,7 @@ class CameraStorageService
             }
 
             if (is_file($readPath)) {
-                @unlink($readPath);
+                return false;
             }
         }
 
@@ -1040,7 +1116,7 @@ class CameraStorageService
     {
         $cameraRoot = $this->privateAbsolutePath('cameras');
 
-        if (!is_dir($cameraRoot)) {
+        if (! is_dir($cameraRoot)) {
             return [];
         }
 
@@ -1055,7 +1131,7 @@ class CameraStorageService
 
             $absolutePath = str_replace('\\', '/', $file->getPathname());
 
-            if (!str_contains($absolutePath, '/recordings/') || str_contains($absolutePath, '/_review/')) {
+            if (! str_contains($absolutePath, '/recordings/') || str_contains($absolutePath, '/_review/')) {
                 continue;
             }
 
@@ -1094,7 +1170,7 @@ class CameraStorageService
         foreach ($this->cameraDisk()->allFiles() as $diskPath) {
             $normalizedDiskPath = str_replace('\\', '/', $diskPath);
 
-            if (!str_contains($normalizedDiskPath, '/recordings/') || str_contains($normalizedDiskPath, '/_review/')) {
+            if (! str_contains($normalizedDiskPath, '/recordings/') || str_contains($normalizedDiskPath, '/_review/')) {
                 continue;
             }
 
@@ -1106,13 +1182,13 @@ class CameraStorageService
 
             try {
                 $size = $this->cameraDisk()->size($normalizedDiskPath);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 $size = null;
             }
 
             try {
                 $modified = $this->cameraDisk()->lastModified($normalizedDiskPath);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 $modified = null;
             }
 
@@ -1154,11 +1230,11 @@ class CameraStorageService
     {
         $relativePath = $this->privateStorageRelativePath($recordingPath);
 
-        if ($relativePath === null || !$this->isCameraRelativePath($relativePath)) {
+        if ($relativePath === null || ! $this->isCameraRelativePath($relativePath)) {
             return;
         }
 
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             $absolutePath = $this->privateAbsolutePath($relativePath);
             $directory = dirname($absolutePath);
             $cameraRecordingsRoot = dirname(dirname(dirname($absolutePath)));
@@ -1201,7 +1277,7 @@ class CameraStorageService
         $directory = dirname($diskPath);
 
         while ($directory !== '.' && $directory !== $stopDirectory && str_starts_with($directory, $stopDirectory)) {
-            if (!$this->cameraDirectoryEmpty($directory)) {
+            if (! $this->cameraDirectoryEmpty($directory)) {
                 break;
             }
 
@@ -1278,7 +1354,7 @@ class CameraStorageService
 
     private function cameraDiskRelativePath(string $relativePath): string
     {
-        if (!$this->usesNetworkCameraStorage($relativePath)) {
+        if (! $this->usesNetworkCameraStorage($relativePath)) {
             throw new RuntimeException('Only network-backed camera recording clip paths can be mapped onto the camera disk.');
         }
 
@@ -1289,7 +1365,7 @@ class CameraStorageService
     {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig) || ! $this->isSafeSmbClientPath($diskPath)) {
             return null;
         }
 
@@ -1310,7 +1386,7 @@ class CameraStorageService
 
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return $targets;
         }
 
@@ -1323,7 +1399,7 @@ class CameraStorageService
         $legacyRoot = trim((string) preg_replace('#(?:^|/)cameras$#i', '', $root), '/');
         $legacyTarget = trim(($legacyRoot !== '' ? $legacyRoot.'/' : '').ltrim($diskPath, '/'), '/');
 
-        if ($legacyTarget !== '') {
+        if ($legacyTarget !== '' && $this->isSafeSmbClientPath($legacyTarget)) {
             $targets[] = $legacyTarget;
         }
 
@@ -1352,11 +1428,7 @@ class CameraStorageService
         } catch (Throwable $exception) {
             $remoteSize = $this->cameraDiskFileSizeWithSmbClient($diskPath);
 
-            if (!is_int($remoteSize)) {
-                if ($this->shouldUseSmbClientTransfers()) {
-                    return;
-                }
-
+            if (! is_int($remoteSize)) {
                 throw new RuntimeException(
                     $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
                     previous: $exception,
@@ -1367,11 +1439,13 @@ class CameraStorageService
         clearstatcache(true, $localPath);
         $localSize = @filesize($localPath);
 
-        if (!is_int($localSize)) {
-            return;
+        if (! is_int($localSize)) {
+            throw new RuntimeException(
+                $this->uploadVerificationFailureMessage('Unable to verify the staged file size after upload.', $diskPath, $localPath),
+            );
         }
 
-        if (!is_numeric($remoteSize) || (int) $remoteSize !== $localSize) {
+        if (! is_numeric($remoteSize) || (int) $remoteSize !== $localSize) {
             throw new RuntimeException(
                 $this->uploadVerificationFailureMessage('The uploaded file size on the active camera storage disk does not match the staged file.', $diskPath, $localPath),
             );
@@ -1397,7 +1471,7 @@ class CameraStorageService
         ) === 1;
     }
 
-    protected function cameraDisk(): \Illuminate\Contracts\Filesystem\Filesystem
+    protected function cameraDisk(): Filesystem
     {
         return Storage::disk('camera_private');
     }
@@ -1447,7 +1521,7 @@ class CameraStorageService
             $encounteredException = true;
         }
 
-        return $encounteredException
+        return $encounteredException || $this->shouldUseSmbClientTransfers()
             ? self::RECORDING_AVAILABILITY_UNREACHABLE
             : self::RECORDING_AVAILABILITY_MISSING;
     }
@@ -1481,7 +1555,7 @@ class CameraStorageService
     {
         clearstatcache(true, $path);
 
-        if (!is_dir($path) && !@mkdir($path, 0775, true) && !is_dir($path)) {
+        if (! is_dir($path) && ! @mkdir($path, 0775, true) && ! is_dir($path)) {
             throw new RuntimeException('The camera storage directory is not writable: '.$path);
         }
 
@@ -1489,7 +1563,7 @@ class CameraStorageService
 
         clearstatcache(true, $path);
 
-        if (!is_dir($path) || !is_writable($path)) {
+        if (! is_dir($path) || ! is_writable($path)) {
             throw new RuntimeException('The camera storage directory is not writable: '.$path);
         }
     }
@@ -1505,7 +1579,7 @@ class CameraStorageService
         foreach ($this->managedDirectoryStopRoots() as $stopRoot) {
             $normalizedStopRoot = rtrim(str_replace('\\', '/', $stopRoot), '/');
 
-            if (!str_starts_with($normalizedPath, $normalizedStopRoot)) {
+            if (! str_starts_with($normalizedPath, $normalizedStopRoot)) {
                 continue;
             }
 
@@ -1556,6 +1630,10 @@ class CameraStorageService
         $path = '';
         $disk = $this->cameraDisk();
 
+        if ($this->cameraDiskDirectoryExists($disk, $normalizedDirectory)) {
+            return;
+        }
+
         foreach ($segments as $segment) {
             if ($segment === '') {
                 continue;
@@ -1570,14 +1648,14 @@ class CameraStorageService
             try {
                 $disk->makeDirectory($path);
             } catch (Throwable $exception) {
-                if (!$this->createCameraDiskDirectoryWithSmbClient($path)) {
+                if (! $this->createCameraDiskDirectoryWithSmbClient($path)) {
                     throw $exception;
                 }
 
                 continue;
             }
 
-            if (!$this->cameraDiskDirectoryExists($disk, $path) && !$this->createCameraDiskDirectoryWithSmbClient($path)) {
+            if (! $this->cameraDiskDirectoryExists($disk, $path) && ! $this->createCameraDiskDirectoryWithSmbClient($path)) {
                 throw new RuntimeException('Unable to create the camera storage directory on the active network share: '.$path);
             }
         }
@@ -1600,7 +1678,7 @@ class CameraStorageService
     {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return false;
         }
 
@@ -1650,12 +1728,16 @@ class CameraStorageService
     {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return [];
         }
 
         $segments = array_filter(explode('/', trim(str_replace('\\', '/', (string) ($networkConfig['root'] ?? '')), '/')));
         $segments = array_merge($segments, array_filter(explode('/', trim(str_replace('\\', '/', $path), '/'))));
+
+        if (collect($segments)->contains(fn (string $segment): bool => ! $this->isSafeSmbClientPath($segment))) {
+            return [];
+        }
 
         $targets = [];
         $current = '';
@@ -1698,7 +1780,7 @@ class CameraStorageService
      */
     protected function deleteCameraDiskPathWithSmbClient(string $diskPath): ?bool
     {
-        if (!$this->shouldUseSmbClientTransfers()) {
+        if (! $this->shouldUseSmbClientTransfers()) {
             return null;
         }
 
@@ -1706,7 +1788,7 @@ class CameraStorageService
         $binary = $this->smbClientBinary();
         $targetPaths = $this->cameraDiskReadSmbTargetPaths($diskPath);
 
-        if (!is_array($networkConfig) || $binary === null || $targetPaths === []) {
+        if (! is_array($networkConfig) || $binary === null || $targetPaths === []) {
             return null;
         }
 
@@ -1756,7 +1838,7 @@ class CameraStorageService
     {
         $networkConfig = $this->settings->networkStorageDiskConfig();
 
-        if (!is_array($networkConfig)) {
+        if (! is_array($networkConfig)) {
             return null;
         }
 
@@ -1821,7 +1903,6 @@ class CameraStorageService
             '/(?:^|\R)\s*size:\s*(\d+)\b/im',
             '/(?:^|\R)\s*eof:\s*(\d+)\b/im',
             '/(?:^|\R)\s*end of file:\s*(\d+)\b/im',
-            '/(?:^|\R)\s*allocation size:\s*(\d+)\b/im',
         ] as $pattern) {
             if (preg_match($pattern, $output, $matches) === 1) {
                 return (int) $matches[1];
@@ -1831,11 +1912,37 @@ class CameraStorageService
         return null;
     }
 
+    /**
+     * @param  array{host: string, share: string, root: string, username: string, password: string}  $networkConfig
+     */
+    private function smbClientTargetFileSize(string $binary, array $networkConfig, string $targetPath): ?int
+    {
+        try {
+            $process = $this->runSmbClientCommand(
+                $binary,
+                $networkConfig,
+                'allinfo "'.$targetPath.'"',
+                self::SMB_METADATA_TIMEOUT_SECONDS,
+            );
+
+            return $process->isSuccessful()
+                ? $this->parseSmbClientAllInfoSize($process->getOutput())
+                : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function isSafeSmbClientPath(string $path): bool
+    {
+        return $path !== '' && preg_match('/[";\x00-\x1F\x7F]/', $path) !== 1;
+    }
+
     private function imageMimeTypeFromAbsolutePath(string $absolutePath): ?string
     {
         $imageInfo = @getimagesize($absolutePath);
 
-        if (!is_array($imageInfo) || !is_string($imageInfo['mime'] ?? null)) {
+        if (! is_array($imageInfo) || ! is_string($imageInfo['mime'] ?? null)) {
             return null;
         }
 
@@ -1975,7 +2082,7 @@ class CameraStorageService
 
     private function privateStorageRelativePath(?string $path): ?string
     {
-        if (!is_string($path) || trim($path) === '') {
+        if (! is_string($path) || trim($path) === '') {
             return null;
         }
 
@@ -2055,13 +2162,13 @@ class CameraStorageService
         $absolutePath = $this->privateAbsolutePath($relativePath);
         $resolvedPath = realpath($absolutePath);
 
-        if (!is_string($resolvedPath) || $resolvedPath === '') {
+        if (! is_string($resolvedPath) || $resolvedPath === '') {
             return null;
         }
 
         $normalizedPath = str_replace('\\', '/', $resolvedPath);
 
-        if (!$this->pathWithinRoot($normalizedPath, $this->privateStorageRoot()) || !is_file($normalizedPath)) {
+        if (! $this->pathWithinRoot($normalizedPath, $this->privateStorageRoot()) || ! is_file($normalizedPath)) {
             return null;
         }
 
@@ -2090,7 +2197,7 @@ class CameraStorageService
 
     private function normalizeRelativeStoragePath(?string $path): ?string
     {
-        if (!is_string($path) || $path === '' || str_contains($path, "\0")) {
+        if (! is_string($path) || $path === '' || str_contains($path, "\0")) {
             return null;
         }
 
@@ -2115,7 +2222,7 @@ class CameraStorageService
 
     private function normalizeAbsolutePath(?string $path): ?string
     {
-        if (!is_string($path) || trim($path) === '' || str_contains($path, "\0")) {
+        if (! is_string($path) || trim($path) === '' || str_contains($path, "\0")) {
             return null;
         }
 
