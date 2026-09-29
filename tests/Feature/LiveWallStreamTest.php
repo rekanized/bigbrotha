@@ -6,6 +6,7 @@ use App\Models\Camera;
 use App\Models\LiveWall;
 use App\Models\User;
 use App\Services\Relay\MediaMtxAccessTokenService;
+use App\Services\Relay\MediaMtxPathStatusService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -915,10 +916,16 @@ class LiveWallStreamTest extends TestCase
         File::ensureDirectoryExists($binaryDirectory);
 
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-live-mjpeg.sh';
-        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '%s' '--bigbrotha-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrotha-live--\\r\\n'".PHP_EOL);
+        $argumentsPath = $binaryDirectory.'/ffmpeg-live-mjpeg-arguments.txt';
+        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL
+            .'printf \'%s\n\' "$@" > '.escapeshellarg($argumentsPath).PHP_EOL
+            ."printf '%s' '--bigbrotha-live\\r\\nContent-Type: image/jpeg\\r\\n\\r\\nframe-one\\r\\n--bigbrotha-live--\\r\\n'".PHP_EOL);
         chmod($ffmpegBinary, 0755);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        $pathStatus = Mockery::mock(MediaMtxPathStatusService::class);
+        $pathStatus->shouldReceive('activePaths')->once()->andReturn([]);
+        $this->app->instance(MediaMtxPathStatusService::class, $pathStatus);
 
         $response = $this->actingAs(User::factory()->create())
             ->get(route('live-wall.stream', ['camera' => $camera, 'profileIndex' => 0]));
@@ -928,6 +935,7 @@ class LiveWallStreamTest extends TestCase
             ->assertHeader('content-type', 'multipart/x-mixed-replace;boundary=bigbrotha-live');
 
         $this->assertStringContainsString('frame-one', $response->streamedContent());
+        $this->assertStringContainsString('rtsp://operator:secret@192.168.1.67:554/stream2', File::get($argumentsPath));
     }
 
     public function test_it_streams_a_copy_relay_without_reencoding_video(): void
@@ -959,10 +967,20 @@ class LiveWallStreamTest extends TestCase
         File::ensureDirectoryExists($binaryDirectory);
 
         $ffmpegBinary = $binaryDirectory.'/ffmpeg-live-relay.sh';
-        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL."printf '....ftypisomrelay-data'".PHP_EOL);
+        $argumentsPath = $binaryDirectory.'/ffmpeg-live-relay-arguments.txt';
+        File::put($ffmpegBinary, '#!/usr/bin/env bash'.PHP_EOL
+            .'printf \'%s\n\' "$@" > '.escapeshellarg($argumentsPath).PHP_EOL
+            ."printf '....ftypisomrelay-data'".PHP_EOL);
         chmod($ffmpegBinary, 0755);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('mediamtx.rtsp.internal_base_url', 'rtsp://relay:8554');
+        config()->set('mediamtx.auth.reader_user', 'internal-reader');
+        config()->set('mediamtx.auth.reader_pass', 'relay-pass');
+        $sourcePath = 'camera-'.$camera->id.'-source-profile-0';
+        $pathStatus = Mockery::mock(MediaMtxPathStatusService::class);
+        $pathStatus->shouldReceive('activePaths')->once()->andReturn([$sourcePath => true]);
+        $this->app->instance(MediaMtxPathStatusService::class, $pathStatus);
 
         $response = $this->actingAs(User::factory()->create())
             ->get(route('live-wall.relay', ['camera' => $camera, 'profileIndex' => 0]));
@@ -972,6 +990,8 @@ class LiveWallStreamTest extends TestCase
             ->assertHeader('content-type', 'video/mp4');
 
         $this->assertStringContainsString('ftypisomrelay-data', $response->streamedContent());
+        $this->assertStringContainsString('rtsp://internal-reader:relay-pass@relay:8554/'.$sourcePath, File::get($argumentsPath));
+        $this->assertStringNotContainsString('192.168.1.67', File::get($argumentsPath));
     }
 
     private function mockRelayProcess(bool $running, ?bool $apiReachable = null): void

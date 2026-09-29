@@ -1,10 +1,12 @@
 .git
 .github
+.docker-state
 .phpunit.cache
 .env
 .env.*
 !.env.example
 !.env.docker.example
+auth.json
 vendor
 node_modules
 bootstrap/cache/*.php
@@ -20,4 +22,5 @@ storage/framework/sessions
 storage/framework/testing
 storage/framework/views
 storage/logs
+public/storage
 docker-compose.override.yml

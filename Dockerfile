@@ -1,8 +1,8 @@
 FROM debian:bookworm-slim AS mediamtx
 
-ARG MEDIAMTX_VERSION=1.19.2
-ARG MEDIAMTX_SHA256_AMD64=f9c601cc303ceca8fad2883917b022882672c5bc56311e92dbceb16e5f20c60c
-ARG MEDIAMTX_SHA256_ARM64=562f419912a8668c18216a9e8c95359ec82fbb754e4a44e2953ef62b98eec688
+ARG MEDIAMTX_VERSION=1.21.1
+ARG MEDIAMTX_SHA256_AMD64=653abc672a3e693f8d3b2717752492fdcfb8072291ec108d03d3dd857411b0ee
+ARG MEDIAMTX_SHA256_ARM64=6a3aa635fb60ea9b8d566ec306f0a42ff1b6b52a3942bc2baffbe55880d4c3dd
 ARG TARGETARCH
 
 RUN set -eux; \
@@ -31,7 +31,7 @@ RUN set -eux; \
     tar -xzf "/tmp/${archive}" -C /tmp/mediamtx; \
     install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx
 
-FROM php:8.3-fpm-bookworm AS runtime
+FROM php:8.5-fpm-bookworm AS runtime
 
 ENV APP_ROOT=/app \
     COMPOSER_ALLOW_SUPERUSER=1
@@ -193,5 +193,18 @@ RUN cp .env.example .env \
     && composer audit --locked --no-dev
 
 CMD ["php", "artisan", "test"]
+
+FROM application AS development
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git libsqlite3-dev unzip \
+    && docker-php-ext-install -j"$(nproc)" pdo_sqlite \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i 's/open_file_cache max=1000 inactive=60s;/open_file_cache off;/' /etc/nginx/nginx.conf \
+    && sed -i 's/expires 1h;/expires -1;/' /etc/nginx/conf.d/default.conf
+
+COPY docker/php-development.ini /usr/local/etc/php/conf.d/zzz-development.ini
 
 FROM application AS final

@@ -7,7 +7,7 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 ## Runtime Stack
 
 - Laravel 13.
-- PHP 8.3.
+- PHP 8.5.
 - Livewire 4 for server-driven UI behavior.
 - Blade templates and standard CSS.
 - Laravel session authentication backed by manual local accounts and optional Google OAuth via Laravel Socialite.
@@ -15,7 +15,8 @@ This application is an operator-facing camera platform for ONVIF and RTSP device
 - Laravel scheduler plus queue workers for preview maintenance and per-camera recording jobs.
 - MediaMTX as the shared WebRTC relay managed from Laravel and bundled directly into the Docker app image.
 - Docker Compose deployments are image-first by default through one published `rekanized/bigbrotha-app` image, while repository-local builds use `docker-compose.build.yml` as an override.
-- The Dockerfile downloads MediaMTX 1.19.2 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
+- Development uses `docker-compose.dev.yml` with bind-mounted source for the app and background roles, plus separate volumes for Composer dependencies and Laravel cache files. The development image enables PHP source timestamp checks and disables Nginx's file cache; startup clears Laravel runtime caches. Production continues to copy source and production Composer dependencies into an immutable image, while runtime storage and the application key remain external volumes.
+- The Dockerfile downloads MediaMTX 1.21.1 for amd64 or arm64 and verifies the matching upstream SHA-256 before installing the binary.
 - The application image owns fixed production runtime defaults, a dedicated `run-relay` role, and one health-check dispatcher that selects the app, background, or relay probe. Compose is intentionally limited to topology, persistence, published ports, and deployment credentials.
 - App and background startup warm Laravel's event, route, and compiled-view caches. Configuration stays uncached because database-backed Google and SMB credentials are applied dynamically and must never be serialized into `bootstrap/cache/config.php`.
 - The production HTTP runtime enables gzip, bounded Nginx file metadata caching, PHP realpath caching, immutable-image OPcache, and a bounded dynamic PHP-FPM pool. CSS remains revalidation-based because the no-build stylesheet graph uses nested imports; versioned JavaScript and image assets receive a short browser freshness window.
@@ -91,7 +92,7 @@ Important model helpers:
 - `App\Services\Onvif\OnvifRtspStreamService` retrieves ONVIF media capabilities, profiles, and RTSP stream URIs.
 - `App\Services\Onvif\RtspStreamDiagnosticsService` validates RTSP connectivity, captures preview frames, falls back from UDP to TCP when needed, and can reuse an active MediaMTX live or recording relay for the same profile when a camera rejects another direct RTSP session.
 - `App\Services\CameraStorageService` manages per-camera storage folders, stages ffmpeg writes locally when needed, routes only the durable saved recording clip files under `cameras/{id}/recordings/YYYY/MM/DD/*` onto the admin-configured SMB disk when network storage is enabled, keeps previews, review assets, and temporary buffers on local private storage, publishes SMB files through a temporary remote name before promotion, verifies the remote file before removing the local staged clip, and supplies `smbclient` credentials through short-lived mode-0600 authentication files instead of process arguments.
-- `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video.
+- `App\Services\CameraLiveStreamService` selects efficient wall profiles, proxies a browser-safe MJPEG live feed, and exposes a copied relay stream without re-encoding the camera video. These legacy endpoints read an active canonical MediaMTX source for the selected profile, avoiding another hardware camera connection; they fall back to direct RTSP when that source is unavailable.
 - `App\Services\CameraRecordingService` orchestrates recording policies, delegates continuous-mode process lifecycle to `App\Services\ContinuousRecordingSegmenterService`, uses a recording-specific ffmpeg RTSP input profile with larger buffers and timestamp recovery instead of sharing the live wall's low-latency probe settings, runs masked low-fps grayscale frame differencing on a normalized motion grid, rejects widespread frame refreshes and coherent whole-frame luminance changes before applying clustered motion weighting, keeps a persistent per-camera short-segment motion buffer through `App\Services\MotionRecordingSegmenterService`, opens a motion event on the first detected motion segment, preserves configurable pre-roll context from the rolling buffer, extends the event while new motion segments continue to arrive, finalizes the event only after a full quiet post-trigger window has elapsed, stitches the closed buffer segments with ffmpeg concat into the saved recording, reuses that locally staged stitched clip for later SMB upload retries so the raw motion buffer can still prune back to its idle window during storage outages, reads from the canonical local MediaMTX source path for the selected profile so recorder workers do not open fresh direct RTSP sessions, keeps that relay-based recording path on a copy-oriented codec path instead of the live wall's browser-safe audio transcode, and prunes expired footage.
 - `App\Services\CameraRecordingService` resolves a canonical internal MediaMTX source path per camera profile and always points both the continuous recorder and the rolling motion segmenter at that internal RTSP path when relay reader credentials are available, including profile index `0`, instead of opening fresh direct RTSP sessions from recorder-side ffmpeg processes.
 - `App\Services\Relay\MediaMtxConfigService` generates MediaMTX paths from enabled cameras and lets the motion-mask editor reuse an already-active live relay when it matches the selected recording profile, avoiding extra RTSP sessions on single-session cameras.
@@ -278,7 +279,7 @@ Relevant behavior:
 - MediaMTX player traffic defaults to a proxied path such as `/__webrtc/` derived from `APP_URL`, and `MEDIAMTX_WEBRTC_PUBLIC_URL` remains available as an override for non-default relay publishing.
 - the reverse proxy must preserve the `/__webrtc` prefix on WHEP session URLs, typically with `X-Forwarded-Prefix` and `proxy_redirect` rules that rewrite upstream `Location` headers back under `/__webrtc/`.
 - Nginx inside `app` resolves the `relay` upstream through Docker DNS instead of pinning a single container IP, so recreating the relay does not leave `/__webrtc/` traffic pointed at a stale address.
-- Media traffic still requires direct ICE reachability on the configured WebRTC transport ports, typically `8189/udp` and optionally `8189/tcp`.
+- Media traffic still requires direct ICE reachability on the configured `MEDIAMTX_ICE_PORT` (UDP and TCP; default 8190).
 
 ## Storage Layout
 

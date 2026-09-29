@@ -152,7 +152,7 @@ Per-camera recording is scheduler-orchestrated, with queue-backed motion work an
 
 Current expectations:
 
-- `php artisan schedule:run` must execute every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running.
+- the `background` container runs `php artisan schedule:run` every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running; check its scheduler health before adding host cron.
 - a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
 - the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
 - the repository Docker stack satisfies those requirements with separate scheduler and worker process groups inside the `background` container.
@@ -260,7 +260,7 @@ Implications:
 - wall tiles still require ffmpeg to decode and re-encode for browser-safe playback, but only once per active camera path instead of once per viewer.
 - the implementation mitigates this by preferring lower-cost RTSP substreams when available.
 - MediaMTX requires its own HTTP and ICE ports in addition to the Laravel web port.
-- a separate `/live-wall/{camera}/relay` endpoint is available for a no-transcode path that remuxes copied video into fragmented MP4.
+- a separate `/live-wall/{camera}/relay` endpoint is available for a no-transcode path that remuxes copied video into fragmented MP4. This endpoint and the legacy MJPEG route use the active canonical source path when one is ready. They still open a direct camera connection when no canonical source is active, so avoid using them as a multi-viewer wall fallback during a relay outage.
 - live-wall tiles must stay live-only. If a camera feed is unavailable, the tile should fail closed, show the stream error, and retry the live session instead of swapping to a saved preview image.
 - browser receiver work is visibility-aware: off-screen tiles pause after 30 seconds, dimmed tiles pause for the duration of focused mode, and a hidden wall pauses after 10 seconds. Returning to the wall reconnects those live receivers with staggered startup, so a briefly resumed tile can take a few seconds to display again while MediaMTX wakes an on-demand path.
 - reconnects use bounded exponential backoff with jitter and a decoded-frame watchdog. This reduces synchronized retry storms and recovers WebRTC sessions whose signaling remains open after video delivery has stalled.
@@ -359,7 +359,7 @@ If the player stays on `Loading secure stream…`, check these in order:
 	- the expected `authHTTPAddress` with the callback secret.
 	- a `runOnDemand` RTSP publish target that includes the internal publisher credentials.
 6. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
-7. if the relay log shows sessions being created and then timing out, check `8189/udp` and optionally `8189/tcp` reachability before changing Laravel code.
+7. if the relay log shows sessions being created and then timing out, check `MEDIAMTX_ICE_PORT` UDP and TCP reachability before changing Laravel code.
 8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
 9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://app:8080/relay/auth/mediamtx`; Nginx listens inside `app` on port `8080`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
 10. if the browser still appears to run old PHP or Blade behavior, confirm the app and background containers were recreated from the intended immutable image tag; production OPcache intentionally does not poll source timestamps.
@@ -374,11 +374,11 @@ For a site published at a hostname like `monitor.schollinetz.com`, there are two
 Recommended setup:
 
 1. proxy the MediaMTX HTTP player and WHEP handshake through Nginx on the same HTTPS origin, for example `/__webrtc/`.
-2. expose MediaMTX ICE transport on `8189/udp` and ideally `8189/tcp` to the public internet or upstream load balancer.
-3. set `APP_URL=https://monitor.schollinetz.com` so Laravel derives the default relay URL `https://monitor.schollinetz.com/__webrtc` and callback URL `https://monitor.schollinetz.com/relay/auth/mediamtx`.
-4. add `MEDIAMTX_WEBRTC_PUBLIC_URL`, `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS`, or `MEDIAMTX_AUTH_CALLBACK_URL` only if the relay is published on a different origin or prefix than the app itself.
+2. expose MediaMTX ICE transport on `MEDIAMTX_ICE_PORT` for UDP and TCP (default 8190) to the public internet or upstream load balancer.
+3. set `APP_URL=https://monitor.schollinetz.com` so Laravel derives the default public relay URL `https://monitor.schollinetz.com/__webrtc`. In the Docker image, the relay auth callback remains internal at `http://app:8080/relay/auth/mediamtx`.
+4. add `MEDIAMTX_WEBRTC_PUBLIC_URL` or `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS` when the public relay origin or ICE address differs from the defaults; change `MEDIAMTX_AUTH_CALLBACK_URL` only when the internal app endpoint differs.
 5. add `MEDIAMTX_AUTH_CALLBACK_SECRET` only if you need an explicit callback secret instead of the default derived from `APP_KEY`.
-7. set `TRUSTED_PROXIES` to your Nginx proxy IPs or `*` if you fully trust the proxy layer.
+6. set `TRUSTED_PROXIES` to your Nginx proxy IPs or `*` if you fully trust the proxy layer.
 
 Example Nginx HTTP location for the player and WebRTC handshake:
 
@@ -396,33 +396,33 @@ location /__webrtc/ {
 }
 ```
 
-If Nginx has the stream module enabled, example TCP and UDP forwarding for ICE on port `8189`:
+If Nginx has the stream module enabled, example TCP and UDP forwarding for the default ICE port 8190:
 
 ```nginx
 stream {
 	server {
-		listen 8189 udp;
-		proxy_pass 127.0.0.1:8189;
+		listen 8190 udp;
+		proxy_pass 127.0.0.1:8190;
 	}
 
 	server {
-		listen 8189;
-		proxy_pass 127.0.0.1:8189;
+		listen 8190;
+		proxy_pass 127.0.0.1:8190;
 	}
 }
 ```
 
-For a same-host deployment where MediaMTX already listens directly on `:8189`, prefer opening that port in the host firewall instead of binding the same public port again through a site-level Nginx configuration file.
+For a same-host deployment where MediaMTX already listens directly on `MEDIAMTX_ICE_PORT`, prefer opening that port in the host firewall instead of binding the same public port again through a site-level Nginx configuration file.
 
 Important deployment note:
 
 - `stream {}` cannot be nested inside a normal `server {}` block.
 - many distributions load `stream` configuration from a separate top-level include such as `/etc/nginx/nginx.conf` or `/etc/nginx/stream-conf.d/*.conf`.
-- if MediaMTX and Nginx run on the same host, the simplest setup is often to let MediaMTX own `8189` directly and use Nginx only for `/__webrtc/` HTTP proxying.
+- if MediaMTX and Nginx run on the same host, the simplest setup is often to let MediaMTX own `MEDIAMTX_ICE_PORT` directly and use Nginx only for `/__webrtc/` HTTP proxying.
 
-If you cannot expose `8189` at all, WebRTC will usually require a TURN server instead of plain Nginx HTTP proxying alone.
+If you cannot expose the configured ICE port at all, WebRTC will usually require a TURN server instead of plain Nginx HTTP proxying alone.
 
-If the iframe URL is under `/__webrtc/...` but the browser console shows `PATCH` or `DELETE` requests failing on `/camera-*-live/whep/...` without the `/__webrtc` prefix, the reverse proxy is not preserving the WebRTC prefix on WHEP session URLs. Check the `/__webrtc/` proxy block, especially `X-Forwarded-Prefix`, before changing Laravel code.
+If the WHEP URL is under `/__webrtc/...` but the browser console shows `PATCH` or `DELETE` requests failing on `/camera-*-live/whep/...` without the `/__webrtc` prefix, the reverse proxy is not preserving the WebRTC prefix on WHEP session URLs. Check the `/__webrtc/` proxy block, especially `X-Forwarded-Prefix`, before changing Laravel code.
 
 If MediaMTX starts the camera path but the log shows `method ANNOUNCE failed: 401 Unauthorized`, the local ffmpeg publisher credentials are not aligned with the Laravel auth callback. Check the derived publisher credentials in `config/mediamtx.php`, clear Laravel config, and re-sync the relay config before debugging WebRTC itself.
 

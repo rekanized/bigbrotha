@@ -1,0 +1,35 @@
+services:
+  app:
+    image: ${BIGBROTHA_DEV_IMAGE:-bigbrotha-dev:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      BIGBROTHA_DEV_MODE: "true"
+    volumes:
+      - .:/app
+      - /dev/null:/app/.env:ro
+      - dev-vendor:/app/vendor
+      - dev-cache:/app/bootstrap/cache
+
+  background:
+    image: ${BIGBROTHA_DEV_IMAGE:-bigbrotha-dev:local}
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      BIGBROTHA_DEV_MODE: "true"
+    volumes:
+      - .:/app
+      - /dev/null:/app/.env:ro
+      - dev-vendor:/app/vendor
+      - dev-cache:/app/bootstrap/cache
+
+  relay:
+    image: ${BIGBROTHA_DEV_IMAGE:-bigbrotha-dev:local}
+
+volumes:
+  dev-vendor:
+  dev-cache:

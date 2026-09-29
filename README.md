@@ -2,13 +2,13 @@
 
 BigBrotha is a Laravel 13 operator-facing web application for ONVIF and RTSP camera operations. The current platform supports first-launch onboarding, concurrent manual local accounts and Google OAuth, camera discovery, direct ONVIF verification, camera fleet management, RTSP profile retrieval, backend stream diagnostics, preview capture, scheduler-driven per-camera recording, synchronized timeline review, admin audit logging, and shared WebRTC wall playback through MediaMTX.
 
-The Live Wall now uses a shared MediaMTX relay for WebRTC playback, while still exposing a no-transcode copy relay path that remuxes camera video with ffmpeg stream copy instead of re-encoding it. Operator access is authenticated through the application's enabled sign-in methods, and Live Wall playback uses Laravel-issued short-lived MediaMTX read tokens instead of the stock public iframe player.
+The Live Wall now uses a shared MediaMTX relay for WebRTC playback, while still exposing a no-transcode copy relay path that remuxes camera video with ffmpeg stream copy instead of re-encoding it. The legacy MJPEG and copy endpoints reuse an active canonical MediaMTX source when available and fall back to a direct camera connection when it is not. Operator access is authenticated through the application's enabled sign-in methods, and Live Wall playback uses Laravel-issued short-lived MediaMTX read tokens instead of the stock public iframe player.
 
 When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX must be given a public WebRTC URL plus reachable ICE addresses. See the proxy notes in the docs before publishing the wall through a reverse proxy.
 
 ## Quick Start
 
-BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml). You do not need to build images locally for a normal deployment.
+BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](docker-compose.yml). You do not need to build images locally for a normal deployment.
 
 1. Copy the Docker environment template and set the public URL.
 
@@ -67,6 +67,9 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 
 ## Docker Configuration
 
+- For local development, run `./docker/compose-dev.sh up -d --build` once. The `app` and `background` services bind mount this checkout at `/app`, so PHP, Blade, CSS, and JavaScript edits appear without rebuilding. Later starts use `./docker/compose-dev.sh up -d`; use `./docker/compose-dev.sh ps` and `./docker/compose-dev.sh logs` for this stack.
+- Development keeps Composer packages in the `dev-vendor` Docker volume and installs from `composer.lock` when the app starts. The `dev-cache` volume keeps Laravel cache files off the host checkout. Development clears route, view, and event caches, makes PHP OPcache revalidate changed files, and disables Nginx file caching.
+- The default `./docker/compose.sh` remains the production image deployment. `./docker/compose-up.sh` builds that immutable production image from the checkout. The production image contains the Laravel source and production Composer packages; it does not mount source code or contain `.env` or `.docker-state`.
 - Always use `./docker/compose.sh` or `docker compose --env-file .env.docker ...`.
 - Plain `docker compose up -d` without `--env-file .env.docker` is unsupported and fails closed because production `APP_URL` and `DB_PASSWORD` are required.
 - `APP_URL` must match the public origin exactly.
@@ -81,7 +84,7 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 
 ## Stack
 
-- Laravel 13 on PHP 8.3.
+- Laravel 13 on PHP 8.5.
 - Blade plus Livewire 4 for the operator UI.
 - Laravel Socialite for Google sign-in.
 - Standard CSS under `public/css`.
@@ -111,7 +114,7 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 - `/recordings/timeline` is the synchronized multi-camera review workflow.
 - `/recordings/timeline/cameras/{camera}/segments` and `/recordings/timeline/cameras/{camera}/stage` provide authenticated timeline rail and stage data.
 - `/recordings/{recording}` is the dedicated review screen.
-- `/recordings/{recording}/preview-stream`, `/preview-thumbnail`, `/preview-sprite`, `/review-stream`, `/stream`, and `/download` provide private review and playback endpoints.
+- `/recordings/{recording}/preview-thumbnail`, `/preview-sprite`, `/review-stream`, `/stream`, and `/download` provide private review and playback endpoints.
 - `/admin/users`, `/admin/settings`, and `/admin/audit-log` are the admin-only operator management surfaces.
 - `/wall-tiles` is the named wall and tile layout builder.
 - `/live-wall` is the live wall entry.
@@ -140,9 +143,9 @@ Google OAuth credentials are now entered through `/setup` or the admin authentic
 After changing relay or auth-related environment values, run:
 
 ```bash
-docker compose exec app php artisan config:clear
-docker compose exec app php artisan view:clear
-docker compose exec app php artisan relay:sync
+./docker/compose.sh exec app php artisan config:clear
+./docker/compose.sh exec app php artisan view:clear
+./docker/compose.sh exec app php artisan relay:sync
 ```
 
 ## Docker Deployment Details
@@ -175,7 +178,7 @@ Equivalent wrapper commands:
 ./docker/compose.sh up -d --remove-orphans
 ```
 
-The default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml) consumes the published Docker Hub image:
+The default [docker-compose.yml](docker-compose.yml) consumes the published Docker Hub image:
 
 - `rekanized/bigbrotha-app:latest`
 
@@ -220,8 +223,8 @@ Container notes:
 - app and background startup repair ownership and directory modes throughout the persistent continuous and motion recorder runtime trees before unprivileged recording processes start, including runtime paths left behind by older root-run maintenance commands.
 - the `relay` container runs MediaMTX from the same app image and reads the generated config from `storage/app/private/mediamtx/mediamtx.yml`.
 - Nginx in the `app` container serves the operator UI and proxies `/__webrtc/` traffic to `relay`.
-- `./docker/compose.sh` wraps the default [docker-compose.yml](/home/administrator/dockers/bigbrotha/docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.
-- `./docker/compose-up.sh` uses [docker-compose.build.yml](/home/administrator/dockers/bigbrotha/docker-compose.build.yml); image and source deployments use the same four-service shape.
+- `./docker/compose.sh` wraps the default [docker-compose.yml](docker-compose.yml), the selected `.env.docker`, and the configured `COMPOSE_PROJECT_NAME` so multiple stacks can coexist on one host.
+- `./docker/compose-up.sh` uses [docker-compose.build.yml](docker-compose.build.yml); image and source deployments use the same four-service shape.
 - the `background` container waits for the app bootstrap marker and uses Supervisor plus Docker health checks instead of host cron or systemd.
 - internal service traffic uses Docker DNS names: `database`, `app`, `background`, and `relay`.
 - the bundled PostgreSQL service stays internal to the Compose network by default.
@@ -273,6 +276,7 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 - [docs/video-platform-architecture.md](docs/video-platform-architecture.md)
 - [docs/camera-fleet-workflow.md](docs/camera-fleet-workflow.md)
 - [docs/known-issues-and-constraints.md](docs/known-issues-and-constraints.md)
+- [docs/mediamtx-review-2026-09-29.md](docs/mediamtx-review-2026-09-29.md)
 - [docs/startup-from-scratch.md](docs/startup-from-scratch.md)
 
 ## Publishing Images
@@ -285,10 +289,14 @@ For the full first-time bootstrap flow, see [docs/startup-from-scratch.md](docs/
 
 Docker daemon access and an existing Docker Hub login are required. Set `IMAGE_TAG` to choose an explicit immutable tag or `PUBLISH_LATEST=false` when `latest` must not move.
 
+To run the same build, test, and production-image checks locally without pushing, use `PUSH_IMAGES=false ./publish.sh`. This mode does not require Docker Hub login.
+
+On another server, copy `docker-compose.yml`, `.env.docker.example`, and `docker/compose.sh`; create `.env.docker` with that server's URL, ports, and `BIGBROTHA_APP_IMAGE=<pushed tag>`, then run `./docker/compose.sh pull` and `./docker/compose.sh up -d`. Keep that server's `.docker-state/app.key` and named database and storage volumes when upgrading.
+
 ## Useful Commands
 
 ```bash
-./docker/compose.sh exec app php artisan test
+./docker/compose-dev.sh exec app php artisan test
 ./docker/compose.sh exec app php artisan camera-fleet:refresh-previews
 ./docker/compose.sh exec app php artisan camera-recordings:tick
 ./docker/compose.sh exec app php artisan camera-recordings:prune

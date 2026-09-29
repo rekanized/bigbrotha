@@ -156,7 +156,7 @@ Current behavior:
 3. The command is scheduled every 30 minutes through Laravel's scheduler.
 4. Existing preview metadata is retained when a profile refresh returns the same ONVIF stream definition.
 
-Deployments should run `php artisan schedule:run` every minute from cron or an equivalent scheduler so these preview refreshes continue automatically.
+The supported Compose deployment runs `php artisan schedule:run` every minute through the `background` container's scheduler; this drives preview refreshes without host cron.
 
 ## Scheduled Recording
 
@@ -278,7 +278,7 @@ When the operator UI is published behind Nginx on a host like `monitor.scholline
 5. ICE transport still needs direct host or firewall exposure on the configured WebRTC ports.
 6. the MediaMTX auth callback URL and internal publisher credentials must be in sync with Laravel config before secure playback can work.
 
-The same-host deployment model should expose MediaMTX directly on `8189` rather than trying to proxy that same port back through a site-level Nginx `stream` block.
+The same-host deployment model should expose MediaMTX directly on `MEDIAMTX_ICE_PORT` (default 8190) rather than trying to proxy that same port back through a site-level Nginx `stream` block.
 
 ## Deletion
 

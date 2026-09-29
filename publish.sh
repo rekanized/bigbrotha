@@ -11,6 +11,7 @@ SHORT_REF="$(printf '%s' "$VCS_REF" | cut -c1-12)"
 DEFAULT_TAG="$(date -u +'%Y%m%d%H%M%S')-${SHORT_REF}"
 IMAGE_TAG="${IMAGE_TAG:-$DEFAULT_TAG}"
 PUBLISH_LATEST="${PUBLISH_LATEST:-true}"
+PUSH_IMAGES="${PUSH_IMAGES:-true}"
 BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 BUILD_FLAGS="${BUILD_FLAGS:---pull}"
 TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-300}"
@@ -43,12 +44,18 @@ validate_app_image() {
     docker run --rm --entrypoint sh "$APP_IMAGE" -lc '
         set -eu
         test -f /app/vendor/autoload.php
+        test -f /app/app/Providers/AppServiceProvider.php
+        test ! -e /app/.env
+        test ! -e /app/.env.docker
+        test ! -e /app/.docker-state
+        test ! -e /app/auth.json
         test -x /usr/local/bin/mediamtx
         command -v ffmpeg >/dev/null
         command -v ffprobe >/dev/null
         command -v nginx >/dev/null
         command -v smbclient >/dev/null
         command -v supervisord >/dev/null
+        ! command -v composer >/dev/null
         test -f /etc/nginx/nginx.conf
         test -f /usr/local/etc/php-fpm.d/zz-production.conf
         test -f /etc/supervisor/app.conf
@@ -81,6 +88,11 @@ require_command git
 require_command timeout
 validate_repo_root
 trap cleanup EXIT INT TERM
+
+case "$PUSH_IMAGES:$PUBLISH_LATEST" in
+    true:true|true:false|false:true|false:false) ;;
+    *) echo "PUSH_IMAGES and PUBLISH_LATEST must each be true or false." >&2; exit 1 ;;
+esac
 
 if ! docker info >/dev/null 2>&1; then
     echo "Docker daemon access is required. Run this script as a user with Docker access (or invoke it with sudo)." >&2
@@ -118,6 +130,12 @@ docker build $BUILD_FLAGS \
     .
 
 validate_app_image
+
+if [ "$PUSH_IMAGES" = "false" ]; then
+    echo "Local publish validation passed; no images were pushed."
+    echo "Validated image: $APP_IMAGE"
+    exit 0
+fi
 
 echo "Pushing the immutable release image..."
 push_and_verify "$APP_IMAGE"

@@ -6,7 +6,7 @@ Use this when you are bringing up a new BigBrotha deployment from nothing.
 
 BigBrotha now targets a single supported runtime: Docker Compose.
 
-The default stack in [docker-compose.yml](../docker-compose.yml) runs from published Docker Hub images. Local source builds use [docker-compose.build.yml](../docker-compose.build.yml) as an override.
+The default stack in [docker-compose.yml](../docker-compose.yml) runs from published Docker Hub images. Local production image builds use [docker-compose.build.yml](../docker-compose.build.yml) as an override. Development uses [docker-compose.dev.yml](../docker-compose.dev.yml) to bind mount source code.
 
 Use `./docker/compose.sh` for routine Compose commands so the selected `.env.docker` file and `COMPOSE_PROJECT_NAME` stay aligned across the deployment lifecycle.
 
@@ -65,6 +65,16 @@ For a local source checkout that should build images from the repository:
 ```bash
 ./docker/compose-up.sh
 ```
+
+For development from a checkout, build the development image and start the same four services:
+
+```bash
+./docker/compose-dev.sh up -d --build
+```
+
+The development image includes Composer. The `app` and `background` containers mount the checkout at `/app` and share a `dev-vendor` volume for dependencies. The app runs `composer install` from the lock file at startup; after editing application code, reload the page without rebuilding or restarting. Development clears Laravel route, event, and view caches and enables PHP timestamp checks. Its Nginx file cache is disabled. The host `.env` is masked inside those containers; `.env.docker` supplies runtime settings through Compose. Use `./docker/compose-dev.sh up -d` after a normal stop, and `./docker/compose-dev.sh ps` to inspect this stack. Run `./docker/compose.sh up -d` to return the same stack to the published production image.
+
+For a production release, `./publish.sh` builds and tests the image, checks that the production image contains the app and excludes local secrets, pushes a tagged copy to Docker Hub, and verifies its manifest. Run `PUSH_IMAGES=false ./publish.sh` first to exercise the local publish path without pushing. On a second server, set `BIGBROTHA_APP_IMAGE` in `.env.docker` to the published tag, then use `./docker/compose.sh pull` and `./docker/compose.sh up -d`. Transfer the server's application key and persistent volumes only when moving an existing deployment, never as image contents.
 
 The `app` container will:
 

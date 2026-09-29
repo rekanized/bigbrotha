@@ -12,6 +12,8 @@ x-app: &app
   image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
   env_file: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env.docker}
   environment:
+    APP_ENV: production
+    APP_DEBUG: "false"
     APP_URL: ${APP_URL:?Set APP_URL in .env.docker}
     DB_DATABASE: ${DB_DATABASE:-bigbrotha}
     DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}

@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
-use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Models\Camera;
+use App\Services\Concerns\ResolvesConfiguredBinaries;
+use App\Services\Relay\MediaMtxPathNamer;
+use App\Services\Relay\MediaMtxPathStatusService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -14,6 +16,11 @@ class CameraLiveStreamService
     use ResolvesConfiguredBinaries;
 
     private const MJPEG_BOUNDARY = 'bigbrotha-live';
+
+    public function __construct(
+        private readonly MediaMtxPathNamer $pathNamer,
+        private readonly MediaMtxPathStatusService $pathStatusService,
+    ) {}
 
     /**
      * @return array{index: int|null, profile: array<string, string|null>}|null
@@ -30,7 +37,7 @@ class CameraLiveStreamService
     public function mjpegResponse(Camera $camera, ?int $profileIndex = null): StreamedResponse
     {
         $selection = $this->selectedProfileOrFail($camera, $profileIndex);
-        $command = $this->buildMjpegCommand($camera, $selection['profile']);
+        $command = $this->buildMjpegCommand($camera, $selection);
 
         return response()->stream(function () use ($command, $camera, $selection): void {
             $this->streamProcessOutput($command, $camera, 'wall-mjpeg', $selection);
@@ -43,7 +50,7 @@ class CameraLiveStreamService
     public function relayResponse(Camera $camera, ?int $profileIndex = null): StreamedResponse
     {
         $selection = $this->selectedProfileOrFail($camera, $profileIndex);
-        $command = $this->buildRelayCommand($camera, $selection['profile']);
+        $command = $this->buildRelayCommand($camera, $selection);
         $fileName = Str::slug($camera->name ?: 'camera-live').'-relay.mp4';
 
         return response()->stream(function () use ($command, $camera, $selection): void {
@@ -80,16 +87,18 @@ class CameraLiveStreamService
     }
 
     /**
-     * @param  array<string, string|null>  $profile
+     * @param  array{index: int|null, profile: array<string, string|null>}  $selection
      * @return array<int, string>
      */
-    private function buildMjpegCommand(Camera $camera, array $profile): array
+    private function buildMjpegCommand(Camera $camera, array $selection): array
     {
         $ffmpegBinary = $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
 
         if ($ffmpegBinary === null) {
             throw new RuntimeException('ffmpeg is not available on this host. Check the live streaming configuration first.');
         }
+
+        $input = $this->legacyStreamInput($camera, $selection);
 
         return array_merge([
             $ffmpegBinary,
@@ -98,7 +107,7 @@ class CameraLiveStreamService
             '-loglevel',
             'error',
             '-rtsp_transport',
-            $this->transport($camera),
+            $input['transport'],
             '-thread_queue_size',
             (string) config('ffmpeg.live.thread_queue_size', 1024),
         ], $this->liveInputTimeoutArguments(), [
@@ -113,7 +122,7 @@ class CameraLiveStreamService
             '-probesize',
             (string) config('ffmpeg.live.input_probe_size', 131072),
             '-i',
-            $this->authenticatedUri($camera, $profile),
+            $input['uri'],
             '-map',
             '0:v:0',
             '-an',
@@ -130,10 +139,10 @@ class CameraLiveStreamService
     }
 
     /**
-     * @param  array<string, string|null>  $profile
+     * @param  array{index: int|null, profile: array<string, string|null>}  $selection
      * @return array<int, string>
      */
-    private function buildRelayCommand(Camera $camera, array $profile): array
+    private function buildRelayCommand(Camera $camera, array $selection): array
     {
         $ffmpegBinary = $this->resolveBinary(config('ffmpeg.ffmpeg.binaries', []));
         $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
@@ -143,6 +152,8 @@ class CameraLiveStreamService
             throw new RuntimeException('ffmpeg is not available on this host. Check the live streaming configuration first.');
         }
 
+        $input = $this->legacyStreamInput($camera, $selection);
+
         return array_merge([
             $ffmpegBinary,
             '-nostdin',
@@ -150,7 +161,7 @@ class CameraLiveStreamService
             '-loglevel',
             'error',
             '-rtsp_transport',
-            $this->transport($camera),
+            $input['transport'],
             '-thread_queue_size',
             (string) config('ffmpeg.live.thread_queue_size', 1024),
         ], $this->liveInputTimeoutArguments(), [
@@ -165,7 +176,7 @@ class CameraLiveStreamService
             '-probesize',
             (string) config('ffmpeg.live.input_probe_size', 131072),
             '-i',
-            $this->authenticatedUri($camera, $profile),
+            $input['uri'],
             '-map',
             '0:v:0',
             '-an',
@@ -186,6 +197,32 @@ class CameraLiveStreamService
             'mp4',
             'pipe:1',
         ]);
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, string|null>}  $selection
+     * @return array{uri: string, transport: string}
+     */
+    private function legacyStreamInput(Camera $camera, array $selection): array
+    {
+        $sourcePath = $this->pathNamer->sourcePathName($camera, $selection['index']);
+        $baseUrl = rtrim((string) config('mediamtx.rtsp.internal_base_url', ''), '/');
+        $readerUser = trim((string) config('mediamtx.auth.reader_user', ''));
+        $readerPass = trim((string) config('mediamtx.auth.reader_pass', ''));
+
+        if (str_starts_with($baseUrl, 'rtsp://') && $readerUser !== '' && $readerPass !== ''
+            && isset($this->pathStatusService->activePaths()[$sourcePath])) {
+            return [
+                'uri' => 'rtsp://'.rawurlencode($readerUser).':'.rawurlencode($readerPass).'@'
+                    .substr($baseUrl, strlen('rtsp://')).'/'.$sourcePath,
+                'transport' => 'tcp',
+            ];
+        }
+
+        return [
+            'uri' => $this->authenticatedUri($camera, $selection['profile']),
+            'transport' => $this->transport($camera),
+        ];
     }
 
     /**
@@ -231,7 +268,7 @@ class CameraLiveStreamService
 
         $process = @proc_open($command, $descriptorSpec, $pipes, null);
 
-        if (!is_resource($process)) {
+        if (! is_resource($process)) {
             throw new RuntimeException('Unable to start ffmpeg for the live stream.');
         }
 
@@ -245,18 +282,18 @@ class CameraLiveStreamService
             while (true) {
                 $read = [];
 
-                if (!feof($pipes[1])) {
+                if (! feof($pipes[1])) {
                     $read[] = $pipes[1];
                 }
 
-                if (!feof($pipes[2])) {
+                if (! feof($pipes[2])) {
                     $read[] = $pipes[2];
                 }
 
                 if ($read === []) {
                     $status = proc_get_status($process);
 
-                    if (!($status['running'] ?? false)) {
+                    if (! ($status['running'] ?? false)) {
                         break;
                     }
 
@@ -286,7 +323,7 @@ class CameraLiveStreamService
 
                     $status = proc_get_status($process);
 
-                    if (!($status['running'] ?? false)) {
+                    if (! ($status['running'] ?? false)) {
                         break;
                     }
 
@@ -328,7 +365,7 @@ class CameraLiveStreamService
 
             $exitCode = proc_close($process);
 
-            if ($exitCode !== 0 && !connection_aborted()) {
+            if ($exitCode !== 0 && ! connection_aborted()) {
                 Log::warning('Live camera stream process exited with an error.', [
                     'camera_id' => $camera->getKey(),
                     'camera_name' => $camera->name,
@@ -355,13 +392,13 @@ class CameraLiveStreamService
 
     private function drainRemainingOutput(mixed $pipe, bool $emitOutput): string
     {
-        if (!is_resource($pipe)) {
+        if (! is_resource($pipe)) {
             return '';
         }
 
         $buffer = '';
 
-        while (!feof($pipe)) {
+        while (! feof($pipe)) {
             $chunk = fread($pipe, 8192);
 
             if ($chunk === false || $chunk === '') {
@@ -401,7 +438,7 @@ class CameraLiveStreamService
     {
         $profile = $camera->rtspProfiles()[$profileIndex] ?? null;
 
-        if (!is_array($profile) || $this->stringOrNull($profile['uri'] ?? null) === null) {
+        if (! is_array($profile) || $this->stringOrNull($profile['uri'] ?? null) === null) {
             return null;
         }
 
@@ -420,7 +457,7 @@ class CameraLiveStreamService
         $configuredEndpoint = $camera->rtspEndpoint($configuredPath);
 
         foreach ($camera->rtspProfiles() as $index => $profile) {
-            if (!is_array($profile)) {
+            if (! is_array($profile)) {
                 continue;
             }
 
@@ -474,7 +511,7 @@ class CameraLiveStreamService
 
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return null;
         }
 
@@ -497,7 +534,7 @@ class CameraLiveStreamService
 
         $parts = parse_url($uri);
 
-        if (!is_array($parts) || isset($parts['user']) || $camera->username === null || $camera->username === '' || $camera->password === null || $camera->password === '') {
+        if (! is_array($parts) || isset($parts['user']) || $camera->username === null || $camera->username === '' || $camera->password === null || $camera->password === '') {
             return $uri;
         }
 
@@ -526,7 +563,7 @@ class CameraLiveStreamService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

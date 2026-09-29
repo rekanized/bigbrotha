@@ -25,6 +25,10 @@ mkdir -p \
     storage/framework/views \
     storage/logs
 
+if [ "${BIGBROTHA_DEV_MODE:-false}" = "true" ] && [ "$(basename "$start_command")" = "run-app" ]; then
+    composer install --prefer-dist --no-interaction --no-progress --no-scripts
+fi
+
 normalize_recording_runtime_permissions() {
     for runtime_path in \
         storage/app/private/continuous-recorders \
@@ -261,6 +265,13 @@ warm_runtime_caches() {
     # Database-backed operator settings include secrets and may change at runtime,
     # so intentionally do not persist the merged configuration to config.php.
     gosu www-data php artisan config:clear
+    if [ "${BIGBROTHA_DEV_MODE:-false}" = "true" ]; then
+        gosu www-data php artisan package:discover --ansi
+        gosu www-data php artisan event:clear
+        gosu www-data php artisan route:clear
+        gosu www-data php artisan view:clear
+        return
+    fi
     gosu www-data php artisan event:cache
     gosu www-data php artisan route:cache
     gosu www-data php artisan view:cache
