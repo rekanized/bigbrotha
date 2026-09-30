@@ -10,6 +10,8 @@ The Docker image contains `smbclient` and the PHP SMB adapter. Only finished rec
 
 FFmpeg writes each clip to local private staging. The storage service checks whether the destination directory exists and creates missing ancestors. Routine uploads need only the final directory check. The upload goes to a random `.uploading-*` name, and its remote size must equal the staged file size before promotion. If a final file already exists and blocks a rename, the service moves it to a random `.replacing-*` backup, promotes the new file, and restores the backup if promotion fails. The same temporary-file rule now applies to the PHP adapter fallback when the CLI is unavailable. The final remote file is checked again before local staging is deleted. Upload failures keep the staged clip for retry; continuous and motion segment processing revisit pending clips on later ticks. Transfer timeout grows with clip size, capped at 180 seconds.
 
+The `smbclient allinfo` size parser accepts both labeled size fields and Samba's default data stream line (`stream: [::$DATA], N bytes`). A motion tick stops processing later buffered segments after a publish failure, preserving its staged clip for one retry on the next tick instead of retrying the same upload for every segment.
+
 The `smbclient` subprocess gets credentials through a temporary mode-0600 authentication file, removed after each command. The password is not an argument. The service does not log credentials or public media URLs.
 
 ## Read, retention, and deletion

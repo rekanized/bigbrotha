@@ -1903,6 +1903,7 @@ class CameraStorageService
             '/(?:^|\R)\s*size:\s*(\d+)\b/im',
             '/(?:^|\R)\s*eof:\s*(\d+)\b/im',
             '/(?:^|\R)\s*end of file:\s*(\d+)\b/im',
+            '/(?:^|\R)\s*stream:\s*\[::\$DATA\],\s*(\d+)\s+bytes\b/im',
         ] as $pattern) {
             if (preg_match($pattern, $output, $matches) === 1) {
                 return (int) $matches[1];

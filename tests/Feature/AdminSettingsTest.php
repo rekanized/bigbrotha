@@ -857,6 +857,17 @@ BASH
         $this->assertStringEndsWith("600\n", $auth);
     }
 
+    public function test_smbclient_allinfo_reads_the_default_data_stream_size(): void
+    {
+        $storage = app(CameraStorageService::class);
+        $parse = new \ReflectionMethod($storage, 'parseSmbClientAllInfoSize');
+
+        $this->assertSame(1417830, $parse->invoke($storage, "altname: CLIP~1.MP4\nstream: [::\$DATA], 1417830 bytes\n"));
+        $this->assertSame(0, $parse->invoke($storage, "stream: [::\$DATA], 0 bytes\n"));
+        $this->assertSame(2048, $parse->invoke($storage, "size: 2048\n"));
+        $this->assertNull($parse->invoke($storage, "stream: [:thumbnail:\$DATA], 2048 bytes\n"));
+    }
+
     public function test_camera_storage_reads_legacy_parent_root_targets_for_network_recordings(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(

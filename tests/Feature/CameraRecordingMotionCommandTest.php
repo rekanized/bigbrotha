@@ -1453,7 +1453,18 @@ class CameraRecordingMotionCommandTest extends TestCase
                 ]);
             $segmenter->shouldReceive('closedSegmentsSince')
                 ->once()
-                ->andReturn([]);
+                ->andReturn([
+                    [
+                        'path' => '/unused-first.mkv',
+                        'started_at' => $finalizeAfter->copy(),
+                        'ended_at' => $finalizeAfter->copy()->addSeconds(4),
+                    ],
+                    [
+                        'path' => '/unused-second.mkv',
+                        'started_at' => $finalizeAfter->copy()->addSeconds(4),
+                        'ended_at' => $finalizeAfter->copy()->addSeconds(8),
+                    ],
+                ]);
             $segmenter->shouldReceive('segmentsForWindow')->never();
             $segmenter->shouldReceive('pruneSegments')
                 ->once()
@@ -1465,6 +1476,10 @@ class CameraRecordingMotionCommandTest extends TestCase
                 )
                 ->andReturn(0);
             $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+            $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+            $detector->shouldReceive('detectClip')->never();
+            $this->app->instance(RecordingMotionDetectorService::class, $detector);
 
             $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
 

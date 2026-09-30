@@ -540,6 +540,8 @@ class CameraRecordingService
         $state = $this->motionState($camera);
         $finalized = 0;
         $started = false;
+        // A failed publish must not be retried for every buffered segment in this tick.
+        $finalizationFailed = false;
         $activeRecording = $this->activeMotionRecording($state);
 
         if ($activeRecording === null && $state->active_recording_id !== null) {
@@ -553,9 +555,13 @@ class CameraRecordingService
             if ($activeRecording instanceof CameraRecording
                 && $state->finalize_after instanceof Carbon
                 && $segment['started_at']->greaterThanOrEqualTo($state->finalize_after)) {
-                if ($this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'])) {
-                    $finalized++;
+                if (! $this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'])) {
+                    $finalizationFailed = true;
+
+                    break;
                 }
+
+                $finalized++;
 
                 $state->refresh();
                 $activeRecording = $this->activeMotionRecording($state);
@@ -567,11 +573,13 @@ class CameraRecordingService
                 $rolloverStartedAt = $this->motionRecordingRolloverStartedAt($camera, $state, $activeRecording, $segment['started_at']);
 
                 if ($rolloverStartedAt instanceof Carbon) {
-                    if ($this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'], $rolloverStartedAt)) {
-                        $finalized++;
-                    } else {
-                        $rolloverStartedAt = null;
+                    if (! $this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'], $rolloverStartedAt)) {
+                        $finalizationFailed = true;
+
+                        break;
                     }
+
+                    $finalized++;
 
                     $state->refresh();
                     $activeRecording = $this->activeMotionRecording($state);
@@ -629,7 +637,9 @@ class CameraRecordingService
             ])->save();
         }
 
-        if ($activeRecording instanceof CameraRecording && $this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'])) {
+        if (! $finalizationFailed
+            && $activeRecording instanceof CameraRecording
+            && $this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'])) {
             $finalized++;
             $state->refresh();
             $activeRecording = $this->activeMotionRecording($state);
