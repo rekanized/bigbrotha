@@ -544,9 +544,35 @@ class CameraRecordingService
         $finalizationFailed = false;
         $activeRecording = $this->activeMotionRecording($state);
 
-        if ($activeRecording === null && $state->active_recording_id !== null) {
+        if (($activeRecording === null || ! $activeRecording->isPending()) && $state->active_recording_id !== null) {
             $this->clearMotionState($state);
             $state->refresh();
+            $activeRecording = null;
+        }
+
+        if ($activeRecording instanceof CameraRecording
+            && $state->event_started_at instanceof Carbon
+            && $state->event_started_at->lessThan(now()->utc()->subHours(12))
+            && $state->updated_at instanceof Carbon
+            && $state->updated_at->lessThan(now()->utc()->subHours(12))) {
+            $windowStart = $this->motionWindowStart($state, $activeRecording);
+            $windowEnd = $this->motionWindowEnd($state);
+            $absolutePath = $this->buildRecordingAbsolutePath(
+                $camera,
+                $activeRecording->scheduled_for instanceof Carbon
+                    ? $activeRecording->scheduled_for->copy()->utc()
+                    : $state->event_started_at->copy()->utc(),
+                $activeRecording->capture_mode,
+            );
+
+            if (! $windowStart instanceof Carbon
+                || ! $windowEnd instanceof Carbon
+                || $this->readyStagedMotionClip($absolutePath, $windowStart, $windowEnd) === null) {
+                $this->markRecordingFailed($activeRecording, 'Abandoned an old motion event after its buffered segments expired.');
+                $this->clearMotionState($state);
+                $state->refresh();
+                $activeRecording = null;
+            }
         }
 
         $segments = $this->motionSegmenter->closedSegmentsSince($camera, $state->last_processed_segment_at, $segmenter['running']);

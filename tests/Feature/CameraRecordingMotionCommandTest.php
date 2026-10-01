@@ -50,6 +50,89 @@ class CameraRecordingMotionCommandTest extends TestCase
         }
     }
 
+    public function test_motion_sync_clears_a_failed_active_event(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Recovered camera',
+            'local_ip' => '192.168.1.84',
+            'rtsp_path' => '/stream',
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_FAILED,
+            'scheduled_for' => now()->utc()->subDay(),
+        ]);
+        CameraMotionState::query()->create([
+            'camera_id' => $camera->id,
+            'active_recording_id' => $recording->id,
+            'event_started_at' => now()->utc()->subDay(),
+            'last_processed_segment_at' => now()->utc()->subDay(),
+            'finalize_after' => now()->utc()->subDay()->addMinute(),
+        ]);
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->once()->andReturn(['started' => false, 'running' => false, 'pid' => null]);
+        $segmenter->shouldReceive('closedSegmentsSince')->once()->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')->once()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $this->assertDatabaseHas('camera_motion_states', [
+            'camera_id' => $camera->id,
+            'active_recording_id' => null,
+            'event_started_at' => null,
+        ]);
+        $this->assertSame(CameraRecording::STATUS_FAILED, $recording->fresh()->status);
+    }
+
+    public function test_motion_sync_abandons_an_old_event_without_a_ready_staged_clip(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Stale event camera',
+            'local_ip' => '192.168.1.85',
+            'rtsp_path' => '/stream',
+            'supports_rtsp' => true,
+            'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $startedAt = now()->utc()->subDay();
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id,
+            'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_PROCESSING,
+            'scheduled_for' => $startedAt,
+            'started_at' => $startedAt,
+        ]);
+        $state = CameraMotionState::query()->create([
+            'camera_id' => $camera->id,
+            'active_recording_id' => $recording->id,
+            'event_started_at' => $startedAt,
+            'last_processed_segment_at' => $startedAt,
+            'finalize_after' => $startedAt->copy()->addMinute(),
+        ]);
+        $state->timestamps = false;
+        $state->forceFill(['updated_at' => $startedAt])->save();
+
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->once()->andReturn(['started' => false, 'running' => false, 'pid' => null]);
+        $segmenter->shouldReceive('closedSegmentsSince')->once()->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')->once()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+
+        $this->assertDatabaseHas('camera_motion_states', [
+            'camera_id' => $camera->id,
+            'active_recording_id' => null,
+        ]);
+        $this->assertSame(CameraRecording::STATUS_FAILED, $recording->fresh()->status);
+    }
+
     public function test_decoder_log_messages_without_video_never_trigger_motion(): void
     {
         $binary = storage_path('app/private/test-binaries/motion-log-only.sh');
