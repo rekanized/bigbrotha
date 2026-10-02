@@ -8,7 +8,7 @@
 
 @section('page_title', 'Wall tiles')
 
-@section('page_lead', 'Build named live walls, choose which cameras are shown, and control tile orientation and span before operators open the wall.')
+@section('page_lead', 'Choose cameras and arrange them into named walls. Save a layout, then open it in Live Wall to watch the feeds.')
 
 @section('content')
     <livewire:live-wall.tiles-manager />

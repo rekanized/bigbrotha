@@ -16,6 +16,10 @@ Use PHP 8.5 in the development/test Docker image. The local host may have an old
 git diff --check
 ```
 
+For Docker changes, run `sh tests/Docker/compose.test.sh` on the Docker host. It checks published/build/development merges, default and custom image tags, and required inputs using placeholders without starting containers or reading `.env.docker`.
+
+`DockerComposeWrapperTest` verifies configuration initialization, password preservation, image mode selection, command forwarding, and legacy shortcuts using a fake Docker executable in a temporary installation.
+
 `composer.json` defines `composer test` (config clear, then Artisan test), but use the container command above when selecting tests. `publish.sh` builds and runs the Dockerfile `test` target before publishing. There is no PHPStan/Psalm configuration, `package.json`, or CI workflow.
 
 Pick feature tests by boundary: `Auth/*` for setup/sign-in; `CameraFleetManagerTest` and ONVIF/RTSP service tests for intake; `Relay/*` and `LiveWallStreamTest` for MediaMTX/WebRTC; `CameraRecording*Test`, `RecordingBrowserTest`, and `TimelineReviewTest` for recording; `DockerRuntimeConfigurationTest` for container assumptions. Prefer the smallest relevant set before running the full suite.

@@ -8,7 +8,7 @@
 
 @section('page_title', 'Admin settings')
 
-@section('page_lead', 'Manage operator-facing application settings and verify recorder runtime prerequisites without touching deployment config files.')
+@section('page_lead', 'Manage sign-in, storage, display time, and audit retention. Check background activity below to see whether recording jobs are keeping up.')
 
 @section('content')
     <div class="screen-grid">
@@ -54,6 +54,37 @@
 
                     <div class="probe-form-grid__actions">
                         <button class="button button--primary" type="submit">Save settings</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <section class="screen-card screen-card--spacious" id="audit-retention">
+            <div class="panel-heading">
+                <div>
+                    <h2 class="panel-title">Audit log retention</h2>
+                    <p class="panel-copy">Choose how long to keep activity history. Entries older than this period are permanently deleted during daily cleanup. Reducing the period takes effect at the next cleanup.</p>
+                </div>
+            </div>
+
+            @if (session('audit_retention_status'))
+                <div class="notice notice--success" role="status">{{ session('audit_retention_status') }}</div>
+            @endif
+
+            <form method="POST" action="{{ route('admin.settings.audit-retention.update') }}">
+                @csrf
+                @method('PUT')
+                <div class="inline-action-form-row">
+                    <label class="field-stack field-stack--wide">
+                        <span>Keep audit entries for (days)</span>
+                        <input class="form-input" type="number" name="audit_retention_days" min="1" max="{{ $maxAuditRetentionDays }}" step="1" value="{{ old('audit_retention_days', $auditRetentionDays) }}" required aria-describedby="audit-retention-help{{ $errors->has('audit_retention_days') ? ' audit-retention-error' : '' }}" @if ($errors->has('audit_retention_days')) aria-invalid="true" @endif>
+                        <span class="probe-note" id="audit-retention-help">1–{{ $maxAuditRetentionDays }} days. Default: 30 days. This controls audit history; camera recordings use their own retention settings.</span>
+                        @error('audit_retention_days')
+                            <span class="field-error" id="audit-retention-error">{{ $message }}</span>
+                        @enderror
+                    </label>
+                    <div class="probe-form-grid__actions">
+                        <button class="button button--primary" type="submit">Save audit retention</button>
                     </div>
                 </div>
             </form>

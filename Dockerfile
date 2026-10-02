@@ -53,7 +53,6 @@ RUN apt-get update \
         bcmath \
         mbstring \
         pcntl \
-        pdo_mysql \
         pdo_pgsql \
         xml \
         zip \
@@ -87,7 +86,9 @@ RUN composer install \
         --no-scripts \
     && composer clear-cache
 
-COPY . .
+# Only these application directories participate in production autoloading.
+COPY app ./app
+COPY database ./database
 
 RUN composer dump-autoload \
         --no-dev \
@@ -105,6 +106,7 @@ ENV APP_ENV=production \
     APP_DEBUG=false \
     APP_KEY_FILE=/app/bootstrap-persist/app.key \
     CACHE_STORE=database \
+    CAMERA_RECORDING_WORKER_PROCESSES=2 \
     DB_CONNECTION=pgsql \
     DB_HOST=database \
     DB_PORT=5432 \
@@ -112,7 +114,8 @@ ENV APP_ENV=production \
     MEDIAMTX_AUTH_CALLBACK_URL=http://app:8080/relay/auth/mediamtx \
     MEDIAMTX_MANAGED_EXTERNALLY=true \
     QUEUE_CONNECTION=database \
-    SESSION_DRIVER=database
+    SESSION_DRIVER=database \
+    TRUSTED_PROXIES=172.16.0.0/12
 
 LABEL org.opencontainers.image.title="BigBrotha Laravel application" \
       org.opencontainers.image.description="Laravel camera operations application with ffmpeg and MediaMTX" \
@@ -165,8 +168,10 @@ RUN chmod 0755 \
         /usr/local/bin/run-worker \
         /usr/local/bin/run-scheduler
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["/usr/local/bin/healthcheck"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 CMD ["/usr/local/bin/healthcheck"]
 
+# All image roles run Supervisor or MediaMTX, rather than PHP-FPM as PID 1.
+STOPSIGNAL SIGTERM
 ENTRYPOINT ["container-entrypoint"]
 CMD ["run-app"]
 

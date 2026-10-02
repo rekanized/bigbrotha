@@ -212,7 +212,7 @@ body.page-recording-review .recording-review-focus__overlay [data-role='asset-st
 
 body.page-recording-review .recording-review-focus__viewer {
     width: 100%;
-    height: clamp(200px, 40dvh, 500px);
+    height: clamp(200px, 52dvh, 600px);
     max-height: none;
     border-radius: 8px;
 }

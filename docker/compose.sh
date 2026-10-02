@@ -2,6 +2,12 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+MODE=published
+case "${1:-}" in
+    --local) MODE=local; shift ;;
+    --dev) MODE=dev; shift ;;
+esac
+
 ENV_FILE="${BIGBROTHA_DOCKER_ENV_FILE:-$ROOT_DIR/.env.docker}"
 EXAMPLE_ENV_FILE="$ROOT_DIR/.env.docker.example"
 STATE_DIR="$ROOT_DIR/.docker-state"
@@ -42,6 +48,27 @@ if ! grep -Eq '^DB_PASSWORD=.+$' "$ENV_FILE"; then
     trap - EXIT HUP INT TERM
     echo "Generated DB_PASSWORD in $ENV_FILE." >&2
 fi
+
+case "${1:-}" in
+    init)
+        echo "Docker configuration ready: $ENV_FILE"
+        echo "Set APP_URL in that file before starting the stack."
+        exit 0
+        ;;
+    start)
+        shift
+        if [ "$MODE" = published ]; then
+            set -- up -d --pull always --wait --remove-orphans "$@"
+        else
+            set -- up -d --build --wait --remove-orphans "$@"
+        fi
+        ;;
+esac
+
+case "$MODE" in
+    local) set -- -f "$ROOT_DIR/docker-compose.build.yml" "$@" ;;
+    dev) set -- -f "$ROOT_DIR/docker-compose.dev.yml" "$@" ;;
+esac
 
 if docker info >/dev/null 2>&1; then
     export BIGBROTHA_DOCKER_ENV_FILE="$ENV_FILE"

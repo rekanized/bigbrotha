@@ -9,8 +9,8 @@ use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\RecordingReviewAssetService;
-use Illuminate\Support\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -684,8 +684,8 @@ class CameraRecordingCommandTest extends TestCase
         $this->assertStringContainsString('-segment_time', $arguments);
         $this->assertStringContainsString('-reset_timestamps', $arguments);
         $this->assertStringContainsString('-strftime', $arguments);
-        $this->assertStringContainsString('-c', $arguments);
-        $this->assertStringContainsString('copy', $arguments);
+        $this->assertStringContainsString('libx264', $arguments);
+        $this->assertStringContainsString('expr:gte(t,n_forced*60)', $arguments);
         $this->assertStringNotContainsString('concat', $arguments);
     }
 

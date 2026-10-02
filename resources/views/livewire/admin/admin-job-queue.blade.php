@@ -2,7 +2,7 @@
     <div class="panel-heading">
         <div>
             <h2 class="panel-title">Job queue monitor</h2>
-            <p class="panel-copy">Watch live queue backlog, Docker-managed worker capacity, and recent failures from the admin dashboard. This panel reads the Laravel database queue tables and refreshes automatically every 5 seconds.</p>
+            <p class="panel-copy">Check waiting jobs, worker availability, and recent failures. This panel updates every 5 seconds. <a href="{{ route('admin.audit-logs.index', ['activity' => 'failures']) }}" wire:navigate>Investigate recording failures in the audit log</a>.</p>
         </div>
 
         <span class="status-pill status-pill--{{ $worker['status_tone'] ?? 'neutral' }}">{{ $worker['status_label'] ?? 'Unavailable' }}</span>

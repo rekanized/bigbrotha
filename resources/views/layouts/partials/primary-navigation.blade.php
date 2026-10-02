@@ -69,7 +69,7 @@
         ],
         [
             'label' => 'Audit log',
-            'caption' => 'Review model changes, actors, and captured deltas',
+            'caption' => 'Who changed what, recording activity, and failures',
             'href' => route('admin.audit-logs.index'),
             'active' => request()->routeIs('admin.audit-logs.*'),
         ],

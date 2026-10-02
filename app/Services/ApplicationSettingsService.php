@@ -14,6 +14,10 @@ class ApplicationSettingsService
 {
     public const SETTING_APP_TIMEZONE = 'app_timezone';
 
+    public const SETTING_AUDIT_RETENTION_DAYS = 'audit_retention_days';
+
+    public const MAX_AUDIT_RETENTION_DAYS = 365;
+
     public const SETTING_NETWORK_STORAGE = '__network_storage__';
 
     /**
@@ -73,6 +77,30 @@ class ApplicationSettingsService
         $this->settingStore->forget();
         $this->loadedSettings = null;
         $this->apply();
+    }
+
+    public function auditRetentionDays(): int
+    {
+        $days = $this->setting(self::SETTING_AUDIT_RETENTION_DAYS) ?? config('audit.retention_days', 30);
+
+        return filter_var($days, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1, 'max_range' => self::MAX_AUDIT_RETENTION_DAYS],
+        ]) ?: 30;
+    }
+
+    public function saveAuditRetentionDays(int $days): void
+    {
+        if ($days < 1 || $days > self::MAX_AUDIT_RETENTION_DAYS) {
+            throw new InvalidArgumentException('Audit retention must be between 1 and '.self::MAX_AUDIT_RETENTION_DAYS.' days.');
+        }
+
+        AppSetting::query()->updateOrCreate(
+            ['key' => self::SETTING_AUDIT_RETENTION_DAYS],
+            ['value' => (string) $days],
+        );
+
+        $this->settingStore->forget();
+        $this->loadedSettings = null;
     }
 
     /**

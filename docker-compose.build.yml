@@ -1,5 +1,15 @@
+# Keep source builds separate from the published image, even when it is pinned.
+x-local-image: &local-image ${BIGBROTHA_BUILD_IMAGE:-bigbrotha:local}
+
 services:
   app:
+    image: *local-image
     build:
       context: .
       dockerfile: Dockerfile
+
+  background:
+    image: *local-image
+
+  relay:
+    image: *local-image

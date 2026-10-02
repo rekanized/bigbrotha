@@ -32,13 +32,15 @@ class AppSetting extends Model
      */
     protected function auditCurrentValues(): array
     {
+        $attributes = $this->getAttributes();
+
         return $this->auditFilterPayload([
             'id' => $this->getKey(),
-            'key' => $this->getRawOriginal('key'),
-            'value' => $this->getRawOriginal('value'),
-            'network_storage_enabled' => (bool) $this->getRawOriginal('network_storage_enabled'),
-            'network_storage_path' => $this->getRawOriginal('network_storage_path'),
-            'network_storage_username' => $this->getRawOriginal('network_storage_username'),
+            'key' => $attributes['key'] ?? null,
+            'value' => $attributes['value'] ?? null,
+            'network_storage_enabled' => (bool) ($attributes['network_storage_enabled'] ?? false),
+            'network_storage_path' => $attributes['network_storage_path'] ?? null,
+            'network_storage_username' => $attributes['network_storage_username'] ?? null,
         ]);
     }
 }

@@ -15,6 +15,7 @@
                 filemtime(public_path('css/pages/simplified-theme.css')),
                 filemtime(public_path('css/pages/mobile.css')),
                 filemtime(public_path('css/pages/live-wall.css')),
+                filemtime(public_path('css/pages/audit-log.css')),
                 filemtime(public_path('css/components/global-header.css')),
             );
         @endphp
@@ -86,6 +87,9 @@
                         <div class="workspace-hero__body">
                             <div class="workspace-topbar__intro">
                                 <h1 class="workspace-topbar__title workspace-topbar__title--compact">{{ $pageTitle !== '' ? $pageTitle : 'Camera control room' }}</h1>
+                                @if (trim($__env->yieldContent('page_lead')) !== '')
+                                    <p class="workspace-hero__lead">@yield('page_lead')</p>
+                                @endif
                             </div>
 
                             @if ($pageActions !== '')

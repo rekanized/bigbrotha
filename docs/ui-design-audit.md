@@ -46,3 +46,7 @@ Run the keyboard fixture by loading `tests/Browser/operator-ui.test.js` on the a
 Mobile validation uses Chromium viewport/touch emulation. Physical iOS/Safari and Android device testing was not available; these results do not establish perfect behavior on every browser or device. External Google OAuth and storage credentials were not changed for design testing.
 
 The deployed test image is `rekanized/bigbrotha-app:20260907-mobile-design`. All four test services passed their health checks. Temporary browser sessions and the isolated setup database/container were removed after validation.
+
+## Activity history follow-up — 2 October 2026
+
+The audit log now leads with readable events and outcomes, keeps technical data expandable, and adds quick views and combined search/time/camera filters. Shared page introductions and recording-total explanations clarify the surrounding workflow. See [audit-log-ux.md](audit-log-ux.md) for behavior, coverage, and test-environment deployment.

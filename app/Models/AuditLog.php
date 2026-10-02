@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ApplicationSettingsService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
@@ -55,7 +56,7 @@ class AuditLog extends Model
     public function prunable(): Builder
     {
         return static::query()
-            ->where('created_at', '<=', now()->utc()->subDays(30));
+            ->where('created_at', '<=', now()->utc()->subDays(app(ApplicationSettingsService::class)->auditRetentionDays()));
     }
 
     /**

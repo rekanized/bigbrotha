@@ -16,6 +16,7 @@
 @import url('./auth.css');
 @import url('./setup-auth.css');
 @import url('./screens.css');
+@import url('./audit-log.css');
 
 
 body.page-dashboard,

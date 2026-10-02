@@ -8,7 +8,7 @@
 
 @section('page_title', 'Camera fleet')
 
-@section('page_lead', 'Maintain the saved camera inventory, probe new ONVIF endpoints directly, refresh RTSP profiles, and capture previews before feeds reach the wall.')
+@section('page_lead', 'Add cameras, test their streams, and manage recording settings. Saved stream profiles do not guarantee a camera is online.')
 
 @section('content')
     <livewire:camera-fleet.manager />

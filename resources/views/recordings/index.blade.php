@@ -8,7 +8,7 @@
 
 @section('page_title', 'Recordings browser')
 
-@section('page_lead', 'Search saved recording segments, inspect recorder outcomes, and jump into the dedicated timeline review page when you need synchronized scrubbing across recorded cameras.')
+@section('page_lead', 'Find saved video and check recording outcomes. Open Timeline Review to play footage from several cameras together.')
 
 @section('content')
     <div class="recording-browser">
@@ -36,13 +36,14 @@
             </div>
         </section>
 
+        <p class="panel-copy">Library totals below cover all cameras and dates. Search filters apply to the results list.</p>
         <div class="dashboard-stats">
             <article class="metric-card metric-card--blue">
                 <div class="metric-card__icon">SG</div>
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['total'] }}</p>
                     <p class="metric-card__label">All segments</p>
-                    <p class="metric-card__detail">Every queued recording decision currently saved in the browser index.</p>
+                    <p class="metric-card__detail">All recording entries, including waiting, skipped, and failed attempts.</p>
                 </div>
             </article>
 
@@ -51,7 +52,7 @@
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['recorded'] }}</p>
                     <p class="metric-card__label">Recorded</p>
-                    <p class="metric-card__detail">Segments that completed and still point to saved footage on disk.</p>
+                    <p class="metric-card__detail">Segments saved successfully; retention and storage determine current playback availability.</p>
                 </div>
             </article>
 

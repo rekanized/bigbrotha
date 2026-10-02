@@ -10,38 +10,23 @@ When deploying behind Nginx, Laravel must trust the proxy headers and MediaMTX m
 
 BigBrotha's fastest supported startup path is Docker Compose with the published Docker Hub images referenced by [docker-compose.yml](docker-compose.yml). You do not need to build images locally for a normal deployment.
 
-1. Copy the Docker environment template and set the public URL.
+1. Prepare the configuration.
 
 ```bash
-cp .env.docker.example .env.docker
-chmod 600 .env.docker
+./docker/compose.sh init
 ```
 
-Set `APP_URL` to the exact public origin. Leave `DB_PASSWORD` empty if you use `./docker/compose.sh`; the wrapper generates and persists a strong password on its first invocation. Raw Compose users must set `DB_PASSWORD` themselves.
+Set `APP_URL` in the generated `.env.docker` to the exact public origin. The wrapper creates the file with private permissions and generates the database password automatically.
 
-Minimum values to review in `.env.docker` before first startup:
-
-- `COMPOSE_PROJECT_NAME`
-- `APP_URL`
-- `WEB_PORT`
-- `MEDIAMTX_ICE_PORT`
-- `CAMERA_RECORDING_WORKER_PROCESSES`
+`APP_URL` is the only value you need to set for a standard installation. Optional settings are commented out in the template. Defaults publish HTTP on port `8082` and WebRTC ICE on TCP/UDP port `8190`, with two queue workers. When running several deployments on one host, uncomment and set a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT` for each stack.
 
 2. Start from the published Docker Hub images.
 
-Preferred wrapper:
-
 ```bash
-./docker/compose.sh pull
-./docker/compose.sh up -d --remove-orphans
+./docker/compose.sh start
 ```
 
-Raw Docker Compose equivalent:
-
-```bash
-docker compose --env-file .env.docker pull
-docker compose --env-file .env.docker up -d --remove-orphans
-```
+This pulls the selected images, starts the stack, and waits for all services to become healthy. Run the same command for later updates.
 
 3. Verify the stack and relay health.
 
@@ -64,13 +49,14 @@ Expected result:
 - Enter the Google client ID, client secret, and redirect URI in the setup wizard and run the built-in validation flow before enabling Google sign-in.
 - For Google-only setup, the account used for validation must make the first sign-in and becomes the initial administrator.
 
-If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d --remove-orphans`.
+If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh start`.
 
 ## Docker Configuration
 
-- For local development, run `./docker/compose-dev.sh up -d --build` once. The `app` and `background` services bind mount this checkout at `/app`, so PHP, Blade, CSS, and JavaScript edits appear without rebuilding. Later starts use `./docker/compose-dev.sh up -d`; use `./docker/compose-dev.sh ps` and `./docker/compose-dev.sh logs` for this stack.
+- Use `./docker/compose.sh --local start` to build and run the production image from this checkout. Use `--local` for subsequent commands too, such as `./docker/compose.sh --local logs --tail=100 app`.
+- Use `./docker/compose.sh --dev start` for development. The `app` and `background` services bind mount this checkout at `/app`, so PHP, Blade, CSS, and JavaScript edits appear without rebuilding. Later starts can use `./docker/compose.sh --dev up -d`; add `--dev` to `ps`, `logs`, and `exec` for this stack.
 - Development keeps Composer packages in the `dev-vendor` Docker volume and installs from `composer.lock` when the app starts. The `dev-cache` volume keeps Laravel cache files off the host checkout. Development clears route, view, and event caches, makes PHP OPcache revalidate changed files, and disables Nginx file caching.
-- The default `./docker/compose.sh` remains the production image deployment. `./docker/compose-up.sh` builds that immutable production image from the checkout. The production image contains the Laravel source and production Composer packages; it does not mount source code or contain `.env` or `.docker-state`.
+- Published images remain the default. Local builds use `bigbrotha:local` (`BIGBROTHA_BUILD_IMAGE` override) independently of `BIGBROTHA_APP_IMAGE`. The production image contains source and production Composer packages, without source mounts or deployment secrets. The older `compose-up.sh` and `compose-dev.sh` shortcuts still work.
 - Always use `./docker/compose.sh` or `docker compose --env-file .env.docker ...`.
 - Plain `docker compose up -d` without `--env-file .env.docker` is unsupported and fails closed because production `APP_URL` and `DB_PASSWORD` are required.
 - `APP_URL` must match the public origin exactly.
@@ -80,7 +66,8 @@ If this host requires Docker through `sudo`, run `sudo ./docker/compose.sh up -d
 - The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
 - Keep `./.docker-state/app.key` with the deployment; if that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
 - The default published image is `rekanized/bigbrotha-app:latest` unless overridden in `.env.docker`.
-- `CAMERA_RECORDING_WORKER_PROCESSES` controls the queue-worker process count supervised inside the `background` container.
+- `CAMERA_RECORDING_WORKER_PROCESSES` optionally changes the image's default of two queue workers inside `background`.
+- The app image uses `SIGTERM` for Supervisor and MediaMTX shutdown. Background workers have up to five minutes to finish a job; Compose allows six minutes for workers and scheduler to stop. Allow this drain when upgrading a busy stack.
 - PostgreSQL 18 data is mounted at `/var/lib/postgresql`, the parent of its version-specific `PGDATA`; do not change this back to the pre-18 `/var/lib/postgresql/data` target.
 
 ## Stack
@@ -155,65 +142,21 @@ BigBrotha now targets a single supported runtime: the Docker Compose stack in `d
 
 Use `./docker/compose.sh` for routine Compose commands so the selected `.env.docker` file and `COMPOSE_PROJECT_NAME` stay aligned across `pull`, `up`, `ps`, `logs`, and `exec`.
 
-If you want to start the application with raw Docker Compose instead of the wrapper, pass `--env-file .env.docker` on every command:
-
-Copy the template, set `APP_URL`, and put the output of `openssl rand -base64 32` into `DB_PASSWORD` before running these raw commands.
+The wrapper handles configuration, image selection, and startup:
 
 ```bash
-cp .env.docker.example .env.docker
-openssl rand -base64 32
-docker compose --env-file .env.docker pull
-docker compose --env-file .env.docker up -d --remove-orphans
+./docker/compose.sh init          # First installation: prepare .env.docker
+# Set APP_URL in .env.docker.
+./docker/compose.sh start         # Published images; also use for updates
+./docker/compose.sh --local start # Build the production image from this checkout
+./docker/compose.sh --dev start   # Build the development stack
 ```
 
-Why `--env-file .env.docker` matters:
+Use the same mode for later commands, such as `./docker/compose.sh --local ps`. With no mode, published images are selected. `start` waits for healthy services; other Compose commands pass through unchanged. Advanced settings and legacy migration procedures are described in [the startup guide](docs/startup-from-scratch.md).
 
-- `docker-compose.yml` injects `.env.docker` into the containers with `env_file`, but Compose does not use that file for top-level interpolation unless you pass `--env-file` or rename it to `.env`.
-- If you run plain `docker compose up -d` without `--env-file .env.docker`, Compose does not receive the required production URL and database credential and exits instead of silently starting with insecure defaults.
-- `MEDIAMTX_ICE_PORT` controls the published TCP/UDP port and both MediaMTX ICE listeners; separate listener variables are no longer required.
+For raw Compose, first prepare `.env.docker` and set `APP_URL` and `DB_PASSWORD`, then pass `--env-file .env.docker` on every command. The Compose file's `env_file` supplies container settings but does not supply top-level interpolation. `MEDIAMTX_ICE_PORT` controls both published transports and internal listeners.
 
-Equivalent wrapper commands:
-
-```bash
-./docker/compose.sh pull
-./docker/compose.sh up -d --remove-orphans
-```
-
-The default [docker-compose.yml](docker-compose.yml) consumes the published Docker Hub image:
-
-- `rekanized/bigbrotha-app:latest`
-
-Quick start from a source checkout that should build images locally:
-
-```bash
-./docker/compose-up.sh
-```
-
-The simplified Compose file relies on the matching application image for role launchers, health checks, and fixed production defaults. Build from the checkout with `compose-up.sh` or publish and pin the matching image tag; do not pair this Compose revision with an older app image.
-
-Copy `.env.docker.example` to `.env.docker` and review these values before first startup:
-
-- `COMPOSE_PROJECT_NAME` set to a unique stack name when this host runs more than one BigBrotha deployment
-- `APP_URL`
-- `WEB_BIND_IP` if the web listener should not bind all host interfaces
-- `WEB_PORT`
-- `MEDIAMTX_ICE_BIND_IP` if the WebRTC ICE listener should not bind all host interfaces
-- `MEDIAMTX_ICE_PORT`
-- `DB_*` if you are not using the bundled PostgreSQL defaults
-- `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of queue-worker processes
-- `BIGBROTHA_APP_IMAGE` if you want to pin a non-default image tag
-- `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` for how long exhausted queue failures remain available for diagnostics before automatic pruning (24 hours by default)
-- `./.docker-state/app.key` preserved after the first successful boot
-
-Google OAuth is database-only. Configure it from `/setup` on the first launch or later from the admin authentication settings panel; legacy `GOOGLE_*` environment entries are ignored and can be removed.
-
-Minimum usable deployment rules:
-
-- `APP_URL` must match the public origin exactly.
-- `WEB_PORT` and `MEDIAMTX_ICE_PORT` must be free on the host.
-- For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`.
-- The Docker host and the `app` container must have routed reachability to camera HTTP, ONVIF, and RTSP endpoints.
-- Keep `./.docker-state/app.key` with the deployment; if that file is lost while the database still contains encrypted values, Laravel will no longer be able to decrypt them.
+The Compose revision and application image must match: the image supplies role launchers, health checks, and runtime defaults. Keep `.docker-state/app.key` and named volumes across updates. Google OAuth and SMB settings are managed through setup/admin screens.
 
 Container notes:
 
@@ -292,7 +235,7 @@ Docker daemon access and an existing Docker Hub login are required. Set `IMAGE_T
 
 To run the same build, test, and production-image checks locally without pushing, use `PUSH_IMAGES=false ./publish.sh`. This mode does not require Docker Hub login.
 
-On another server, copy `docker-compose.yml`, `.env.docker.example`, and `docker/compose.sh`; create `.env.docker` with that server's URL, ports, and `BIGBROTHA_APP_IMAGE=<pushed tag>`, then run `./docker/compose.sh pull` and `./docker/compose.sh up -d`. Keep that server's `.docker-state/app.key` and named database and storage volumes when upgrading.
+On another server, copy `docker-compose.yml`, `.env.docker.example`, and `docker/compose.sh`; create `.env.docker` with that server's URL, ports, and `BIGBROTHA_APP_IMAGE=<pushed tag>`, then run `./docker/compose.sh start`. Keep that server's `.docker-state/app.key` and named database and storage volumes when upgrading.
 
 ## Useful Commands
 

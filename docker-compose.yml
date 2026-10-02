@@ -1,3 +1,4 @@
+# Shared operational defaults; deployment values belong in .env.docker.
 x-service: &service
   init: true
   logging:
@@ -9,7 +10,7 @@ x-service: &service
 
 x-app: &app
   <<: *service
-  image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
+  image: &app-image ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
   env_file: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env.docker}
   environment:
     APP_ENV: production
@@ -18,6 +19,7 @@ x-app: &app
     DB_DATABASE: ${DB_DATABASE:-bigbrotha}
     DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
     DB_USERNAME: ${DB_USERNAME:-bigbrotha}
+    MEDIAMTX_ICE_PORT: ${MEDIAMTX_ICE_PORT:-8190}
   volumes:
     - app-storage:/app/storage
     - ./.docker-state:/app/bootstrap-persist
@@ -33,19 +35,15 @@ services:
   background:
     <<: *app
     command: ["run-background"]
+    # Allow the worker's 5-minute drain, then the scheduler's shutdown.
+    stop_grace_period: 6m
     depends_on:
       app: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, /usr/local/bin/healthcheck]
-      timeout: 10s
-      start_period: 90s
 
   relay:
     <<: *service
-    image: ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
+    image: *app-image
     command: ["run-relay"]
-    # MediaMTX needs SIGTERM; the PHP-FPM base image defaults to SIGQUIT.
-    stop_signal: SIGTERM
     depends_on:
       app: {condition: service_healthy}
     cap_drop: [ALL]

@@ -249,11 +249,7 @@ class ContinuousRecordingSegmenterService
      */
     private function start(Camera $camera, array $source): void
     {
-        $ffmpegBinary = $this->ffmpegBinary();
-        $fpsMode = trim((string) config('ffmpeg.recording.fps_mode', 'passthrough'));
-        $avoidNegativeTs = trim((string) config('ffmpeg.recording.avoid_negative_ts', 'make_zero'));
-
-        if ($ffmpegBinary === null) {
+        if ($this->ffmpegBinary() === null) {
             throw new RuntimeException('ffmpeg is not available on this host. Check the recorder stack configuration first.');
         }
 
@@ -264,61 +260,7 @@ class ContinuousRecordingSegmenterService
         File::append($this->logPath($camera), '');
         @chmod($this->logPath($camera), 0664);
 
-        $command = array_merge([
-            $ffmpegBinary,
-            '-nostdin',
-            '-hide_banner',
-            '-loglevel',
-            'error',
-            '-rtsp_transport',
-            $source['transport'],
-            '-thread_queue_size',
-            (string) config('ffmpeg.recording.thread_queue_size', 1024),
-            '-timeout',
-            (string) config('ffmpeg.recording.rw_timeout', 20000000),
-            '-rtbufsize',
-            (string) config('ffmpeg.recording.rtbufsize', '128M'),
-            '-fflags',
-            (string) config('ffmpeg.recording.input_fflags', '+genpts+discardcorrupt'),
-            '-use_wallclock_as_timestamps',
-            config('ffmpeg.recording.use_wallclock_timestamps', true) ? '1' : '0',
-            '-probesize',
-            (string) config('ffmpeg.recording.input_probe_size', 262144),
-            '-analyzeduration',
-            (string) config('ffmpeg.recording.input_analyze_duration', 1000000),
-            '-i',
-            $source['authenticated_uri'],
-            '-map',
-            '0:v:0',
-            '-map',
-            '0:a:0?',
-            '-sn',
-            '-dn',
-            '-fps_mode',
-            $fpsMode !== '' ? $fpsMode : 'passthrough',
-            '-avoid_negative_ts',
-            $avoidNegativeTs !== '' ? $avoidNegativeTs : 'make_zero',
-            '-c',
-            'copy',
-            '-copyinkf',
-            '-max_muxing_queue_size',
-            (string) config('ffmpeg.recording.max_muxing_queue_size', 1024),
-            '-f',
-            'segment',
-            '-segment_time',
-            (string) max(1, (int) config('recording.segment_seconds', 60)),
-            '-segment_atclocktime',
-            '1',
-            '-segment_time_delta',
-            $this->segmentTimeDelta(),
-            '-reset_timestamps',
-            '1',
-            '-strftime',
-            '1',
-            '-segment_format',
-            $this->segmentFormat(),
-            $this->outputPattern($camera),
-        ]);
+        $command = $this->buildCommand($camera, $source);
 
         $shellCommand = sprintf(
             'export TZ=UTC; export FFMPEG_FAKE_NOW_UTC=%s; nohup %s >> %s 2>&1 & echo $!',
@@ -350,6 +292,94 @@ class ContinuousRecordingSegmenterService
             'started_at' => now()->utc()->toIso8601String(),
         ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
         @chmod($this->metaPath($camera), 0664);
+    }
+
+    /**
+     * @param  array{index: int|null, profile?: array<string, string|null>, authenticated_uri: string, transport: string}  $source
+     * @return array<int, string>
+     */
+    private function buildCommand(Camera $camera, array $source): array
+    {
+        $segmentSeconds = max(1, (int) config('recording.segment_seconds', 60));
+        $fps = max(1, (int) config('recording.continuous.video_fps', 20));
+
+        return [
+            $this->ffmpegBinary(),
+            '-nostdin',
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-rtsp_transport',
+            $source['transport'],
+            '-thread_queue_size',
+            (string) config('ffmpeg.recording.thread_queue_size', 1024),
+            '-timeout',
+            (string) config('ffmpeg.recording.rw_timeout', 20000000),
+            '-rtbufsize',
+            (string) config('ffmpeg.recording.rtbufsize', '128M'),
+            '-fflags',
+            (string) config('ffmpeg.recording.input_fflags', '+genpts+discardcorrupt'),
+            '-use_wallclock_as_timestamps',
+            config('ffmpeg.recording.use_wallclock_timestamps', true) ? '1' : '0',
+            '-probesize',
+            (string) config('ffmpeg.recording.input_probe_size', 262144),
+            '-analyzeduration',
+            (string) config('ffmpeg.recording.input_analyze_duration', 1000000),
+            '-i',
+            $source['authenticated_uri'],
+            '-map',
+            '0:v:0',
+            '-map',
+            '0:a:0?',
+            '-sn',
+            '-dn',
+            '-fps_mode',
+            'cfr',
+            '-avoid_negative_ts',
+            'make_zero',
+            // Own the keyframe cadence so long camera GOPs cannot grow a clip.
+            '-vf',
+            'fps='.$fps.',setsar=1',
+            '-c:v',
+            'libx264',
+            '-threads',
+            (string) config('ffmpeg.ffmpeg.threads', 2),
+            '-preset',
+            (string) config('recording.continuous.video_preset', 'veryfast'),
+            '-crf',
+            (string) config('recording.continuous.video_crf', 20),
+            '-pix_fmt',
+            'yuv420p',
+            '-bf',
+            '0',
+            '-g',
+            (string) ($fps * 2),
+            '-sc_threshold',
+            '0',
+            '-force_key_frames',
+            'expr:gte(t,n_forced*'.$segmentSeconds.')',
+            '-c:a',
+            'aac',
+            '-b:a',
+            (string) config('recording.review_assets.playback_audio_bitrate', '96k'),
+            '-af',
+            'aresample=async=1000:min_hard_comp=0.100:first_pts=0',
+            '-max_muxing_queue_size',
+            (string) config('ffmpeg.recording.max_muxing_queue_size', 1024),
+            '-f',
+            'segment',
+            '-segment_time',
+            (string) $segmentSeconds,
+            '-segment_time_delta',
+            $this->segmentTimeDelta(),
+            '-reset_timestamps',
+            '1',
+            '-strftime',
+            '1',
+            '-segment_format',
+            $this->segmentFormat(),
+            $this->outputPattern($camera),
+        ];
     }
 
     private function pid(Camera $camera): ?int
@@ -593,10 +623,14 @@ class ContinuousRecordingSegmenterService
     private function sourceSignature(array $source): string
     {
         return hash('sha256', json_encode([
+            'pipeline_version' => 2,
             'index' => $source['index'],
             'uri' => $source['authenticated_uri'],
             'transport' => $source['transport'],
             'segment_seconds' => (int) config('recording.segment_seconds', 60),
+            'video_fps' => (int) config('recording.continuous.video_fps', 20),
+            'video_preset' => (string) config('recording.continuous.video_preset', 'veryfast'),
+            'video_crf' => (int) config('recording.continuous.video_crf', 20),
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -660,12 +694,25 @@ class ContinuousRecordingSegmenterService
                 continue;
             }
 
+            $recording = CameraRecording::query()->firstOrNew([
+                'camera_id' => $camera->getKey(),
+                'scheduled_for' => $scheduledFor,
+            ]);
+
+            // A review worker may already have replaced this source with MP4.
+            if ($recording->exists && $recording->status === CameraRecording::STATUS_RECORDED) {
+                continue;
+            }
+
             $nextStart = isset($files[$index + 1])
                 ? $this->timestampFromSegmentPath($files[$index + 1]['path'])
                 : null;
-            $endedAt = $nextStart instanceof Carbon
-                ? $nextStart->copy()->utc()->startOfSecond()
-                : $scheduledFor->copy()->addSeconds($this->segmentDurationSecondsForTail($file['path']));
+            $endedAt = $scheduledFor->copy()->addSeconds($this->segmentDurationSeconds($file['path']));
+
+            if ($nextStart instanceof Carbon && $nextStart->lessThan($endedAt)) {
+                $endedAt = $nextStart->copy();
+            }
+
             $relativePath = $this->storage->recordingRelativePathFromAbsolute($file['path']);
 
             try {
@@ -680,14 +727,6 @@ class ContinuousRecordingSegmenterService
                 continue;
             }
 
-            $recording = CameraRecording::query()->firstOrNew([
-                'camera_id' => $camera->getKey(),
-                'scheduled_for' => $scheduledFor,
-            ]);
-            $wasRecorded = $recording->exists
-                && $recording->status === CameraRecording::STATUS_RECORDED
-                && $recording->relative_path === $relativePath;
-
             $recording->forceFill([
                 'capture_mode' => Camera::RECORDING_MODE_CONTINUOUS,
                 'status' => CameraRecording::STATUS_RECORDED,
@@ -699,10 +738,8 @@ class ContinuousRecordingSegmenterService
                 'source_profile_index' => $sourceProfileIndex,
             ])->save();
 
-            if (! $wasRecorded) {
-                $this->dispatchReviewAssets($recording);
-                $imported++;
-            }
+            $this->dispatchReviewAssets($recording);
+            $imported++;
 
             if ($cameraLastRecordedAt === null || $endedAt->greaterThan($cameraLastRecordedAt)) {
                 $cameraLastRecordedAt = $endedAt;
@@ -765,7 +802,7 @@ class ContinuousRecordingSegmenterService
         return $timestamp instanceof Carbon ? $timestamp->startOfSecond() : null;
     }
 
-    private function segmentDurationSecondsForTail(string $absolutePath): int
+    private function segmentDurationSeconds(string $absolutePath): int
     {
         $ffprobeBinary = $this->ffprobeBinary();
 

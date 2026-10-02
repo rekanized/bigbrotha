@@ -1,17 +1,17 @@
 <?php
 
-use App\Http\Controllers\Auth\GoogleCallbackController;
-use App\Http\Controllers\Auth\GoogleRedirectController;
-use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\AdminAuditLogController;
 use App\Http\Controllers\AdminSettingsController;
 use App\Http\Controllers\AdminUsersController;
+use App\Http\Controllers\Auth\GoogleCallbackController;
+use App\Http\Controllers\Auth\GoogleRedirectController;
 use App\Http\Controllers\Auth\GoogleTestCallbackController;
 use App\Http\Controllers\Auth\GoogleTestRedirectController;
-use App\Http\Controllers\CameraFleetMotionEditorAnalysisController;
-use App\Http\Controllers\CameraFleetStreamPreviewController;
-use App\Http\Controllers\CameraFleetMotionEditorSessionController;
+use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\CameraFleetController;
+use App\Http\Controllers\CameraFleetMotionEditorAnalysisController;
+use App\Http\Controllers\CameraFleetMotionEditorSessionController;
+use App\Http\Controllers\CameraFleetStreamPreviewController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
 use App\Http\Controllers\LiveWallPtzController;
@@ -47,6 +47,7 @@ Route::middleware('auth')->group(function (): void {
         Route::put('/users/{user}/admin-role', [AdminUsersController::class, 'updateAdminRole'])->name('users.admin-role');
         Route::get('/settings', [AdminSettingsController::class, 'index'])->name('settings.index');
         Route::put('/settings', [AdminSettingsController::class, 'update'])->name('settings.update');
+        Route::put('/settings/audit-retention', [AdminSettingsController::class, 'updateAuditRetention'])->name('settings.audit-retention.update');
         Route::get('/audit-log', [AdminAuditLogController::class, 'index'])->name('audit-logs.index');
     });
 

@@ -72,6 +72,7 @@ class DockerRuntimeConfigurationTest extends TestCase
     {
         $scripts = [
             'docker/compose.sh',
+            'docker/compose-dev.sh',
             'docker/compose-up.sh',
             'docker/entrypoint.sh',
             'docker/healthcheck.sh',
@@ -92,6 +93,28 @@ class DockerRuntimeConfigurationTest extends TestCase
 
             $this->assertTrue($process->isSuccessful(), $script.': '.$process->getErrorOutput());
         }
+    }
+
+    public function test_shutdown_budgets_allow_jobs_to_finish_before_the_container_is_killed(): void
+    {
+        $supervisor = file_get_contents(base_path('docker/supervisor/background.conf'));
+        $compose = file_get_contents(base_path('docker-compose.yml'));
+        $dockerfile = file_get_contents(base_path('Dockerfile'));
+
+        preg_match('/\[program:worker\][\s\S]*?^stopwaitsecs=(\d+)$/m', $supervisor, $worker);
+        preg_match('/\[program:scheduler\][\s\S]*?^stopwaitsecs=(\d+)$/m', $supervisor, $scheduler);
+        $background = explode("  relay:\n", explode("  background:\n", $compose, 2)[1], 2)[0];
+        preg_match('/stop_grace_period: (\d+)m/', $background, $grace);
+
+        $this->assertCount(2, $worker);
+        $this->assertCount(2, $scheduler);
+        $this->assertCount(2, $grace);
+        $this->assertGreaterThan(max(
+            config('recording.job_timeout_seconds'),
+            config('recording.review_assets.job_timeout_seconds'),
+        ), (int) $worker[1]);
+        $this->assertGreaterThan((int) $worker[1] + (int) $scheduler[1], (int) $grace[1] * 60);
+        $this->assertStringContainsString("\nSTOPSIGNAL SIGTERM\n", $dockerfile);
     }
 
     public function test_relay_uses_a_writable_working_directory_for_generated_tls_files(): void

@@ -143,7 +143,7 @@ Current behavior:
 6. each camera now stores an explicit live-feed RTSP path and an explicit recording RTSP path, and those two values may be identical.
 7. retention is currently enforced per camera in whole days, with the default workflow set to one day.
 
-The first implementation prioritizes reliability and resource control: the recorder writes short direct-to-disk segments with ffmpeg stream copy instead of buffering or re-encoding in PHP.
+The recorder writes short direct-to-disk segments with ffmpeg. Motion buffers use stream copy. Continuous capture encodes H.264/AAC with a fixed frame rate and forced keyframes at each clip boundary, so long camera GOPs cannot extend a minute clip. Encoding stays in ffmpeg; PHP orchestrates the process and completed files.
 
 ## Scheduled Preview Refresh
 
@@ -175,8 +175,9 @@ Current behavior:
 Continuous timestamp behavior:
 
 1. a continuous segment now stamps `scheduled_for` and `started_at` from the imported segment filename timestamp written by the persistent ffmpeg segmenter.
-2. `ended_at` is derived from that imported segment start plus the configured segment duration instead of from PHP process cleanup time.
-3. exact timeline-boundary focus points resolve to the following adjacent clip, so operators do not lose the next clip behind an inclusive edge match.
+2. `ended_at` is derived from the imported start plus the measured file duration, capped at the next segment start when necessary to avoid overlap. Interrupted clips remain short and outages remain gaps. If probing fails, the configured segment duration is the fallback.
+3. Continuous clips target 60 seconds (`CAMERA_RECORDING_SEGMENT_SECONDS`), including the first full clip after startup. Final clips from shutdown or source loss can be shorter. Audio packet boundaries can add a few milliseconds to container duration. `CAMERA_CONTINUOUS_VIDEO_PRESET`, `CAMERA_CONTINUOUS_VIDEO_CRF`, and `CAMERA_CONTINUOUS_VIDEO_FPS` control capture cost and quality (defaults: `veryfast`, `20`, `20`). Encoding uses `FFMPEG_THREADS` (default two); size the host for continuous encoding per camera. Review generation can copy the resulting H.264/AAC into a seekable fast-start MP4 and generates local scrub sprites. It publishes and verifies the finished recording on the active storage disk before updating its database path.
+4. exact timeline-boundary focus points resolve to the following adjacent clip, so operators do not lose the next clip behind an inclusive edge match.
 
 Production deployments should run both the minute scheduler and a queue worker that polls `recordings,default,review-assets` in that order so the continuous watchdog, motion clips, and delayed review assets all keep flowing without preview work blocking capture first.
 

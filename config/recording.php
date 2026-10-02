@@ -63,6 +63,9 @@ return [
 
     'continuous' => [
         'segmenter_enabled' => filter_var(env('CAMERA_CONTINUOUS_SEGMENTER_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'video_preset' => env('CAMERA_CONTINUOUS_VIDEO_PRESET', 'veryfast'),
+        'video_crf' => max(0, min(51, (int) env('CAMERA_CONTINUOUS_VIDEO_CRF', 20))),
+        'video_fps' => max(1, (int) env('CAMERA_CONTINUOUS_VIDEO_FPS', 20)),
         'segment_time_delta' => max(0, (float) env('CAMERA_CONTINUOUS_SEGMENT_TIME_DELTA', 0.05)),
         'startup_delay_ms' => max(0, (int) env('CAMERA_CONTINUOUS_STARTUP_DELAY_MS', 250)),
         'runtime_dir' => env('CAMERA_CONTINUOUS_RUNTIME_DIR', storage_path('app/private/continuous-recorders')),
