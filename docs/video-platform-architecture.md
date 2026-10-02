@@ -193,6 +193,14 @@ The current secure playback sequence is:
 10. The auth controller accepts that internal publish only when the configured publisher credentials match and the request IP comes from the Docker network.
 11. Once the path is ready, WebRTC tracks are delivered to the browser and shared across additional viewers.
 
+## Live Wall PTZ Controls
+
+ONVIF cameras on the live wall are checked asynchronously through the authenticated `GET /live-wall/{camera}/ptz` endpoint. `OnvifPtzService` discovers the device's PTZ and Media service addresses, profiles with PTZ configurations, and continuous pan/tilt and zoom velocity spaces from `GetConfigurationOptions`. It prefers the wall stream's profile token. The PTZ button stays hidden until usable movement capabilities are confirmed; pan/tilt and zoom controls are shown independently.
+
+`POST /live-wall/{camera}/ptz` accepts an allowlisted movement command or Stop, with session authentication, CSRF protection, and throttling. `OnvifPtzSoapClient` sends authenticated ONVIF SOAP requests directly from the app container. Each movement uses 35% of the advertised velocity range and a device-enforced one-second timeout; Stop explicitly stops pan/tilt and zoom. Camera credentials, service URLs, and profile/configuration tokens remain server-side. Discovery is cached for ten minutes (five minutes for unsupported cameras, thirty seconds for failures), with connection/profile changes invalidating the cache. Capability checks run separately from relay playback and use at most two concurrent browser requests.
+
+The UI is plain browser JavaScript in `public/js/live-wall-ptz.js`, with controls in `resources/views/live-wall/partials/ptz-controls.blade.php`. Each press makes a short movement. A native popover keeps controls above tile clipping; older browsers open the existing focused camera view. Controls support touch and keyboard use, and Escape closes the panel before leaving focused camera mode.
+
 ## MediaMTX Authentication Model
 
 MediaMTX currently uses one HTTP auth callback for two different trust models:

@@ -273,6 +273,15 @@ Implications:
 
 If browsers still fail to connect over WebRTC, check `webrtcAdditionalHosts`, `webrtcLocalUDPAddress`, `webrtcLocalTCPAddress`, host firewall rules, and TURN requirements before changing the Laravel UI.
 
+## Live Wall PTZ Availability
+
+- PTZ requires reachable ONVIF Device, Media, and PTZ services and camera credentials with movement permission. RTSP alone carries video and cannot advertise or control PTZ.
+- The wall offers controls only after discovering a PTZ-enabled media profile with continuous pan/tilt or zoom velocity spaces that accept a one-second timeout. Cameras supporting only absolute/relative movement, proprietary PTZ APIs, or Media2-only profiles are not currently controlled.
+- Pan/tilt and zoom are detected separately; a fixed camera with optical zoom can show zoom controls without directional arrows. Capability detection cannot guarantee that the configured account is allowed to move the camera; command errors are shown in the control panel.
+- Capability checks do not block playback. Unreachable/authentication failures keep the button hidden and retry after a minute. Cached unsupported results expire after five minutes; reopen the wall to check again. Supported results expire after ten minutes, and changing the camera connection, credentials, or stream profiles invalidates discovery.
+- Each press moves for at most one second at a moderate speed. There is no hold-to-move behavior. The device enforces the timeout even if the browser closes or the network drops. Stop is also available in the panel.
+- Hardware movement should be verified with an operator present; automated browser checks can verify capability detection and mock commands without moving a real camera.
+
 ## HEVC WebRTC Transcoding
 
 Browsers commonly render a grey or blank WebRTC tile when the relay publishes HEVC video, even if the WHEP session itself succeeds. For any camera feed that arrives as HEVC video plus AAC audio, the shared WebRTC path should publish H.264 video plus Opus audio instead.

@@ -143,7 +143,7 @@
             return false;
         }
 
-        return Boolean(target.closest('button, a, input, label, summary, details'));
+        return Boolean(target.closest('button, a, input, label, summary, details, [data-ptz-panel]'));
     };
 
     const handleTileDoubleClick = (event) => {
@@ -215,7 +215,8 @@
             }
         }
         if (event.key === 'Tab' && state.focusedTile) {
-            const controls = [...state.focusedTile.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled)')];
+            const controls = [...state.focusedTile.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled)')]
+                .filter(control => control.getClientRects().length > 0);
             const first = controls[0], last = controls[controls.length - 1];
             if (event.shiftKey && document.activeElement === first) {
                 event.preventDefault(); last?.focus();

@@ -65,6 +65,7 @@ body.page-live-wall .wall-monitor-tile__audio-controls {
 }
 
 body.page-live-wall .wall-monitor-tile__focus-toggle,
+body.page-live-wall .wall-monitor-tile__ptz-toggle,
 body.page-live-wall .wall-monitor-tile__audio-toggle {
     display: grid;
     place-items: center;
@@ -81,7 +82,8 @@ body.page-live-wall .wall-monitor-tile__audio-toggle {
     cursor: pointer;
 }
 
-body.page-live-wall .wall-monitor-tile__focus-toggle svg {
+body.page-live-wall .wall-monitor-tile__focus-toggle svg,
+body.page-live-wall .wall-monitor-tile__ptz-toggle svg {
     width: 22px;
     height: 22px;
 }
@@ -91,9 +93,108 @@ body.page-live-wall .wall-monitor-tile__focus-toggle:hover {
 }
 
 body.page-live-wall .wall-monitor-tile__focus-toggle:focus-visible,
+body.page-live-wall .wall-monitor-tile__ptz-toggle:focus-visible,
 body.page-live-wall .wall-monitor-tile__audio-toggle:focus-visible {
     outline: 3px solid #93c5fd;
     outline-offset: 2px;
+}
+
+body.page-live-wall [data-ptz-toggle][hidden],
+body.page-live-wall .wall-ptz-panel [hidden],
+body.page-live-wall .wall-ptz-panel[hidden] {
+    display: none;
+}
+
+body.page-live-wall .wall-monitor-tile__ptz-toggle[aria-expanded='true'] {
+    border-color: #93c5fd;
+    background: #1e40af;
+}
+
+body.page-live-wall .wall-ptz-panel {
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: min(100%, 240px);
+    max-height: 100%;
+    padding: 10px;
+    border: 1px solid #64748b;
+    border-radius: 10px;
+    background: #0f172a;
+    color: #f8fafc;
+    pointer-events: auto;
+}
+
+body.page-live-wall .wall-ptz-panel:popover-open {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+}
+
+body.page-live-wall .wall-ptz-panel__header strong {
+    color: #f8fafc;
+}
+
+body.page-live-wall .wall-ptz-panel__header,
+body.page-live-wall .wall-ptz-panel__controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+body.page-live-wall .wall-ptz-panel__controls {
+    justify-content: center;
+    margin-top: 8px;
+}
+
+body.page-live-wall .wall-ptz-panel__directions {
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    gap: 4px;
+}
+
+body.page-live-wall .wall-ptz-panel__zoom {
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    font-size: 12px;
+}
+
+body.page-live-wall .wall-ptz-panel button {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 4px;
+    border: 1px solid #64748b;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #f8fafc;
+    font-size: 20px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+body.page-live-wall .wall-ptz-panel button:hover {
+    background: #334155;
+}
+
+body.page-live-wall .wall-ptz-panel button:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 1px;
+}
+
+body.page-live-wall .wall-ptz-panel button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+body.page-live-wall .wall-ptz-panel__status {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #cbd5e1;
 }
 
 body.page-live-wall .wall-monitor-tile__focus-toggle[aria-pressed='true'] {
@@ -220,6 +321,7 @@ body.page-live-wall .live-wall-grid--monitor[data-layout-mode='focused'] .wall-m
     }
 
     body.page-live-wall .wall-monitor-tile__focus-toggle svg,
+    body.page-live-wall .wall-monitor-tile__ptz-toggle svg,
     body.page-live-wall .wall-monitor-tile__audio-icon,
     body.page-live-wall .wall-monitor-tile__audio-svg {
         width: 18px;

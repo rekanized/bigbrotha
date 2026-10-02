@@ -14,6 +14,7 @@ use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
+use App\Http\Controllers\LiveWallPtzController;
 use App\Http\Controllers\LiveWallSessionController;
 use App\Http\Controllers\LiveWallStreamController;
 use App\Http\Controllers\RecordingController;
@@ -70,6 +71,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/wall-tiles', WallTilesController::class)->name('wall-tiles.index');
     Route::get('/live-wall/{camera}/player', LiveWallPlayerController::class)->middleware('media-access')->name('live-wall.player');
     Route::get('/live-wall/{camera}/session', LiveWallSessionController::class)->middleware('media-access')->name('live-wall.session');
+    Route::get('/live-wall/{camera}/ptz', [LiveWallPtzController::class, 'show'])->middleware(['media-access', 'throttle:60,1'])->name('live-wall.ptz.show');
+    Route::post('/live-wall/{camera}/ptz', [LiveWallPtzController::class, 'store'])->middleware(['media-access', 'throttle:120,1'])->name('live-wall.ptz.store');
     Route::get('/live-wall/{camera}/stream', [LiveWallStreamController::class, 'mjpeg'])->middleware('media-access')->name('live-wall.stream');
     Route::get('/live-wall/{camera}/relay', [LiveWallStreamController::class, 'relay'])->middleware('media-access')->name('live-wall.relay');
 });

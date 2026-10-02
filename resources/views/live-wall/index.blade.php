@@ -96,6 +96,14 @@
                                             </div>
 
                                             <div class="wall-monitor-tile__audio-controls">
+                                                @if ($camera->supports_onvif)
+                                                    <button class="wall-monitor-tile__ptz-toggle" type="button" data-ptz-toggle hidden
+                                                        data-ptz-url="{{ route('live-wall.ptz.show', ['camera' => $camera]) }}"
+                                                        aria-expanded="false" aria-controls="ptz-panel-{{ $tile['tile']->id }}"
+                                                        aria-label="Move {{ $camera->name }}" title="Move camera">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 9-3 3 3 3m14-6 3 3-3 3M2 12h20M12 2v20m-3-3 3 3 3-3M9 5l3-3 3 3"/></svg>
+                                                    </button>
+                                                @endif
                                                 <button class="wall-monitor-tile__focus-toggle" type="button" data-role="focus-toggle" aria-pressed="false" aria-label="Focus {{ $camera->name }}" title="Focus camera">
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
                                                 </button>
@@ -121,6 +129,9 @@
                                                     <span class="wall-monitor-tile__audio-indicator" data-role="audio-indicator" aria-live="polite">Muted</span>
                                                 </button>
                                             </div>
+                                            @if ($camera->supports_onvif)
+                                                @include('live-wall.partials.ptz-controls', ['panelId' => 'ptz-panel-'.$tile['tile']->id])
+                                            @endif
                                         </div>
                                     </div>
                                 </div>
@@ -258,4 +269,5 @@
 
 @push('scripts')
     <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
+    <script src="{{ asset('js/live-wall-ptz.js').'?v='.filemtime(public_path('js/live-wall-ptz.js')) }}" defer data-navigate-once></script>
 @endpush
