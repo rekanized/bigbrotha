@@ -575,9 +575,22 @@ class CameraRecordingService
             }
         }
 
-        $segments = $this->motionSegmenter->closedSegmentsSince($camera, $state->last_processed_segment_at, $segmenter['running']);
+        $maxSegments = max(1, (int) config('recording.motion.sync_max_segments', 60));
+        $deadline = hrtime(true) + max(1, (int) config('recording.motion.sync_budget_seconds', 10)) * 1_000_000_000;
+        // One lookahead row tells us whether footage remains after this batch,
+        // without materializing the entire backlog as timestamp objects.
+        $segments = $this->motionSegmenter->closedSegmentsSince($camera, $state->last_processed_segment_at, $segmenter['running'], $maxSegments + 1);
+        $deferredSegment = null;
 
-        foreach ($segments as $segment) {
+        foreach ($segments as $index => $segment) {
+            // Always make progress, but give other cameras a turn after a bounded
+            // batch. A storage outage can leave hours of buffered footage here.
+            if ($index > 0 && ($index >= $maxSegments || hrtime(true) >= $deadline)) {
+                $deferredSegment = $segment;
+
+                break;
+            }
+
             if ($activeRecording instanceof CameraRecording
                 && $state->finalize_after instanceof Carbon
                 && $segment['started_at']->greaterThanOrEqualTo($state->finalize_after)) {
@@ -663,7 +676,8 @@ class CameraRecordingService
             ])->save();
         }
 
-        if (! $finalizationFailed
+        if ($deferredSegment === null
+            && ! $finalizationFailed
             && $activeRecording instanceof CameraRecording
             && $this->finalizeMotionRecording($camera, $state, $activeRecording, $segmenter['running'])) {
             $finalized++;
@@ -672,6 +686,16 @@ class CameraRecordingService
         }
 
         $keepFrom = $this->motionBufferKeepFrom($camera, $state, $activeRecording);
+
+        if ($deferredSegment !== null) {
+            // Retain unexamined footage and its pre-roll. Do not finalize an event
+            // until these segments have had a chance to extend its quiet deadline.
+            $deferredKeepFrom = $deferredSegment['started_at']->copy()->subSeconds($this->motionPreRollSeconds($camera));
+
+            if ($deferredKeepFrom->lessThan($keepFrom)) {
+                $keepFrom = $deferredKeepFrom;
+            }
+        }
 
         $this->motionSegmenter->pruneSegments($camera, $keepFrom, $segmenter['running']);
 
@@ -1409,6 +1433,16 @@ class CameraRecordingService
             $segments = $this->motionSegmenter->segmentsForWindow($camera, $windowStart, $windowEnd, $recorderRunning);
 
             if ($segments === []) {
+                $available = $this->motionSegmenter->closedSegmentsSince($camera, null, $recorderRunning, 1);
+
+                // After an older deployment cleared its buffer (or the source
+                // changed), a lost event must not block all subsequent motion.
+                // Keep waiting when no newer footage proves the window is gone.
+                if ($available !== [] && $available[0]['started_at']->greaterThanOrEqualTo($windowEnd)) {
+                    $this->markRecordingFailed($recording, 'Unable to recover the motion event because its buffered footage is no longer available.');
+                    $this->clearMotionState($state);
+                }
+
                 return false;
             }
 

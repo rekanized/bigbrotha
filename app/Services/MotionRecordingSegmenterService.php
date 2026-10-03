@@ -51,8 +51,11 @@ class MotionRecordingSegmenterService
             $started = false;
 
             if (! $this->isRunning($camera, $source)) {
+                $previousMeta = $this->meta($camera);
+                $preserveSegments = is_array($previousMeta)
+                    && hash_equals((string) ($previousMeta['source_signature'] ?? ''), $this->sourceSignature($source));
                 $this->stop($camera);
-                $this->start($camera, $source);
+                $this->start($camera, $source, $preserveSegments);
                 $started = true;
 
                 $startupDelayMs = max(0, (int) config('recording.motion.startup_delay_ms', 150));
@@ -177,15 +180,9 @@ class MotionRecordingSegmenterService
     /**
      * @return array<int, array{path: string, started_at: Carbon, ended_at: Carbon}>
      */
-    public function closedSegmentsSince(Camera $camera, ?Carbon $after = null, bool $recorderRunning = true): array
+    public function closedSegmentsSince(Camera $camera, ?Carbon $after = null, bool $recorderRunning = true, ?int $limit = null): array
     {
-        $segments = $this->segmentRows($camera, $recorderRunning);
-
-        if (! $after instanceof Carbon) {
-            return $segments;
-        }
-
-        return array_values(array_filter($segments, static fn (array $segment): bool => $segment['started_at']->greaterThan($after)));
+        return $this->segmentRows($camera, $recorderRunning, $after, $limit);
     }
 
     /**
@@ -262,7 +259,7 @@ class MotionRecordingSegmenterService
     /**
      * @param  array{index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $source
      */
-    private function start(Camera $camera, array $source): void
+    private function start(Camera $camera, array $source, bool $preserveSegments = false): void
     {
         $ffmpegBinary = $this->ffmpegBinary();
         $fpsMode = trim((string) config('ffmpeg.recording.fps_mode', 'passthrough'));
@@ -276,7 +273,11 @@ class MotionRecordingSegmenterService
         File::ensureDirectoryExists($this->cameraDirectory($camera));
         @chmod($this->runtimeDirectory(), 02775);
         @chmod($this->cameraDirectory($camera), 02775);
-        File::deleteDirectory($this->segmentDirectory($camera));
+        // A process/container restart must not erase unexamined footage. Clear
+        // the old buffer when its capture source or segmentation settings changed.
+        if (! $preserveSegments) {
+            File::deleteDirectory($this->segmentDirectory($camera));
+        }
         File::ensureDirectoryExists($this->segmentDirectory($camera));
         @chmod($this->segmentDirectory($camera), 02775);
         File::append($this->logPath($camera), '');
@@ -642,7 +643,7 @@ class MotionRecordingSegmenterService
     /**
      * @return array<int, array{path: string, started_at: Carbon, ended_at: Carbon}>
      */
-    private function segmentRows(Camera $camera, bool $recorderRunning): array
+    private function segmentRows(Camera $camera, bool $recorderRunning, ?Carbon $after = null, ?int $limit = null): array
     {
         $files = $this->segmentFiles($camera);
 
@@ -651,11 +652,18 @@ class MotionRecordingSegmenterService
         }
 
         $rows = [];
+        $afterStamp = $after?->copy()->utc()->format('Ymd_His');
 
         foreach ($files as $index => $path) {
             $isLast = $index === array_key_last($files);
 
             if ($recorderRunning && $isLast) {
+                continue;
+            }
+
+            // Segment names sort chronologically. Avoid constructing timestamp
+            // objects for the already examined portion of a large buffer.
+            if ($afterStamp !== null && strcmp(substr(basename($path), 0, 15), $afterStamp) <= 0) {
                 continue;
             }
 
@@ -675,6 +683,10 @@ class MotionRecordingSegmenterService
                 'started_at' => $startedAt,
                 'ended_at' => $endedAt,
             ];
+
+            if ($limit !== null && count($rows) >= max(1, $limit)) {
+                break;
+            }
         }
 
         return $rows;

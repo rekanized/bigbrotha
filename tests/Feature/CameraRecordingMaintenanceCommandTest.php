@@ -214,9 +214,9 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         ]);
 
         $reviewAssets = app(RecordingReviewAssetService::class);
-    $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
+        $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
         $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
-    File::put($manifestAbsolutePath, '{}');
+        File::put($manifestAbsolutePath, '{}');
         File::put($scrubSpriteAbsolutePath, 'sprite');
 
         Artisan::call('camera-recordings:prune');
@@ -257,9 +257,9 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         ]);
 
         $reviewAssets = app(RecordingReviewAssetService::class);
-    $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
+        $manifestAbsolutePath = app(CameraStorageService::class)->recordingReviewAssetAbsolutePath($recording->relative_path, 'manifest.json', true);
         $scrubSpriteAbsolutePath = $reviewAssets->scrubSpriteAbsolutePath($recording, true);
-    File::put($manifestAbsolutePath, '{}');
+        File::put($manifestAbsolutePath, '{}');
         File::put($scrubSpriteAbsolutePath, 'sprite');
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])->makePartial();
@@ -426,8 +426,8 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-    $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
-    File::put($orphanManifestAbsolutePath, '{}');
+        $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
+        File::put($orphanManifestAbsolutePath, '{}');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -562,8 +562,8 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         File::put($orphanAbsolutePath, 'orphan');
 
         $storage = app(CameraStorageService::class);
-    $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
-    File::put($orphanManifestAbsolutePath, '{}');
+        $orphanManifestAbsolutePath = $storage->recordingReviewAssetAbsolutePath($orphanRelativePath, 'manifest.json', true);
+        File::put($orphanManifestAbsolutePath, '{}');
 
         $orphanPaths = collect($storage->orphanRecordingFiles())->pluck('relative_path');
         $this->assertTrue($orphanPaths->contains($orphanRelativePath));
@@ -609,6 +609,25 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
         $this->assertFalse($failedJobPruneEvent->runInBackground);
     }
 
+    public function test_recording_tick_skips_a_running_process_even_after_the_scheduler_lease_expires(): void
+    {
+        $directory = storage_path('app/private/motion-recorders');
+        File::ensureDirectoryExists($directory);
+        $handle = fopen($directory.'/recording-tick.lock', 'c');
+        $this->assertTrue(flock($handle, LOCK_EX | LOCK_NB));
+        try {
+            $this->travel(6)->minutes();
+            $this->assertSame(0, Artisan::call('camera-recordings:tick'));
+            $this->assertStringContainsString('another tick is still running', Artisan::output());
+        } finally {
+            $this->travelBack();
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+        $this->assertSame(0, Artisan::call('camera-recordings:tick'));
+        $this->assertStringNotContainsString('another tick is still running', Artisan::output());
+    }
+
     public function test_it_skips_overlapping_prune_invocations_when_the_lock_is_already_held(): void
     {
         $lock = Cache::lock('camera-recordings:prune-command', 3600);
@@ -626,7 +645,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
     public function test_it_reports_prune_phase_progress_in_command_output(): void
     {
-        $output = new BufferedOutput();
+        $output = new BufferedOutput;
         $exitCode = Artisan::call('camera-recordings:prune', [], $output);
         $buffer = $output->fetch();
 

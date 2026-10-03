@@ -23,6 +23,43 @@ class CameraRecordingCommandTest extends TestCase
     use BuildsFakeRecordingFfmpegBinary;
     use RefreshDatabase;
 
+    public function test_review_generation_bounds_decoding_encoding_and_filter_threads(): void
+    {
+        config()->set('ffmpeg.ffmpeg.threads', 2);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous-log-args')]);
+        $camera = Camera::query()->create(['name' => 'Review cost', 'local_ip' => '192.168.1.88']);
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id, 'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_RECORDED,
+            'scheduled_for' => now()->utc()->subMinute(), 'started_at' => now()->utc()->subMinute(),
+            'ended_at' => now()->utc(), 'relative_path' => 'cameras/'.$camera->id.'/recordings/thread-test.mkv',
+        ]);
+        $path = app(CameraStorageService::class)->writableAbsolutePath($recording->relative_path);
+        File::ensureDirectoryExists(dirname($path));
+        File::put($path, 'recorded-segment');
+        app(RecordingReviewAssetService::class)->generateForRecording($recording);
+
+        $commands = explode("---\n", File::get(storage_path('app/private/test-binaries/ffmpeg-segment-args.log')));
+        $this->assertCount(3, $commands);
+        foreach (array_slice($commands, 0, 2) as $index => $command) {
+            $arguments = explode("\n", trim($command));
+            $inputIndex = array_search('-i', $arguments, true);
+            $this->assertIsInt($inputIndex);
+            $limit = $index === 0 ? '2' : '1';
+            $threadIndexes = array_keys($arguments, '-threads', true);
+            $this->assertCount(2, $threadIndexes);
+            $this->assertLessThan($inputIndex, $threadIndexes[0]);
+            $this->assertGreaterThan($inputIndex, $threadIndexes[1]);
+            foreach ($threadIndexes as $threadIndex) {
+                $this->assertSame($limit, $arguments[$threadIndex + 1]);
+            }
+            $filterIndex = array_search('-filter_threads', $arguments, true);
+            $this->assertIsInt($filterIndex);
+            $this->assertSame('1', $arguments[$filterIndex + 1]);
+        }
+        $this->assertTrue(app(RecordingReviewAssetService::class)->hasReadyAssets($recording->fresh(), true));
+    }
+
     public function test_it_records_a_continuous_segment_for_an_enabled_camera(): void
     {
         config()->set('queue.default', 'sync');

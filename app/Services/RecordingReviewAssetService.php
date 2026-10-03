@@ -661,7 +661,7 @@ class RecordingReviewAssetService
             $this->storage->finalizeStagedWrite($manifestRelativePath, $manifestAbsolutePath);
 
             if ($sourceRelativePath !== null && $sourceRelativePath !== $targetRelativePath) {
-                if (!$this->storage->deleteRecordingFile($sourceRelativePath)) {
+                if (! $this->storage->deleteRecordingFile($sourceRelativePath)) {
                     throw new RuntimeException('Unable to remove the replaced source recording after publishing its browser playback asset.');
                 }
             }
@@ -1049,6 +1049,10 @@ class RecordingReviewAssetService
             '-loglevel',
             'error',
             '-y',
+            '-threads',
+            (string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2)),
+            '-filter_threads',
+            '1',
             ...($inputFlags !== '' ? ['-fflags', $inputFlags] : []),
             '-i',
             $inputPath,
@@ -1062,6 +1066,8 @@ class RecordingReviewAssetService
             'make_zero',
             ...$this->playbackVideoArguments($inputPath, $gop),
             ...$this->playbackAudioArguments($inputPath),
+            '-threads',
+            (string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2)),
             '-max_muxing_queue_size',
             (string) config('ffmpeg.playback.max_muxing_queue_size', 1024),
             '-movflags',
@@ -1398,6 +1404,10 @@ class RecordingReviewAssetService
             '-loglevel',
             'error',
             '-y',
+            '-threads',
+            '1',
+            '-filter_threads',
+            '1',
             '-i',
             $inputPath,
             '-vf',
@@ -1406,6 +1416,8 @@ class RecordingReviewAssetService
             '1',
             '-q:v',
             '4',
+            '-threads',
+            '1',
             $outputPath,
         ];
     }

@@ -50,6 +50,209 @@ class CameraRecordingMotionCommandTest extends TestCase
         }
     }
 
+    public function test_motion_segmenter_preserves_buffers_when_the_same_source_restarts(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Restart recovery', 'local_ip' => '192.168.1.89',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-quiet')]);
+        config()->set('recording.motion.startup_delay_ms', 0);
+        $source = ['index' => null, 'profile' => [], 'authenticated_uri' => 'rtsp://127.0.0.1/stream', 'transport' => 'tcp'];
+        $segmenter = app(MotionRecordingSegmenterService::class);
+        $signature = (new \ReflectionMethod($segmenter, 'sourceSignature'))->invoke($segmenter, $source);
+        $directory = config('recording.motion.runtime_dir');
+        File::ensureDirectoryExists($directory.'/camera-'.$camera->id.'/segments');
+        $path = $directory.'/camera-'.$camera->id.'/segments/'.now()->utc()->subHour()->format('Ymd_His').'-buffer.mkv';
+        File::put($path, 'unexamined-footage');
+        File::put($directory.'/camera-'.$camera->id.'.json', json_encode(['source_signature' => $signature]));
+        File::put($directory.'/camera-'.$camera->id.'.pid', '999999999');
+
+        try {
+            $segmenter->syncCamera($camera, $source);
+            $this->assertFileExists($path);
+            $this->assertSame('unexamined-footage', File::get($path));
+        } finally {
+            $segmenter->stop($camera);
+        }
+    }
+
+    public function test_motion_segmenter_clears_incompatible_buffers_when_the_source_changes(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Changed source', 'local_ip' => '192.168.1.90',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('motion-quiet')]);
+        config()->set('recording.motion.startup_delay_ms', 0);
+        $source = ['index' => null, 'profile' => [], 'authenticated_uri' => 'rtsp://127.0.0.1/stream', 'transport' => 'tcp'];
+        $segmenter = app(MotionRecordingSegmenterService::class);
+        $directory = config('recording.motion.runtime_dir');
+        File::ensureDirectoryExists($directory.'/camera-'.$camera->id.'/segments');
+        $path = $directory.'/camera-'.$camera->id.'/segments/'.now()->utc()->subHour()->format('Ymd_His').'-buffer.mkv';
+        File::put($path, 'previous-source-footage');
+        File::put($directory.'/camera-'.$camera->id.'.json', json_encode(['source_signature' => 'different-source']));
+        File::put($directory.'/camera-'.$camera->id.'.pid', '999999999');
+
+        try {
+            $segmenter->syncCamera($camera, $source);
+            $this->assertFileDoesNotExist($path);
+        } finally {
+            $segmenter->stop($camera);
+        }
+    }
+
+    public function test_motion_sync_defers_a_backlog_without_pruning_unexamined_footage(): void
+    {
+        config()->set('recording.motion.sync_max_segments', 1);
+        $camera = Camera::query()->create([
+            'name' => 'Backlogged camera', 'local_ip' => '192.168.1.85',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $start = now()->utc()->subHours(8)->startOfSecond();
+        $directory = storage_path('app/private/motion-recorders/camera-'.$camera->id.'/segments');
+        File::ensureDirectoryExists($directory);
+        $segments = [];
+        foreach (range(0, 2) as $index) {
+            $stamp = $start->copy()->addSeconds($index * 4);
+            $path = $directory.'/'.$stamp->format('Ymd_His').'-buffer.mkv';
+            File::put($path, 'quiet');
+            $segments[] = ['path' => $path, 'started_at' => $stamp, 'ended_at' => $stamp->copy()->addSeconds(4)];
+        }
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class)->makePartial();
+        $segmenter->shouldReceive('syncCamera')->twice()->andReturn(['started' => false, 'running' => true, 'pid' => 123]);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        foreach (array_slice($segments, 0, 2) as $segment) {
+            $detector->shouldReceive('detectClip')->once()->with($camera, $segment['path'])->andReturn([
+                'detected' => false, 'activity_ratio' => 0.0, 'changed_pixels' => 0,
+                'selected_pixels' => 4, 'frame_count' => 3,
+            ]);
+        }
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $state = CameraMotionState::query()->where('camera_id', $camera->id)->firstOrFail();
+        $this->assertTrue($state->last_processed_segment_at->equalTo($segments[0]['started_at']));
+        foreach ($segments as $segment) {
+            $this->assertFileExists($segment['path']);
+        }
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $this->assertTrue($state->fresh()->last_processed_segment_at->equalTo($segments[1]['started_at']));
+        $this->assertFileExists($segments[2]['path']);
+        $this->assertDatabaseCount('camera_recordings', 0);
+    }
+
+    public function test_motion_sync_does_not_finalize_before_deferred_segments_can_extend_an_event(): void
+    {
+        config()->set('recording.motion.sync_max_segments', 1);
+        $camera = Camera::query()->create([
+            'name' => 'Active backlog', 'local_ip' => '192.168.1.87',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $start = now()->utc()->subHour()->startOfSecond();
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id, 'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_PROCESSING, 'scheduled_for' => $start, 'started_at' => $start,
+        ]);
+        $state = CameraMotionState::query()->create([
+            'camera_id' => $camera->id, 'active_recording_id' => $recording->id,
+            'event_started_at' => $start, 'last_motion_at' => $start,
+            'finalize_after' => $start->copy()->addSeconds(8),
+        ]);
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->once()->andReturn(['started' => false, 'running' => true, 'pid' => 123]);
+        $segmenter->shouldReceive('closedSegmentsSince')->once()->andReturn([
+            ['path' => '/first.mkv', 'started_at' => $start, 'ended_at' => $start->copy()->addSeconds(4)],
+            ['path' => '/deferred.mkv', 'started_at' => $start->copy()->addSeconds(4), 'ended_at' => $start->copy()->addSeconds(8)],
+        ]);
+        $segmenter->shouldReceive('segmentsForWindow')->never();
+        $segmenter->shouldReceive('pruneSegments')->once()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        $detector->shouldReceive('detectClip')->once()->with($camera, '/first.mkv')->andReturn([
+            'detected' => false, 'activity_ratio' => 0.0, 'changed_pixels' => 0, 'selected_pixels' => 4, 'frame_count' => 3,
+        ]);
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+
+        $result = app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $this->assertSame(0, $result['finalized']);
+        $this->assertSame($recording->id, $state->fresh()->active_recording_id);
+        $this->assertSame(CameraRecording::STATUS_PROCESSING, $recording->fresh()->status);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_motion_sync_stops_after_its_time_budget(): void
+    {
+        config()->set('recording.motion.sync_budget_seconds', 1);
+        $camera = Camera::query()->create([
+            'name' => 'Slow camera', 'local_ip' => '192.168.1.86',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $start = now()->utc()->subMinute()->startOfSecond();
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->once()->andReturn(['started' => false, 'running' => true, 'pid' => 123]);
+        $segmenter->shouldReceive('closedSegmentsSince')->once()->andReturn([
+            ['path' => '/slow.mkv', 'started_at' => $start, 'ended_at' => $start->copy()->addSeconds(4)],
+            ['path' => '/deferred.mkv', 'started_at' => $start->copy()->addSeconds(4), 'ended_at' => $start->copy()->addSeconds(8)],
+        ]);
+        $segmenter->shouldReceive('pruneSegments')->once()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        $detector->shouldReceive('detectClip')->once()->with($camera, '/slow.mkv')->andReturnUsing(function (): array {
+            usleep(1_050_000);
+
+            return ['detected' => false, 'activity_ratio' => 0.0, 'changed_pixels' => 0, 'selected_pixels' => 4, 'frame_count' => 3];
+        });
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $this->assertTrue(CameraMotionState::query()->firstOrFail()->last_processed_segment_at->equalTo($start));
+    }
+
+    public function test_motion_sync_recovers_when_an_old_restart_lost_the_active_event_buffer(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Lost buffer', 'local_ip' => '192.168.1.91',
+            'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
+            'recording_mode' => Camera::RECORDING_MODE_MOTION,
+        ]);
+        $start = now()->utc()->subMinutes(5)->startOfSecond();
+        $newStart = now()->utc()->subMinute()->startOfSecond();
+        $recording = CameraRecording::query()->create([
+            'camera_id' => $camera->id, 'capture_mode' => Camera::RECORDING_MODE_MOTION,
+            'status' => CameraRecording::STATUS_PROCESSING, 'scheduled_for' => $start, 'started_at' => $start,
+        ]);
+        $state = CameraMotionState::query()->create([
+            'camera_id' => $camera->id, 'active_recording_id' => $recording->id,
+            'event_started_at' => $start, 'last_motion_at' => $start,
+            'last_processed_segment_at' => $start, 'finalize_after' => $start->copy()->addSeconds(20),
+        ]);
+        $newSegment = ['path' => '/new.mkv', 'started_at' => $newStart, 'ended_at' => $newStart->copy()->addSeconds(4)];
+        $segmenter = \Mockery::mock(MotionRecordingSegmenterService::class);
+        $segmenter->shouldReceive('syncCamera')->twice()->andReturn(['started' => false, 'running' => true, 'pid' => 123]);
+        $segmenter->shouldReceive('closedSegmentsSince')->times(3)->andReturn([$newSegment]);
+        $segmenter->shouldReceive('segmentsForWindow')->once()->andReturn([]);
+        $segmenter->shouldReceive('pruneSegments')->twice()->andReturn(0);
+        $this->app->instance(MotionRecordingSegmenterService::class, $segmenter);
+        $detector = \Mockery::mock(RecordingMotionDetectorService::class);
+        $detector->shouldReceive('detectClip')->once()->with($camera, '/new.mkv')->andReturn([
+            'detected' => false, 'activity_ratio' => 0.0, 'changed_pixels' => 0, 'selected_pixels' => 4, 'frame_count' => 3,
+        ]);
+        $this->app->instance(RecordingMotionDetectorService::class, $detector);
+
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $this->assertNull($state->fresh()->active_recording_id);
+        $this->assertSame(CameraRecording::STATUS_FAILED, $recording->fresh()->status);
+        app(CameraRecordingService::class)->syncMotionRecorder($camera);
+        $this->assertTrue($state->fresh()->last_processed_segment_at->equalTo($newStart));
+    }
+
     public function test_motion_sync_clears_a_failed_active_event(): void
     {
         $camera = Camera::query()->create([
@@ -1864,7 +2067,7 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'pid' => null,
             ]);
         $segmenter->shouldReceive('closedSegmentsSince')
-            ->once()
+            ->twice()
             ->andReturn([$currentSegment]);
         $segmenter->shouldReceive('segmentsForWindow')
             ->twice()

@@ -8,17 +8,18 @@ use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
-use App\Services\RecordingContainerHealthService;
-use App\Services\RuntimeHeartbeatService;
-use App\Services\RecordingReviewAssetService;
 use App\Services\ContinuousRecordingSegmenterService;
 use App\Services\FailedJobRetryService;
 use App\Services\MotionRecordingSegmenterService;
+use App\Services\RecordingContainerHealthService;
+use App\Services\RecordingReviewAssetService;
 use App\Services\Relay\MediaMtxProcessService;
+use App\Services\RuntimeHeartbeatService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -31,7 +32,7 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
         ? $sourcePathArgument
         : base_path($sourcePathArgument);
 
-    if (!is_file($sourcePath)) {
+    if (! is_file($sourcePath)) {
         $this->components->error('SQLite source file not found: '.$sourcePath);
 
         return 1;
@@ -76,7 +77,7 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
         }
     }
 
-    $missingTables = array_values(array_filter($tables, fn (string $table): bool => !isset($sourceTables[$table])));
+    $missingTables = array_values(array_filter($tables, fn (string $table): bool => ! isset($sourceTables[$table])));
 
     if ($missingTables !== []) {
         $this->components->warn('Skipping missing SQLite tables: '.implode(', ', $missingTables));
@@ -92,7 +93,7 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
         }
 
         foreach ($tables as $table) {
-            if (!$target->getSchemaBuilder()->hasTable($table)) {
+            if (! $target->getSchemaBuilder()->hasTable($table)) {
                 continue;
             }
 
@@ -114,14 +115,14 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
                     && str_contains(strtolower((string) ($column['type'] ?? '')), 'int');
             });
 
-            if (!$hasIntegerId) {
+            if (! $hasIntegerId) {
                 continue;
             }
 
             $sequenceRow = $target->selectOne('SELECT pg_get_serial_sequence(?, ?) AS sequence_name', [$table, 'id']);
             $sequence = is_object($sequenceRow) ? ($sequenceRow->sequence_name ?? null) : null;
 
-            if (!is_string($sequence) || $sequence === '') {
+            if (! is_string($sequence) || $sequence === '') {
                 continue;
             }
 
@@ -139,7 +140,7 @@ Artisan::command('db:import-sqlite {path=database/database.sqlite}', function ()
     $rows = [];
 
     foreach ($tables as $table) {
-        if (!array_key_exists($table, $importCounts)) {
+        if (! array_key_exists($table, $importCounts)) {
             continue;
         }
 
@@ -221,124 +222,145 @@ Artisan::command('camera-fleet:refresh-previews', function (): int {
 })->purpose('Refresh saved RTSP preview snapshots for eligible cameras');
 
 Artisan::command('camera-recordings:tick', function (): int {
-    $scheduledFor = now()->utc()->startOfMinute();
-    $heartbeats = app(RuntimeHeartbeatService::class);
-    $heartbeats->touchRecordingTick('camera-recordings:tick:start');
-    $recordings = app(CameraRecordingService::class);
-    $recovered = $recordings->recoverStalePendingRecordings();
-    $continuousRecorders = app(ContinuousRecordingSegmenterService::class);
-    $continuousStopped = $continuousRecorders->stopUnmanagedRecorders();
-    $motionRecorders = app(MotionRecordingSegmenterService::class);
-    $motionStopped = $motionRecorders->stopUnmanagedRecorders();
-    $continuousStarted = 0;
-    $continuousImported = 0;
-    $motionStarted = 0;
-    $motionFinalized = 0;
-    $queued = 0;
+    // A scheduler lease can expire while a large buffer or SMB operation is
+    // still running. This process lock is released by the OS on exit instead.
+    $directory = storage_path('app/private/motion-recorders');
+    File::ensureDirectoryExists($directory);
+    $handle = fopen($directory.'/recording-tick.lock', 'c');
 
-    Camera::query()
-        ->where('is_enabled', true)
-        ->where('supports_rtsp', true)
-        ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
-        ->orderBy('id')
-        ->chunkById(50, function ($cameras) use (&$queued, &$continuousStarted, &$continuousImported, &$motionStarted, &$motionFinalized, $recordings, $continuousRecorders, $heartbeats): void {
-            foreach ($cameras as $camera) {
-                $heartbeats->touchRecordingTick('camera-recordings:tick:camera-'.$camera->id);
+    if ($handle === false) {
+        throw new RuntimeException('Unable to open the recording tick lock.');
+    }
 
-                if (!$camera->hasRecordingEnabled()) {
-                    continue;
-                }
+    try {
+        if (! flock($handle, LOCK_EX | LOCK_NB)) {
+            $this->components->info('Skipped recording tick because another tick is still running.');
 
-                if ($camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS) {
-                    if (!$continuousRecorders->enabled()) {
-                        $recording = $recordings->ensureContinuousRecordingQueued($camera, now()->utc());
+            return 0;
+        }
 
-                        if (!$recording instanceof CameraRecording) {
+        $scheduledFor = now()->utc()->startOfMinute();
+        $heartbeats = app(RuntimeHeartbeatService::class);
+        $heartbeats->touchRecordingTick('camera-recordings:tick:start');
+        $recordings = app(CameraRecordingService::class);
+        $recovered = $recordings->recoverStalePendingRecordings();
+        $continuousRecorders = app(ContinuousRecordingSegmenterService::class);
+        $continuousStopped = $continuousRecorders->stopUnmanagedRecorders();
+        $motionRecorders = app(MotionRecordingSegmenterService::class);
+        $motionStopped = $motionRecorders->stopUnmanagedRecorders();
+        $continuousStarted = 0;
+        $continuousImported = 0;
+        $motionStarted = 0;
+        $motionFinalized = 0;
+        $queued = 0;
+
+        Camera::query()
+            ->where('is_enabled', true)
+            ->where('supports_rtsp', true)
+            ->whereIn('recording_mode', [Camera::RECORDING_MODE_CONTINUOUS, Camera::RECORDING_MODE_MOTION])
+            ->orderBy('id')
+            ->chunkById(50, function ($cameras) use (&$queued, &$continuousStarted, &$continuousImported, &$motionStarted, &$motionFinalized, $recordings, $continuousRecorders, $heartbeats): void {
+                foreach ($cameras as $camera) {
+                    $heartbeats->touchRecordingTick('camera-recordings:tick:camera-'.$camera->id);
+
+                    if (! $camera->hasRecordingEnabled()) {
+                        continue;
+                    }
+
+                    if ($camera->recording_mode === Camera::RECORDING_MODE_CONTINUOUS) {
+                        if (! $continuousRecorders->enabled()) {
+                            $recording = $recordings->ensureContinuousRecordingQueued($camera, now()->utc());
+
+                            if (! $recording instanceof CameraRecording) {
+                                continue;
+                            }
+
+                            if ($recordings->dispatchRecording(
+                                $recording,
+                                'Queued by scheduler for continuous capture at '.$recording->scheduled_for?->format('Y-m-d H:i:s').' UTC.',
+                            )) {
+                                $queued++;
+                            }
+
                             continue;
                         }
 
-                        if ($recordings->dispatchRecording(
-                            $recording,
-                            'Queued by scheduler for continuous capture at '.$recording->scheduled_for?->format('Y-m-d H:i:s').' UTC.',
-                        )) {
-                            $queued++;
+                        $source = $recordings->resolveBufferedRecordingSource($camera)
+                            ?? $recordings->resolveRecordingSource($camera);
+
+                        if ($source === null) {
+                            $continuousRecorders->stop($camera);
+
+                            continue;
                         }
 
+                        $result = $continuousRecorders->syncCamera($camera, $source);
+
+                        if ($result['started']) {
+                            $continuousStarted++;
+                        }
+
+                        $continuousImported += $result['imported'];
+
                         continue;
                     }
 
-                    $source = $recordings->resolveBufferedRecordingSource($camera)
-                        ?? $recordings->resolveRecordingSource($camera);
-
-                    if ($source === null) {
-                        $continuousRecorders->stop($camera);
-
-                        continue;
-                    }
-
-                    $result = $continuousRecorders->syncCamera($camera, $source);
+                    $result = $recordings->syncMotionRecorder($camera);
 
                     if ($result['started']) {
-                        $continuousStarted++;
+                        $motionStarted++;
                     }
 
-                    $continuousImported += $result['imported'];
-
-                    continue;
+                    if ($result['finalized'] > 0) {
+                        $motionFinalized += $result['finalized'];
+                    }
                 }
+            });
 
-                $result = $recordings->syncMotionRecorder($camera);
+        $message = 'Queued '.$queued.' camera recording job'.($queued === 1 ? '' : 's').' for '.$scheduledFor->format('Y-m-d H:i').' UTC.';
 
-                if ($result['started']) {
-                    $motionStarted++;
-                }
+        if ($recovered > 0) {
+            $message .= ' Recovered '.$recovered.' stale pending segment'.($recovered === 1 ? '' : 's').'.';
+        }
 
-                if ($result['finalized'] > 0) {
-                    $motionFinalized += $result['finalized'];
-                }
-            }
-        });
+        if ($continuousStarted > 0) {
+            $message .= ' Started '.$continuousStarted.' continuous recorder process'.($continuousStarted === 1 ? '' : 'es').'.';
+        }
 
-    $message = 'Queued '.$queued.' camera recording job'.($queued === 1 ? '' : 's').' for '.$scheduledFor->format('Y-m-d H:i').' UTC.';
+        if ($continuousImported > 0) {
+            $message .= ' Imported '.$continuousImported.' continuous segment'.($continuousImported === 1 ? '' : 's').'.';
+        }
 
-    if ($recovered > 0) {
-        $message .= ' Recovered '.$recovered.' stale pending segment'.($recovered === 1 ? '' : 's').'.';
+        if ($continuousStopped > 0) {
+            $message .= ' Stopped '.$continuousStopped.' unmanaged continuous recorder process'.($continuousStopped === 1 ? '' : 'es').'.';
+        }
+
+        if ($motionStarted > 0) {
+            $message .= ' Started '.$motionStarted.' motion recorder process'.($motionStarted === 1 ? '' : 'es').'.';
+        }
+
+        if ($motionFinalized > 0) {
+            $message .= ' Finalized '.$motionFinalized.' motion event'.($motionFinalized === 1 ? '' : 's').'.';
+        }
+
+        if ($motionStopped > 0) {
+            $message .= ' Stopped '.$motionStopped.' unmanaged motion recorder process'.($motionStopped === 1 ? '' : 'es').'.';
+        }
+
+        $this->components->info($message);
+        $heartbeats->touchRecordingTick('camera-recordings:tick:complete');
+
+        return 0;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
     }
-
-    if ($continuousStarted > 0) {
-        $message .= ' Started '.$continuousStarted.' continuous recorder process'.($continuousStarted === 1 ? '' : 'es').'.';
-    }
-
-    if ($continuousImported > 0) {
-        $message .= ' Imported '.$continuousImported.' continuous segment'.($continuousImported === 1 ? '' : 's').'.';
-    }
-
-    if ($continuousStopped > 0) {
-        $message .= ' Stopped '.$continuousStopped.' unmanaged continuous recorder process'.($continuousStopped === 1 ? '' : 'es').'.';
-    }
-
-    if ($motionStarted > 0) {
-        $message .= ' Started '.$motionStarted.' motion recorder process'.($motionStarted === 1 ? '' : 'es').'.';
-    }
-
-    if ($motionFinalized > 0) {
-        $message .= ' Finalized '.$motionFinalized.' motion event'.($motionFinalized === 1 ? '' : 's').'.';
-    }
-
-    if ($motionStopped > 0) {
-        $message .= ' Stopped '.$motionStopped.' unmanaged motion recorder process'.($motionStopped === 1 ? '' : 'es').'.';
-    }
-
-    $this->components->info($message);
-    $heartbeats->touchRecordingTick('camera-recordings:tick:complete');
-
-    return 0;
 })->purpose('Queue recording work for cameras with active recording policies');
 
 Artisan::command('camera-recordings:healthcheck {role}', function (RecordingContainerHealthService $health): int {
     try {
         $result = $health->check((string) $this->argument('role'));
-    } catch (\InvalidArgumentException $exception) {
+    } catch (InvalidArgumentException $exception) {
         $this->components->error($exception->getMessage());
 
         return 1;
@@ -364,7 +386,7 @@ Artisan::command('camera-recordings:healthcheck {role}', function (RecordingCont
 Artisan::command('camera-recordings:prune {--camera_id=}', function (): int {
     $lock = Cache::lock('camera-recordings:prune-command', max(900, (int) config('recording.prune_lock_seconds', 3600)));
 
-    if (!$lock->get()) {
+    if (! $lock->get()) {
         $this->components->warn('camera-recordings:prune is already running. Skipping this invocation.');
 
         return 0;
@@ -468,7 +490,7 @@ Artisan::command('camera-recordings:orphans {--purge}', function (): int {
 
     $this->components->warn($summary);
 
-    if (!$this->option('purge')) {
+    if (! $this->option('purge')) {
         $this->components->info('Run camera-recordings:orphans --purge to delete these orphan files and their review assets.');
 
         return 0;
@@ -495,7 +517,7 @@ Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missin
     $limit = null;
 
     if ($limitOption !== '') {
-        if (!ctype_digit($limitOption) || (int) $limitOption < 1) {
+        if (! ctype_digit($limitOption) || (int) $limitOption < 1) {
             $this->components->error('limit must be a positive integer.');
 
             return 1;
@@ -515,7 +537,7 @@ Artisan::command('camera-recordings:build-review-assets {--camera_id=} {--missin
             try {
                 GenerateRecordingReviewAssetsJob::dispatchSync($recording->id);
                 $generated++;
-            } catch (\Throwable $exception) {
+            } catch (Throwable $exception) {
                 $failed++;
             }
         }
@@ -579,7 +601,7 @@ Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_f
     $cameraId = null;
 
     if ($cameraIdOption !== '') {
-        if (!ctype_digit($cameraIdOption) || (int) $cameraIdOption < 1) {
+        if (! ctype_digit($cameraIdOption) || (int) $cameraIdOption < 1) {
             $this->components->error('camera_id must be a positive integer.');
 
             return 1;
@@ -594,7 +616,7 @@ Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_f
     if ($dateFromOption !== '') {
         try {
             $rangeStart = $settings->startOfDisplayDayUtc($dateFromOption);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             $this->components->error('date_from must use the YYYY-MM-DD format in '.$settings->appTimezone().'.');
 
             return 1;
@@ -604,7 +626,7 @@ Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_f
     if ($dateToOption !== '') {
         try {
             $rangeEndExclusive = $settings->startOfDisplayDayUtc($dateToOption)->addDay();
-        } catch (\Throwable) {
+        } catch (Throwable) {
             $this->components->error('date_to must use the YYYY-MM-DD format in '.$settings->appTimezone().'.');
 
             return 1;
@@ -686,7 +708,7 @@ Artisan::command('camera-recordings:queue-review-assets {--camera_id=} {--date_f
 Artisan::command('camera-recordings:reconcile-review-asset-queue {--dry-run}', function (): int {
     $result = app(RecordingReviewAssetService::class)->reconcileQueuedJobs((bool) $this->option('dry-run'));
 
-    if (!$result['ok']) {
+    if (! $result['ok']) {
         $this->components->error($result['message']);
 
         return 1;
@@ -712,7 +734,7 @@ Artisan::command('queue:retry-failed-auto {--limit=}', function (): int {
     $limit = is_numeric($limitOption) ? max(1, (int) $limitOption) : null;
     $result = app(FailedJobRetryService::class)->retryBatch($limit);
 
-    if (!$result['enabled']) {
+    if (! $result['enabled']) {
         $this->components->info('Automatic failed-job retries are disabled or unavailable on this environment.');
 
         return 0;
@@ -739,7 +761,7 @@ Artisan::command('queue:prune-failed-terminal {--hours=}', function (): int {
     $hours = is_numeric($hoursOption) ? max(1, (int) $hoursOption) : null;
     $result = app(FailedJobRetryService::class)->pruneTerminalFailures($hours);
 
-    if (!$result['enabled']) {
+    if (! $result['enabled']) {
         $this->components->info('Terminal failed-job pruning is disabled or unavailable on this environment.');
 
         return 0;
