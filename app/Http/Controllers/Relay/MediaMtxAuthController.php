@@ -43,12 +43,12 @@ class MediaMtxAuthController extends Controller
             return;
         }
 
-        abort_unless(IpUtils::checkIp((string) $request->ip(), ['127.0.0.1', '::1']), Response::HTTP_FORBIDDEN);
+        abort_unless(IpUtils::checkIp((string) $request->server('REMOTE_ADDR'), ['127.0.0.1', '::1']), Response::HTTP_FORBIDDEN);
     }
 
     private function isInternalPublisher(Request $request, string $path, string $action, string $protocol): bool
     {
-        if ($action !== 'publish' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-(?:live(?:-profile-\d+)?|recording(?:-profile-\d+)?|source(?:-profile-\d+)?)$/', $path)) {
+        if ($action !== 'publish' || $protocol !== 'rtsp' || ! preg_match('/^camera-\d+-(?:live(?:-profile-\d+)?|recording(?:-profile-\d+)?|source(?:-profile-\d+)?)$/', $path)) {
             return false;
         }
 
@@ -69,7 +69,7 @@ class MediaMtxAuthController extends Controller
 
     private function isInternalReader(Request $request, string $path, string $action, string $protocol): bool
     {
-        if ($action !== 'read' || $protocol !== 'rtsp' || !preg_match('/^camera-\d+-(?:live(?:-profile-\d+)?|recording(?:-profile-\d+)?|source(?:-profile-\d+)?)$/', $path)) {
+        if ($action !== 'read' || $protocol !== 'rtsp' || ! preg_match('/^camera-\d+-(?:live(?:-profile-\d+)?|recording(?:-profile-\d+)?|source(?:-profile-\d+)?)$/', $path)) {
             return false;
         }
 

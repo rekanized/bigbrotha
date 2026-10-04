@@ -60,7 +60,7 @@ class OnvifRtspStreamService
         foreach ($this->parseProfiles($profilesPayload) as $profile) {
             $token = $profile['token'] ?? null;
 
-            if (!is_string($token) || $token === '') {
+            if (! is_string($token) || $token === '') {
                 continue;
             }
 
@@ -110,7 +110,7 @@ class OnvifRtspStreamService
         try {
             $response = Http::timeout($timeoutSeconds)
                 ->connectTimeout($timeoutSeconds)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => false, 'allow_redirects' => false])
                 ->accept('application/soap+xml, application/xml, text/xml')
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$action.'"',
@@ -268,7 +268,7 @@ XML;
         $profiles = [];
 
         foreach ($nodes as $node) {
-            if (!$node instanceof DOMElement) {
+            if (! $node instanceof DOMElement) {
                 continue;
             }
 
@@ -325,11 +325,11 @@ XML;
 
     private function createXPath(string $payload): ?DOMXPath
     {
-        $document = new DOMDocument();
+        $document = new DOMDocument;
         $previousState = libxml_use_internal_errors(true);
 
         try {
-            if (!@$document->loadXML($payload)) {
+            if (! @$document->loadXML($payload, LIBXML_NONET)) {
                 return null;
             }
         } finally {
@@ -344,7 +344,7 @@ XML;
     {
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return null;
         }
 

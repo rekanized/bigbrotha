@@ -1,0 +1,892 @@
+/* Shared visual finish. Served directly after app.css on every page; no build. */
+:root {
+    --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-serif: var(--font-sans);
+    --page-bg: #f5f6fa;
+    --surface-muted: #f8fafc;
+    --text: #172239;
+    --text-soft: #475569;
+    --muted: #607086;
+    --border: #e2e7ef;
+    --border-strong: #cbd4e1;
+    --accent: #4f46e5;
+    --accent-strong: #4338ca;
+    --accent-soft: #eef2ff;
+    --focus-ring: 0 0 0 4px rgb(79 70 229 / 12%);
+    --shadow-soft: 0 1px 3px rgb(23 34 57 / 4%);
+    --shadow-panel: 0 16px 48px rgb(23 34 57 / 10%);
+    --global-header-height: 72px;
+}
+
+body.page-dashboard,
+body.page-recording-review {
+    background: var(--page-bg);
+}
+
+.ui-icon {
+    flex-shrink: 0;
+}
+
+/* Navigation stays above the workspace; dialogs retain their higher layer. */
+.global-header {
+    border-color: var(--border);
+    box-shadow: 0 1px 8px rgb(23 34 57 / 3%);
+}
+
+.global-header__inner {
+    width: calc(100% - 48px);
+    max-width: 1680px;
+    gap: 24px;
+}
+
+.global-header__brand {
+    gap: 10px;
+}
+
+.global-header__brand-copy strong {
+    font-size: 16px;
+    letter-spacing: -0.025em;
+}
+
+.global-header__brand-copy small {
+    margin-top: 3px;
+    color: var(--muted);
+}
+
+.primary-navigation__links,
+.primary-navigation__section-links {
+    gap: 4px;
+}
+
+.primary-navigation__link {
+    gap: 8px;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: #526079;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+
+.primary-navigation__link:hover {
+    border-color: transparent;
+    background: #f3f4f8;
+    color: var(--text);
+}
+
+.primary-navigation__link--active,
+.primary-navigation__link--active:hover {
+    border-color: #e0e3fc;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.primary-navigation__icon,
+.primary-navigation__link--active .primary-navigation__icon {
+    color: inherit;
+}
+
+.primary-navigation__label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.primary-navigation__chevron {
+    display: flex;
+}
+
+.primary-navigation__chevron .ui-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.primary-navigation__group-links {
+    top: calc(100% + 10px);
+    width: 310px;
+    padding: 7px;
+    border-color: var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-panel);
+}
+
+.primary-navigation__sublink {
+    gap: 5px;
+    padding: 12px;
+    border: 0;
+    border-radius: 8px;
+}
+
+.primary-navigation__sublink-caption {
+    font-size: 12px;
+}
+
+.primary-navigation__sublink:hover,
+.primary-navigation__sublink--active {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.global-header__avatar {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    border: 1px solid #dfe3fc;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.global-header__sign-out {
+    border-color: var(--border);
+    color: var(--text-soft);
+}
+
+.global-header__sign-out:hover {
+    background: var(--surface-muted);
+}
+
+body.app-body .app-shell.app-shell--global:not(.app-shell--immersive) {
+    width: calc(100% - 64px);
+    max-width: 1600px;
+    padding: 28px 0 40px;
+}
+
+body.page-dashboard .app-content,
+body.page-dashboard .app-main,
+body.page-dashboard .screen-grid,
+body.page-dashboard .fleet-manager,
+body.page-dashboard .recording-browser {
+    gap: 20px;
+}
+
+body.page-dashboard .workspace-hero {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.page-dashboard .workspace-hero__body,
+body.page-dashboard .workspace-hero--compact .workspace-hero__body {
+    padding: 4px 0 8px;
+}
+
+.workspace-hero__eyebrow {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--accent-strong);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+body.page-dashboard h1,
+body.page-recording-review .recording-review__title {
+    font-size: clamp(1.6rem, 2.4vw, 2rem);
+    line-height: 1.2;
+    letter-spacing: -0.035em;
+}
+
+body.page-dashboard .workspace-hero__lead {
+    max-width: 76ch;
+    margin-top: 10px;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+/* A quiet surface hierarchy makes video and primary actions stand out. */
+body.page-dashboard :is(.screen-card, .dashboard-panel, .metric-card, .camera-row, .stream-card, .wall-tile, .device-card),
+body.auth-page .auth-card {
+    border-color: var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-soft);
+}
+
+body.page-dashboard .screen-card--spacious {
+    padding: 24px;
+}
+
+body.page-dashboard .panel-heading {
+    padding-bottom: 16px;
+    border-color: var(--border);
+}
+
+body.page-dashboard .panel-title {
+    margin-bottom: 5px;
+    font-size: 1.0625rem;
+    letter-spacing: -0.02em;
+}
+
+body.page-dashboard .panel-copy {
+    max-width: 84ch;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+body.page-dashboard .setup-guide {
+    padding: 0;
+    background: transparent;
+    border-color: var(--border);
+    box-shadow: none;
+}
+
+body.page-dashboard .setup-guide__toggle {
+    padding: 12px 16px;
+    color: var(--text-soft);
+    font-size: 0.8125rem;
+}
+
+body.page-dashboard .setup-guide[open] {
+    background: #fff;
+}
+
+body.page-dashboard .setup-guide > .screen-summary-strip__body {
+    padding: 4px 18px 18px;
+}
+
+body.page-dashboard .metric-card {
+    position: relative;
+    align-items: start;
+    gap: 14px;
+    padding: 20px;
+}
+
+body.page-dashboard .metric-card__body {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+}
+
+body.page-dashboard .metric-card__icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+body.page-dashboard .metric-card__value {
+    margin: 0;
+    font-size: 1.875rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.04em;
+}
+
+body.page-dashboard .metric-card__label {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+body.page-dashboard .metric-card__detail {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
+body.page-dashboard .camera-row {
+    padding: 20px;
+    transition: border-color 150ms ease;
+}
+
+body.page-dashboard .camera-row:hover {
+    border-color: #bec8dc;
+}
+
+body.page-dashboard .camera-row__identity strong {
+    font-size: 1.0625rem;
+}
+
+body.page-dashboard .camera-row__media {
+    border: 0;
+    padding: 0;
+    background: transparent;
+}
+
+body.page-dashboard .camera-row__preview-meta {
+    padding: 0 2px;
+}
+
+body.page-dashboard .camera-row__preview-frame {
+    background: #101827;
+    border-radius: 10px;
+}
+
+body.page-dashboard .camera-row__fact {
+    border-color: #edf0f6;
+    background: #f8fafc;
+}
+
+body:is(.page-dashboard, .page-recording-review, .auth-page) :is(.camera-row__fact span, .camera-row__label, .field-stack > span:first-child, .detail-card__label) {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: none;
+}
+
+body.page-dashboard .camera-row__actions {
+    border-color: var(--border);
+}
+
+body.page-dashboard :is(.form-input, .form-select),
+body.auth-page :is(.form-input, .form-select),
+body.page-recording-review :is(.form-input, .form-select) {
+    min-height: 46px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--text);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+:is(.form-input, .form-select)::placeholder {
+    color: #6b778b;
+}
+
+body :is(.form-input, .form-select):focus {
+    border-color: var(--accent);
+    box-shadow: var(--focus-ring);
+}
+
+body :is(input[type='checkbox'], input[type='radio'], input[type='range']) {
+    accent-color: var(--accent);
+}
+
+body:is(.page-dashboard, .page-recording-review, .page-live-wall, .auth-page) .button {
+    gap: 8px;
+    border-color: var(--border-strong);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(23 34 57 / 4%);
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+body:is(.page-dashboard, .page-recording-review, .page-live-wall, .auth-page) .button:hover {
+    border-color: #a6b2c5;
+    background: #f8fafc;
+}
+
+body:is(.page-dashboard, .page-recording-review, .page-live-wall, .auth-page) .button--primary {
+    border-color: var(--accent-strong);
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 4px rgb(79 70 229 / 16%);
+}
+
+body:is(.page-dashboard, .page-recording-review, .page-live-wall, .auth-page) .button--primary:hover,
+body:is(.page-dashboard, .page-recording-review, .page-live-wall, .auth-page) .button--primary:focus-visible {
+    border-color: var(--accent-strong);
+    background: var(--accent-strong);
+    color: #fff;
+}
+
+body.page-dashboard .tag {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+body.page-dashboard :is(.empty-state, .recording-browser__filters, .recording-browser__timeline-launch) {
+    background: #f8fafc;
+    border-color: var(--border);
+    border-radius: 12px;
+}
+
+body.page-dashboard .empty-state {
+    padding: 24px;
+}
+
+body.page-dashboard .empty-state strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+body.page-dashboard .recording-browser__filters {
+    padding: 18px;
+}
+
+body.page-dashboard .wall-builder-sidebar > .panel-heading {
+    flex-direction: column;
+}
+
+body.page-dashboard .wall-builder-sidebar .probe-actions {
+    justify-content: flex-start;
+}
+
+body.page-dashboard .wall-record {
+    border-color: var(--border);
+    border-radius: 11px;
+    background: #fff;
+}
+
+body.page-dashboard .wall-record--active {
+    border-color: #b8b4f8;
+    background: #f8f8ff;
+    box-shadow: inset 3px 0 var(--accent);
+}
+
+body.page-dashboard .fleet-modal__backdrop {
+    background: rgb(15 23 42 / 48%);
+    backdrop-filter: blur(6px);
+}
+
+body.page-dashboard .fleet-modal__panel,
+body.page-dashboard .fleet-modal[data-camera-editor-modal] .fleet-modal__panel {
+    border-color: var(--border);
+    border-radius: 18px;
+    box-shadow: 0 24px 80px rgb(15 23 42 / 24%);
+}
+
+body.page-dashboard .camera-editor__nav a {
+    border-radius: 8px;
+    background: #f8fafc;
+    color: var(--text-soft);
+}
+
+body.page-dashboard .camera-editor__nav a:hover,
+body.page-dashboard .camera-editor__nav a:focus-visible {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+/* Activity history uses the same quiet borders and readable disclosure controls. */
+body.page-dashboard .audit-entry {
+    border-color: var(--border);
+    border-left-color: #b9c3d5;
+    border-radius: 12px;
+}
+
+body.page-dashboard .audit-entry--failure {
+    border-left-color: var(--danger);
+}
+
+body.page-dashboard .audit-entry__details summary {
+    color: var(--text-soft);
+}
+
+/* Playback remains dark, with readable empty/loading states. */
+body.page-recording-review .recording-review-focus__empty strong {
+    color: #f1f5f9;
+}
+
+body.page-recording-review .recording-review-focus__empty p {
+    color: #cbd5e1;
+}
+
+body.page-recording-review .recording-review-focus__empty .recording-review-tile__eyebrow {
+    color: #a5b4fc;
+}
+
+body.page-recording-review :is(.recording-review__filters, .recording-review-focus__stage, .recording-review-focus__rail) {
+    border-color: var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-soft);
+}
+
+body.page-dashboard .recording-player__video {
+    object-fit: contain;
+    background: #0b1220;
+}
+
+body.page-live-wall .live-wall-wall-switcher {
+    border-color: #334155;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgb(0 0 0 / 30%);
+}
+
+/* Sign-in and first run share the operator palette without the navigation. */
+body.auth-page {
+    background: radial-gradient(ellipse at 50% 0%, #e6e9ff 0%, transparent 60%), var(--page-bg);
+    padding: 32px 20px;
+}
+
+body.auth-page .auth-shell--wide {
+    width: min(460px, 100%);
+}
+
+body.auth-page .auth-card {
+    padding: 36px;
+    gap: 24px;
+    border-radius: 20px;
+    box-shadow: 0 20px 70px rgb(23 34 57 / 9%);
+}
+
+body.auth-page .auth-card__mark {
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+body.auth-page .auth-card__mark img {
+    width: 100%;
+    height: 100%;
+}
+
+body.auth-page .auth-brand__name {
+    font-size: 1.75rem;
+    line-height: 1.2;
+}
+
+body.auth-page .auth-card__section {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body.auth-page .auth-card__button {
+    min-height: 48px;
+}
+
+body.auth-page .auth-method-switches {
+    gap: 10px;
+}
+
+body.auth-page .auth-card__footnote {
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+}
+
+body.auth-page--setup .auth-shell--setup {
+    width: min(960px, 100%);
+}
+
+body.auth-page--setup .screen-card {
+    border-color: var(--border);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: var(--shadow-soft);
+}
+
+body.auth-page--setup .setup-title {
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    line-height: 1.2;
+}
+
+@media (max-width: 1280px) {
+    .global-header__inner {
+        gap: 12px;
+        width: calc(100% - 32px);
+    }
+
+    .primary-navigation__link {
+        padding-right: 9px;
+        padding-left: 9px;
+    }
+}
+
+@media (max-width: 1180px) {
+    :root {
+        --global-header-height: calc(64px + env(safe-area-inset-top, 0px));
+    }
+
+    .global-header__inner {
+        min-height: 64px;
+    }
+
+    .global-header__drawer-toggle {
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #fff;
+    }
+
+    .global-header__drawer-panel {
+        padding: 10px;
+        border-color: var(--border);
+        border-radius: 14px;
+    }
+
+    .global-header__drawer .primary-navigation__link {
+        margin: 2px 0;
+        padding: 10px 12px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+    }
+
+    .global-header__drawer .primary-navigation__link--active {
+        border-color: #e0e3fc;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+    }
+
+    .global-header__drawer .primary-navigation__group-links {
+        padding-left: 24px;
+    }
+
+    .global-header__drawer .primary-navigation__sublink {
+        border-radius: 8px;
+    }
+
+    body.app-body .app-shell.app-shell--global:not(.app-shell--immersive) {
+        width: auto;
+        margin-right: max(20px, env(safe-area-inset-right, 0px));
+        margin-left: max(20px, env(safe-area-inset-left, 0px));
+        padding-top: 24px;
+    }
+}
+
+@media (max-width: 720px) {
+    .global-header__inner {
+        width: calc(100% - 24px);
+    }
+
+    body.app-body .app-shell.app-shell--global:not(.app-shell--immersive) {
+        margin-right: max(12px, env(safe-area-inset-right, 0px));
+        margin-left: max(12px, env(safe-area-inset-left, 0px));
+        padding-top: 20px;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    }
+
+    body.page-dashboard .app-content,
+    body.page-dashboard .app-main,
+    body.page-dashboard .screen-grid,
+    body.page-dashboard .fleet-manager,
+    body.page-dashboard .recording-browser {
+        gap: 16px;
+    }
+
+    body.page-dashboard :is(.screen-card, .screen-card--spacious, .dashboard-panel, .camera-row) {
+        padding: 16px;
+    }
+
+    body.page-dashboard .setup-guide {
+        padding: 0;
+    }
+
+    body.page-dashboard .dashboard-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    body.page-dashboard .metric-card {
+        padding: 16px;
+    }
+
+    body.page-dashboard .metric-card__value {
+        font-size: 1.75rem;
+    }
+
+    body.page-dashboard .metric-card__label {
+        font-size: 0.75rem;
+    }
+
+    body.page-dashboard .metric-card__detail {
+        display: none;
+    }
+
+    body.page-dashboard .recording-browser__filters {
+        padding: 12px;
+    }
+
+    body.auth-page .auth-card {
+        padding: 24px;
+    }
+
+    body.auth-page .auth-method-switches {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Six search fields need a second row before their minimum widths collide. */
+@media (min-width: 721px) and (max-width: 1240px) {
+    body.page-dashboard .recording-browser__filters {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* Wide metadata must span the explicit grid, including a single mobile column. */
+body.page-dashboard .recording-browser__meta-grid > .camera-row__fact--wide {
+    grid-column: 1 / -1;
+}
+
+/* Desktop workspace navigation. The compact header serves tablets and phones. */
+.desktop-sidebar {
+    display: none;
+}
+
+@media (min-width: 1181px) {
+    :root {
+        --desktop-sidebar-width: 244px;
+        --global-header-height: 0px;
+    }
+
+    .app-body .global-header {
+        display: none;
+    }
+
+    .desktop-sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 200;
+        display: flex;
+        flex-direction: column;
+        width: var(--desktop-sidebar-width);
+        height: 100vh;
+        height: 100dvh;
+        border-right: 1px solid var(--border);
+        background: #fff;
+    }
+
+    .desktop-sidebar__brand {
+        flex-shrink: 0;
+        padding: 24px 20px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .desktop-sidebar__brand .global-header__brand-copy small {
+        display: block;
+    }
+
+    .desktop-sidebar__navigation {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        flex: 1 1 auto;
+        padding: 22px 14px;
+        scrollbar-width: thin;
+    }
+
+    .desktop-sidebar .primary-navigation__links {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: 24px;
+    }
+
+    .desktop-sidebar .primary-navigation__section {
+        display: grid;
+        gap: 8px;
+    }
+
+    .desktop-sidebar .primary-navigation__section-title {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 0;
+        padding: 0 12px;
+        clip: auto;
+        overflow: visible;
+        color: var(--muted);
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .desktop-sidebar .primary-navigation__section-links {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 5px;
+    }
+
+    .desktop-sidebar .primary-navigation__link {
+        gap: 12px;
+        min-height: 46px;
+        padding: 12px;
+    }
+
+    .desktop-sidebar .primary-navigation__label,
+    .desktop-sidebar .primary-navigation__sublink-label {
+        font-size: 0.875rem;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .desktop-sidebar .primary-navigation__chevron {
+        margin-left: auto;
+    }
+
+    .desktop-sidebar .primary-navigation__group-links {
+        position: static;
+        width: auto;
+        margin: 6px 0 0 23px;
+        padding: 0 0 0 10px;
+        border: 0;
+        border-left: 1px solid var(--border);
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .desktop-sidebar .primary-navigation__sublink {
+        min-height: 44px;
+        padding: 10px;
+    }
+
+    .desktop-sidebar .primary-navigation__sublink-caption {
+        display: none;
+    }
+
+    .desktop-sidebar__account {
+        flex-shrink: 0;
+        display: grid;
+        gap: 14px;
+        padding: 18px 20px;
+        border-top: 1px solid var(--border);
+    }
+
+    .desktop-sidebar__operator-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
+    }
+
+    .desktop-sidebar__operator-copy small {
+        color: var(--muted);
+        font-size: 0.6875rem;
+    }
+
+    .desktop-sidebar__account .global-header__sign-out {
+        width: 100%;
+    }
+
+    body.app-body .app-shell.app-shell--global:not(.app-shell--immersive) {
+        width: calc(100% - var(--desktop-sidebar-width) - 64px);
+        max-width: none;
+        margin-right: 32px;
+        margin-left: calc(var(--desktop-sidebar-width) + 32px);
+    }
+
+    body.app-body .app-shell.app-shell--global.app-shell--immersive {
+        width: calc(100% - var(--desktop-sidebar-width));
+        margin-left: var(--desktop-sidebar-width);
+    }
+
+    /* The dock centers on the camera canvas rather than under the sidebar. */
+    body.page-live-wall .live-wall-wall-switcher {
+        left: calc(50% + var(--desktop-sidebar-width) / 2);
+        max-width: calc(100% - var(--desktop-sidebar-width) - 32px);
+    }
+
+    body.page-live-wall.live-wall-focus-mode .desktop-sidebar {
+        visibility: hidden;
+    }
+
+    /* Use the available content width for filters, cards, and wall settings. */
+    body.page-dashboard .recording-browser__filters {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    body.page-dashboard .wall-builder-layout {
+        grid-template-columns: minmax(260px, 0.32fr) minmax(0, 1fr);
+    }
+}
+
+@media (min-width: 1181px) and (max-width: 1400px) {
+    body.page-dashboard .wall-builder-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

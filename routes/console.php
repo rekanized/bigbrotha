@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Camera;
 use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
+use App\Services\AuthenticationSettingsService;
 use App\Services\CameraRecordingService;
 use App\Services\CameraStorageService;
 use App\Services\ContinuousRecordingSegmenterService;
@@ -15,12 +16,25 @@ use App\Services\RecordingContainerHealthService;
 use App\Services\RecordingReviewAssetService;
 use App\Services\Relay\MediaMtxProcessService;
 use App\Services\RuntimeHeartbeatService;
+use App\Services\SetupAccessService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schedule;
+
+Artisan::command('setup:token', function (): int {
+    if (app(AuthenticationSettingsService::class)->isSetupComplete()) {
+        $this->components->error('Application setup is already complete.');
+
+        return 1;
+    }
+
+    $this->line(app(SetupAccessService::class)->token());
+
+    return 0;
+})->purpose('Display the private token required to complete first-run setup');
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

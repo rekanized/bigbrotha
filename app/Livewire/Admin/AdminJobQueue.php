@@ -14,6 +14,11 @@ use Throwable;
 
 class AdminJobQueue extends Component
 {
+    public function boot(): void
+    {
+        abort_unless(auth()->user()?->fresh()?->isAdmin(), 403);
+    }
+
     public int $jobLimit = 10;
 
     public int $failedJobLimit = 6;
@@ -51,7 +56,7 @@ class AdminJobQueue extends Component
     public array $upcomingJobs = [];
 
     /**
-    * @var array<int, array{id: int, uuid: string, queue: string, connection: string, job_label: string, job_class: string, failed_at_label: string, exception_excerpt: string, exception_trace: string, retry_status_label: string, retry_status_tone: string, retry_summary: string, next_retry_label: string|null}>
+     * @var array<int, array{id: int, uuid: string, queue: string, connection: string, job_label: string, job_class: string, failed_at_label: string, exception_excerpt: string, exception_trace: string, retry_status_label: string, retry_status_tone: string, retry_summary: string, next_retry_label: string|null}>
      */
     public array $failedJobs = [];
 
@@ -82,7 +87,7 @@ class AdminJobQueue extends Component
     {
         $this->statusMessage = null;
 
-        if (!$this->failedJobsTableAvailable) {
+        if (! $this->failedJobsTableAvailable) {
             $this->statusTone = 'warn';
             $this->statusMessage = 'The failed jobs table is not available on this environment.';
 
@@ -114,7 +119,7 @@ class AdminJobQueue extends Component
     {
         $this->statusMessage = null;
 
-        if (!$this->failedJobsTableAvailable) {
+        if (! $this->failedJobsTableAvailable) {
             $this->statusTone = 'warn';
             $this->statusMessage = 'The failed jobs table is not available on this environment.';
 
@@ -146,7 +151,7 @@ class AdminJobQueue extends Component
     {
         $this->statusMessage = null;
 
-        if (!$this->failedJobsTableAvailable) {
+        if (! $this->failedJobsTableAvailable) {
             $this->statusTone = 'warn';
             $this->statusMessage = 'The failed jobs table is not available on this environment.';
 
@@ -200,7 +205,7 @@ class AdminJobQueue extends Component
         ];
         [$this->workerPressureTone, $this->workerPressureMessage] = $this->workerPressureState($workerSnapshot);
 
-        if (!$this->usesDatabaseQueue || !$this->jobsTableAvailable) {
+        if (! $this->usesDatabaseQueue || ! $this->jobsTableAvailable) {
             $this->pendingJobTotal = 0;
             $this->failedJobTotal = $this->failedJobsTableAvailable ? (int) DB::table('failed_jobs')->count() : 0;
             $this->queueSummary = [];
@@ -337,7 +342,7 @@ class AdminJobQueue extends Component
      */
     private function loadFailedJobs(FailedJobRetryService $retryService): array
     {
-        if (!$this->failedJobsTableAvailable) {
+        if (! $this->failedJobsTableAvailable) {
             return [];
         }
 
@@ -381,7 +386,7 @@ class AdminJobQueue extends Component
     {
         $decoded = json_decode($payload, true);
 
-        if (!is_array($decoded)) {
+        if (! is_array($decoded)) {
             return 'UnknownJob';
         }
 
@@ -450,7 +455,7 @@ class AdminJobQueue extends Component
      */
     private function workerPressureState(array $workerSnapshot): array
     {
-        if (!(bool) ($workerSnapshot['dynamic_enabled'] ?? false)) {
+        if (! (bool) ($workerSnapshot['dynamic_enabled'] ?? false)) {
             return ['neutral', null];
         }
 
@@ -530,7 +535,7 @@ class AdminJobQueue extends Component
      */
     private function failedJobRetryState(array $retryMeta, Carbon $failedAt): array
     {
-        if (!$this->autoRetryEnabled || $this->autoRetryMaxRetries === 0) {
+        if (! $this->autoRetryEnabled || $this->autoRetryMaxRetries === 0) {
             return [
                 'label' => 'Manual only',
                 'tone' => 'neutral',

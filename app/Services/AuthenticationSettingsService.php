@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AllowedLoginEmail;
 use App\Models\AppSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
@@ -27,12 +28,20 @@ class AuthenticationSettingsService
 
     public const SETTING_GOOGLE_TESTED_EMAIL = 'auth_google_tested_email';
 
+    public const SETTING_GOOGLE_TESTED_ID = 'auth_google_tested_id';
+
     /**
      * @var array<string, string>|null
      */
     private ?array $loadedSettings = null;
 
     public function __construct(private readonly ApplicationSettingStore $settingStore) {}
+
+    public function refresh(): void
+    {
+        $this->settingStore->forget();
+        $this->loadedSettings = null;
+    }
 
     public function apply(): void
     {
@@ -91,7 +100,7 @@ class AuthenticationSettingsService
     }
 
     /**
-     * @return array{client_id: string, client_secret: string, redirect_uri: string, configured: bool, verified: bool, tested_at: ?string, tested_email: ?string, fingerprint: ?string}
+     * @return array{client_id: string, client_secret: string, redirect_uri: string, configured: bool, verified: bool, tested_at: ?string, tested_email: ?string, tested_google_id: ?string, fingerprint: ?string}
      */
     public function googleConfiguration(): array
     {
@@ -126,6 +135,7 @@ class AuthenticationSettingsService
             'verified' => $verified,
             'tested_at' => $this->nullableString($this->setting(self::SETTING_GOOGLE_TESTED_AT)),
             'tested_email' => $this->nullableString($this->setting(self::SETTING_GOOGLE_TESTED_EMAIL)),
+            'tested_google_id' => $this->nullableString($this->setting(self::SETTING_GOOGLE_TESTED_ID)),
             'fingerprint' => $fingerprint,
         ];
     }
@@ -164,6 +174,7 @@ class AuthenticationSettingsService
             $this->storePlainSetting(self::SETTING_GOOGLE_TESTED_FINGERPRINT, $this->nullableString($googleVerification['fingerprint'] ?? null));
             $this->storePlainSetting(self::SETTING_GOOGLE_TESTED_AT, $this->nullableString($googleVerification['tested_at'] ?? null));
             $this->storePlainSetting(self::SETTING_GOOGLE_TESTED_EMAIL, $this->nullableString($googleVerification['tested_email'] ?? null));
+            $this->storePlainSetting(self::SETTING_GOOGLE_TESTED_ID, $this->nullableString($googleVerification['tested_google_id'] ?? null));
         }
 
         if ($markSetupComplete) {
@@ -175,12 +186,12 @@ class AuthenticationSettingsService
         $this->apply();
     }
 
-    public function adminCanAuthenticateWith(bool $manualEnabled, bool $googleEnabled): bool
+    public function adminCanAuthenticateWith(bool $manualEnabled, bool $googleEnabled, ?int $exceptUserId = null, ?string $exceptGoogleEmail = null): bool
     {
-        return ($manualEnabled && $this->localAdminExists()) || ($googleEnabled && $this->googleAdminExists());
+        return ($manualEnabled && $this->localAdminExists($exceptUserId)) || ($googleEnabled && $this->googleAdminExists($exceptUserId, $exceptGoogleEmail));
     }
 
-    public function localAdminExists(): bool
+    public function localAdminExists(?int $exceptUserId = null): bool
     {
         if (! $this->settingStore->available()) {
             return false;
@@ -189,6 +200,7 @@ class AuthenticationSettingsService
         try {
             return User::query()
                 ->where('is_admin', true)
+                ->when($exceptUserId !== null, fn ($query) => $query->where('id', '!=', $exceptUserId))
                 ->where('local_auth_enabled', true)
                 ->exists();
         } catch (Throwable) {
@@ -196,7 +208,7 @@ class AuthenticationSettingsService
         }
     }
 
-    public function googleAdminExists(): bool
+    public function googleAdminExists(?int $exceptUserId = null, ?string $exceptGoogleEmail = null): bool
     {
         if (! $this->settingStore->available()) {
             return false;
@@ -205,8 +217,10 @@ class AuthenticationSettingsService
         try {
             return User::query()
                 ->where('is_admin', true)
+                ->when($exceptUserId !== null, fn ($query) => $query->where('id', '!=', $exceptUserId))
                 ->whereNotNull('google_id')
                 ->where('google_id', '!=', '')
+                ->whereIn('email', AllowedLoginEmail::query()->select('email')->when($exceptGoogleEmail !== null, fn ($query) => $query->where('email', '!=', $exceptGoogleEmail)))
                 ->exists();
         } catch (Throwable) {
             return false;

@@ -34,38 +34,38 @@
 
     <div class="dashboard-stats">
         <article class="metric-card metric-card--blue">
-            <div class="metric-card__icon">CF</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'camera'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['total'] }}</p>
                 <p class="metric-card__label">Saved cameras</p>
-                <p class="metric-card__detail">Inventory records currently managed through the operator workspace.</p>
+                <p class="metric-card__detail">Cameras in your inventory.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--green">
-            <div class="metric-card__icon">EN</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'check'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['enabled'] }}</p>
                 <p class="metric-card__label">Enabled</p>
-                <p class="metric-card__detail">Camera records that remain available to the wall and operator tools.</p>
+                <p class="metric-card__detail">Available for walls and recordings.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--violet">
-            <div class="metric-card__icon">ON</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'network'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['onvif'] }}</p>
                 <p class="metric-card__label">ONVIF capable</p>
-                <p class="metric-card__detail">Fleet records with ONVIF connectivity configured and ready to interrogate.</p>
+                <p class="metric-card__detail">Device discovery configured.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--amber">
-            <div class="metric-card__icon">RT</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'activity'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['rtsp'] }}</p>
                 <p class="metric-card__label">RTSP ready</p>
-                <p class="metric-card__detail">Camera records with at least one retrieved RTSP stream URL saved.</p>
+                <p class="metric-card__detail">At least one stream profile saved.</p>
             </div>
         </article>
     </div>
@@ -74,7 +74,7 @@
         <div class="panel-heading">
             <div>
                 <h2 class="panel-title">Fleet inventory</h2>
-                <p class="panel-copy">Review every saved camera, inspect the latest preview thumbnail, and open the editor for direct ONVIF probing, RTSP retrieval, preview testing, and configuration changes.</p>
+                <p class="panel-copy">Review previews and recording settings. Open a camera to configure or test its streams.</p>
             </div>
 
             <div class="probe-actions">

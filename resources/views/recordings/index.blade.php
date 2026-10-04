@@ -12,7 +12,8 @@
 
 @section('content')
     <div class="recording-browser">
-        <section class="screen-card screen-card--accent screen-summary-strip">
+        <details class="screen-card setup-guide">
+            <summary class="setup-guide__toggle">Recording review guide</summary>
             <div class="screen-summary-strip__body">
                 <div>
                     <span class="eyebrow">Recording workflow</span>
@@ -34,43 +35,43 @@
                     </span>
                 </div>
             </div>
-        </section>
+        </details>
 
         <p class="panel-copy">Library totals below cover all cameras and dates. Search filters apply to the results list.</p>
         <div class="dashboard-stats">
             <article class="metric-card metric-card--blue">
-                <div class="metric-card__icon">SG</div>
+                <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'recordings'])</div>
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['total'] }}</p>
                     <p class="metric-card__label">All segments</p>
-                    <p class="metric-card__detail">All recording entries, including waiting, skipped, and failed attempts.</p>
+                    <p class="metric-card__detail">Includes waiting, skipped, and failed attempts.</p>
                 </div>
             </article>
 
             <article class="metric-card metric-card--green">
-                <div class="metric-card__icon">OK</div>
+                <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'check'])</div>
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['recorded'] }}</p>
                     <p class="metric-card__label">Recorded</p>
-                    <p class="metric-card__detail">Segments saved successfully; retention and storage determine current playback availability.</p>
+                    <p class="metric-card__detail">Saved successfully; files may expire with retention.</p>
                 </div>
             </article>
 
             <article class="metric-card metric-card--amber">
-                <div class="metric-card__icon">MV</div>
+                <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'activity'])</div>
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['motion'] }}</p>
                     <p class="metric-card__label">Motion clips</p>
-                    <p class="metric-card__detail">Saved motion-triggered clips that crossed the configured detection threshold.</p>
+                    <p class="metric-card__detail">Saved when movement was detected.</p>
                 </div>
             </article>
 
             <article class="metric-card metric-card--violet">
-                <div class="metric-card__icon">FL</div>
+                <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'alert'])</div>
                 <div class="metric-card__body">
                     <p class="metric-card__value">{{ $summary['failed'] }}</p>
                     <p class="metric-card__label">Failed</p>
-                    <p class="metric-card__detail">Segments that need operator or host-side attention before footage can be trusted.</p>
+                    <p class="metric-card__detail">Recording attempts that need attention.</p>
                 </div>
             </article>
         </div>

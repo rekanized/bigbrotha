@@ -50,3 +50,7 @@ The deployed test image is `rekanized/bigbrotha-app:20260907-mobile-design`. All
 ## Activity history follow-up — 2 October 2026
 
 The audit log now leads with readable events and outcomes, keeps technical data expandable, and adds quick views and combined search/time/camera filters. Shared page introductions and recording-total explanations clarify the surrounding workflow. See [audit-log-ux.md](audit-log-ux.md) for behavior, coverage, and test-environment deployment.
+
+## Shared visual refresh — 4 October 2026
+
+The operator shell, navigation, metrics, forms, dialogs, authentication pages, and playback surfaces now use the refreshed shared visual finish. See [the October interface report](ui-modernization-2026-10.md) for assets, browser coverage, Docker deployment, and verification limits.

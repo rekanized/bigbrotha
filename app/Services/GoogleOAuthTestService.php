@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class GoogleOAuthTestService
 {
@@ -51,6 +52,8 @@ class GoogleOAuthTestService
      */
     public function begin(Request $request, string $context, array $configuration): void
     {
+        $this->assertContextAuthorized($request, $context);
+        $this->forgetVerified($request, $context);
         $this->rememberDraft($request, $context, $configuration);
 
         $request->session()->put(self::SESSION_PENDING_KEY, [
@@ -76,7 +79,19 @@ class GoogleOAuthTestService
     {
         $pending = $request->session()->get(self::SESSION_PENDING_KEY);
 
-        return is_array($pending) ? $pending : null;
+        if (! is_array($pending)) {
+            return null;
+        }
+
+        $this->assertContextAuthorized($request, (string) ($pending['context'] ?? ''));
+
+        if (Carbon::parse($pending['started_at'])->addMinutes(10)->isPast()) {
+            $request->session()->forget(self::SESSION_PENDING_KEY);
+
+            return null;
+        }
+
+        return $pending;
     }
 
     /**
@@ -114,7 +129,7 @@ class GoogleOAuthTestService
     }
 
     /**
-     * @return array{fingerprint: string, tested_email: string, tested_at: string}|null
+     * @return array{fingerprint: string, tested_email: string, tested_google_id: string, tested_at: string}|null
      */
     public function verified(Request $request, string $context): ?array
     {
@@ -127,6 +142,13 @@ class GoogleOAuthTestService
         return is_array($verified) ? $verified : null;
     }
 
+    public function forgetDraft(Request $request, string $context): void
+    {
+        if ($request->hasSession()) {
+            $request->session()->forget(self::SESSION_FORM_KEY.'.'.$context);
+        }
+    }
+
     public function forgetVerified(Request $request, string $context): void
     {
         if ($request->hasSession()) {
@@ -134,11 +156,12 @@ class GoogleOAuthTestService
         }
     }
 
-    public function storeSuccess(Request $request, array $pending, string $email, string $name): void
+    public function storeSuccess(Request $request, array $pending, string $email, string $name, string $googleId): void
     {
         $request->session()->put(self::SESSION_VERIFIED_KEY.'.'.$pending['context'], [
             'fingerprint' => $pending['fingerprint'],
             'tested_email' => $email,
+            'tested_google_id' => $googleId,
             'tested_at' => now()->toIso8601String(),
         ]);
 
@@ -147,6 +170,7 @@ class GoogleOAuthTestService
             'message' => 'Google OAuth credentials were verified successfully.',
             'fingerprint' => $pending['fingerprint'],
             'tested_email' => $email,
+            'tested_google_id' => $googleId,
             'tested_name' => $name,
             'tested_at' => now()->toIso8601String(),
         ]);
@@ -166,6 +190,17 @@ class GoogleOAuthTestService
         ]);
 
         $request->session()->forget(self::SESSION_PENDING_KEY);
+    }
+
+    private function assertContextAuthorized(Request $request, string $context): void
+    {
+        if ($context === self::CONTEXT_ADMIN) {
+            abort_unless($request->user()?->fresh()?->isAdmin(), 403);
+
+            return;
+        }
+
+        abort_unless($context === self::CONTEXT_SETUP && ! $this->settings->isSetupComplete(), 403);
     }
 
     public function returnUrl(string $context): string

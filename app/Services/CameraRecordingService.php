@@ -9,6 +9,7 @@ use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxPathNamer;
+use App\Support\Logging\SensitiveDataRedactor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -2641,7 +2642,7 @@ class CameraRecordingService
             return $fallback;
         }
 
-        return Str::limit(preg_replace('/\s+/', ' ', $message) ?? $message, 500);
+        return Str::limit(SensitiveDataRedactor::message(preg_replace('/\s+/', ' ', $message) ?? $message), 500);
     }
 
     private function summarizeThrowable(Throwable $exception, string $fallback): string
@@ -2656,7 +2657,7 @@ class CameraRecordingService
             return $fallback;
         }
 
-        return Str::limit(preg_replace('/\s+/', ' ', $message) ?? $message, 240);
+        return Str::limit(SensitiveDataRedactor::message(preg_replace('/\s+/', ' ', $message) ?? $message), 240);
     }
 
     /**

@@ -1,11 +1,12 @@
 <?php
 
+use App\Support\Logging\RedactSensitiveLogs;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
 
-return [
+$logging = [
 
     /*
     |--------------------------------------------------------------------------
@@ -130,3 +131,11 @@ return [
     ],
 
 ];
+
+foreach ($logging['channels'] as $name => $channel) {
+    if ($name !== 'emergency') {
+        $logging['channels'][$name]['tap'][] = RedactSensitiveLogs::class;
+    }
+}
+
+return $logging;

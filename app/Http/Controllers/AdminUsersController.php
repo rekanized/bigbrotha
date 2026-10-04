@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\AllowedLoginEmail;
 use App\Models\User;
+use App\Rules\LocalPassword;
+use App\Services\AuthenticationSettingsService;
 use App\Services\LocalAuthenticationService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminUsersController extends Controller
 {
@@ -55,7 +58,7 @@ class AdminUsersController extends Controller
         $validated = $request->validateWithBag('localUser', [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email:rfc', 'max:255'],
-            'password' => ['required', 'string', 'min:10', 'confirmed'],
+            'password' => ['required', 'string', new LocalPassword, 'confirmed'],
             'is_admin' => ['nullable', 'boolean'],
         ]);
 
@@ -81,7 +84,7 @@ class AdminUsersController extends Controller
     public function updateLocalPassword(Request $request, User $user, LocalAuthenticationService $localAuthentication): RedirectResponse
     {
         $validated = $request->validateWithBag('localPassword', [
-            'password' => ['required', 'string', 'min:10', 'confirmed'],
+            'password' => ['required', 'string', new LocalPassword, 'confirmed'],
         ]);
 
         $localAuthentication->updateLocalPassword($user, $validated['password']);
@@ -93,13 +96,23 @@ class AdminUsersController extends Controller
 
     public function updateAdminRole(Request $request, User $user): RedirectResponse
     {
+        return DB::transaction(function () use ($request, $user): RedirectResponse {
+            User::query()->where('is_admin', true)->orderBy('id')->lockForUpdate()->get();
+            abort_unless($request->user()?->fresh()?->isAdmin(), 403);
+
+            return $this->changeAdminRole($request, $user->refresh());
+        });
+    }
+
+    private function changeAdminRole(Request $request, User $user): RedirectResponse
+    {
         $validated = $request->validate([
             'is_admin' => ['required', 'boolean'],
         ]);
 
         $shouldBeAdmin = (bool) $validated['is_admin'];
 
-        if (!$shouldBeAdmin && $user->isAdmin() && User::query()->where('is_admin', true)->count() <= 1) {
+        if (! $shouldBeAdmin && $user->isAdmin() && User::query()->where('is_admin', true)->count() <= 1) {
             return redirect()
                 ->route('admin.users.index')
                 ->with('status_error', 'At least one admin must remain assigned. Promote another operator before removing the last admin.');
@@ -109,6 +122,12 @@ class AdminUsersController extends Controller
             return redirect()
                 ->route('admin.users.index')
                 ->with('status', 'No admin role change was needed for '.$user->name.'.');
+        }
+
+        $settings = app(AuthenticationSettingsService::class);
+        $settings->refresh();
+        if (! $shouldBeAdmin && ! $settings->adminCanAuthenticateWith($settings->manualAuthEnabled(), $settings->googleAuthEnabled(), exceptUserId: $user->id)) {
+            return redirect()->route('admin.users.index')->with('status_error', 'At least one administrator must remain able to sign in through an enabled method.');
         }
 
         $user->forceFill([
@@ -122,6 +141,16 @@ class AdminUsersController extends Controller
 
     public function destroyAllowedEmail(AllowedLoginEmail $allowedLoginEmail): RedirectResponse
     {
+        return DB::transaction(function () use ($allowedLoginEmail): RedirectResponse {
+            User::query()->where('is_admin', true)->orderBy('id')->lockForUpdate()->get();
+            abort_unless(auth()->user()?->fresh()?->isAdmin(), 403);
+
+            return $this->removeAllowedEmail($allowedLoginEmail);
+        });
+    }
+
+    private function removeAllowedEmail(AllowedLoginEmail $allowedLoginEmail): RedirectResponse
+    {
         $linkedUser = User::query()
             ->where('email', $allowedLoginEmail->email)
             ->first();
@@ -130,6 +159,12 @@ class AdminUsersController extends Controller
             return redirect()
                 ->route('admin.users.index')
                 ->with('status_error', 'At least one admin sign-in email must remain allowed. Add another admin email before removing the last admin login.');
+        }
+
+        $settings = app(AuthenticationSettingsService::class);
+        $settings->refresh();
+        if (! $settings->adminCanAuthenticateWith($settings->manualAuthEnabled(), $settings->googleAuthEnabled(), exceptGoogleEmail: $allowedLoginEmail->email)) {
+            return redirect()->route('admin.users.index')->with('status_error', 'At least one administrator must remain able to sign in through an enabled method.');
         }
 
         $email = $allowedLoginEmail->email;

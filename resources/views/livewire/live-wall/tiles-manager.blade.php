@@ -32,38 +32,38 @@
 
     <div class="dashboard-stats">
         <article class="metric-card metric-card--blue">
-            <div class="metric-card__icon">WL</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'wall'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['walls'] }}</p>
                 <p class="metric-card__label">Saved walls</p>
-                <p class="metric-card__detail">Named layouts that operators can switch between from the live wall.</p>
+                <p class="metric-card__detail">Named monitoring layouts.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--green">
-            <div class="metric-card__icon">AC</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'check'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['active_walls'] }}</p>
                 <p class="metric-card__label">Active walls</p>
-                <p class="metric-card__detail">Walls that are available from the monitoring screen right now.</p>
+                <p class="metric-card__detail">Available in Live Wall.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--violet">
-            <div class="metric-card__icon">TL</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'grid'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['tiles'] }}</p>
                 <p class="metric-card__label">Configured tiles</p>
-                <p class="metric-card__detail">Saved wall positions that will render on the live wall when assigned to a camera.</p>
+                <p class="metric-card__detail">Positions in your saved layouts.</p>
             </div>
         </article>
 
         <article class="metric-card metric-card--amber">
-            <div class="metric-card__icon">CM</div>
+            <div class="metric-card__icon">@include('layouts.partials.ui-icon', ['name' => 'camera'])</div>
             <div class="metric-card__body">
                 <p class="metric-card__value">{{ $summary['assigned_cameras'] }}</p>
                 <p class="metric-card__label">Assigned cameras</p>
-                <p class="metric-card__detail">Distinct cameras already connected to at least one wall tile.</p>
+                <p class="metric-card__detail">Cameras used across your walls.</p>
             </div>
         </article>
     </div>
@@ -159,7 +159,7 @@
             <div class="panel-heading">
                 <div>
                     <h2 class="panel-title">{{ $selectedWall ? 'Edit wall' : 'Create wall' }}</h2>
-                    <p class="panel-copy">Configure the wall identity first, then place the camera tiles in the order operators should scan them.</p>
+                    <p class="panel-copy">Name your wall, choose a grid, and arrange the camera tiles.</p>
                 </div>
 
                 <div class="probe-actions">

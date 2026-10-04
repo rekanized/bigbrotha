@@ -10,25 +10,6 @@
             </span>
         </a>
 
-        <div class="global-header__desktop-navigation">
-            @include('layouts.partials.primary-navigation', [
-                'navigationIdSuffix' => 'desktop',
-                'navigationAriaLabel' => 'Primary navigation',
-            ])
-        </div>
-
-        <div class="global-header__account global-header__account--desktop">
-            <div class="global-header__operator" aria-label="Current operator">
-                <span class="global-header__avatar">{{ $currentUserInitials }}</span>
-                <span class="global-header__operator-name">{{ $currentUser->name }}</span>
-            </div>
-
-            <form method="POST" action="{{ route('logout') }}">
-                @csrf
-                <button class="global-header__sign-out" type="submit">Sign out</button>
-            </form>
-        </div>
-
         <details class="global-header__drawer" data-global-navigation>
             <summary class="global-header__drawer-toggle" aria-label="Open primary navigation">
                 <span class="global-header__drawer-toggle-lines" aria-hidden="true">

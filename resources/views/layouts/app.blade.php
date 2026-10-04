@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-        <meta name="theme-color" content="#f3f4f7">
+        <meta name="theme-color" content="#f5f6fa">
 
         <title>@yield('title', config('app.name', 'Bigbrotha'))</title>
 
@@ -22,39 +22,8 @@
 
         @include('layouts.partials.app-icons')
 
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded">
         <link rel="stylesheet" href="{{ $assetBase }}/css/app.css?v={{ $stylesheetVersion }}">
-        <script>
-            (() => {
-                if (!('fonts' in document)) {
-                    return;
-                }
-
-                const root = document.documentElement;
-                const readyClass = 'material-symbols-ready';
-                const fontFace = '20px "Material Symbols Rounded"';
-
-                const ensureMaterialSymbolsReady = () => {
-                    const markReady = () => root.classList.add(readyClass);
-
-                    if (document.fonts.check(fontFace)) {
-                        markReady();
-
-                        return;
-                    }
-
-                    document.fonts.load(fontFace).then(markReady).catch(() => {
-                    });
-                };
-
-                window.ensureMaterialSymbolsReady = ensureMaterialSymbolsReady;
-
-                ensureMaterialSymbolsReady();
-                document.addEventListener('livewire:navigated', ensureMaterialSymbolsReady);
-            })();
-        </script>
+        <link rel="stylesheet" href="{{ $assetBase }}/css/pages/modern-theme.css?v={{ filemtime(public_path('css/pages/modern-theme.css')) }}">
         @livewireStyles
         @stack('styles')
     </head>
@@ -77,6 +46,7 @@
         @endphp
 
         @if ($currentUser)
+            @include('layouts.partials.desktop-sidebar')
             @include('layouts.partials.global-header')
         @endif
 
@@ -86,6 +56,9 @@
                     <header class="workspace-hero workspace-hero--compact page-card">
                         <div class="workspace-hero__body">
                             <div class="workspace-topbar__intro">
+                                @if (trim($__env->yieldContent('page_eyebrow')) !== '')
+                                    <span class="workspace-hero__eyebrow">@yield('page_eyebrow')</span>
+                                @endif
                                 <h1 class="workspace-topbar__title workspace-topbar__title--compact">{{ $pageTitle !== '' ? $pageTitle : 'Camera control room' }}</h1>
                                 @if (trim($__env->yieldContent('page_lead')) !== '')
                                     <p class="workspace-hero__lead">@yield('page_lead')</p>

@@ -127,7 +127,7 @@ class OnvifDeviceProbeService
         try {
             return Http::timeout($timeoutSeconds)
                 ->connectTimeout($timeoutSeconds)
-                ->withOptions(['verify' => false])
+                ->withOptions(['verify' => false, 'allow_redirects' => false])
                 ->accept('application/soap+xml, application/xml, text/xml')
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$action.'"',
@@ -274,7 +274,7 @@ XML;
         $interfaces = [];
 
         foreach ($nodes as $node) {
-            if (!$node instanceof DOMElement) {
+            if (! $node instanceof DOMElement) {
                 continue;
             }
 
@@ -307,11 +307,11 @@ XML;
 
     private function createXPath(string $payload): ?DOMXPath
     {
-        $document = new DOMDocument();
+        $document = new DOMDocument;
         $previousState = libxml_use_internal_errors(true);
 
         try {
-            if (!@$document->loadXML($payload)) {
+            if (! @$document->loadXML($payload, LIBXML_NONET)) {
                 return null;
             }
         } finally {
@@ -324,7 +324,7 @@ XML;
 
     private function normalizeIpv4Address(?string $value): ?string
     {
-        if (!is_string($value) || filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+        if (! is_string($value) || filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
             return null;
         }
 
@@ -333,7 +333,7 @@ XML;
 
     private function normalizeMacAddress(?string $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

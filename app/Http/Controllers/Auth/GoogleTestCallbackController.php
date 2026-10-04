@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Services\GoogleIdentityService;
 use App\Services\GoogleOAuthTestService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,7 +37,7 @@ class GoogleTestCallbackController extends Controller
 
         $testedEmail = Str::lower(trim((string) $googleUser->getEmail()));
 
-        if ($testedEmail === '') {
+        if (! app(GoogleIdentityService::class)->isVerified($googleUser)) {
             $tester->storeFailure($request, $pending['context'] ?? null, 'Google did not return an email address for the test account.');
 
             return redirect()->to($tester->returnUrl($pending['context'] ?? GoogleOAuthTestService::CONTEXT_SETUP));
@@ -47,6 +48,7 @@ class GoogleTestCallbackController extends Controller
             $pending,
             $testedEmail,
             trim((string) ($googleUser->getName() ?: $googleUser->getNickname() ?: $googleUser->getEmail())),
+            (string) $googleUser->getId(),
         );
 
         return redirect()->to($tester->returnUrl($pending['context']));

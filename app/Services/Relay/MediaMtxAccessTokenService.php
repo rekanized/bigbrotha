@@ -2,14 +2,16 @@
 
 namespace App\Services\Relay;
 
+use App\Models\AllowedLoginEmail;
 use App\Models\User;
+use App\Services\AuthenticationSettingsService;
 use InvalidArgumentException;
 
 class MediaMtxAccessTokenService
 {
     public function issueReadToken(User $user, string $path): string
     {
-        if (!$user->exists) {
+        if (! $user->exists) {
             throw new InvalidArgumentException('Media access tokens require a stored operator account.');
         }
 
@@ -17,6 +19,8 @@ class MediaMtxAccessTokenService
             'sub' => $user->getKey(),
             'email' => $user->email,
             'path' => $path,
+            'account' => hash_hmac('sha256', $user->getAuthPassword(), $this->secret()),
+            'method' => request()->hasSession() ? request()->session()->get('auth_method') : null,
             'action' => 'read',
             'protocol' => 'webrtc',
             'iat' => now()->timestamp,
@@ -43,17 +47,17 @@ class MediaMtxAccessTokenService
         [$encodedPayload, $encodedSignature] = $parts;
         $expectedSignature = $this->base64UrlEncode(hash_hmac('sha256', $encodedPayload, $this->secret(), true));
 
-        if (!hash_equals($expectedSignature, $encodedSignature)) {
+        if (! hash_equals($expectedSignature, $encodedSignature)) {
             return null;
         }
 
         $payload = json_decode($this->base64UrlDecode($encodedPayload), true);
 
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return null;
         }
 
-        if (($payload['exp'] ?? 0) < now()->timestamp) {
+        if (($payload['exp'] ?? 0) <= now()->timestamp) {
             return null;
         }
 
@@ -75,11 +79,27 @@ class MediaMtxAccessTokenService
         $user = User::query()->find($userId);
 
         if ($user === null
-            || $user->email !== ($payload['email'] ?? null)) {
+            || $user->email !== ($payload['email'] ?? null)
+            || ! hash_equals(hash_hmac('sha256', $user->getAuthPassword(), $this->secret()), (string) ($payload['account'] ?? ''))
+            || ! $this->operatorHasAccess($user, $payload['method'] ?? null)) {
             return null;
         }
 
         return $payload;
+    }
+
+    private function operatorHasAccess(User $user, ?string $method): bool
+    {
+        $settings = app(AuthenticationSettingsService::class);
+
+        $local = $settings->manualAuthEnabled() && $user->hasLocalAuth();
+        $google = $settings->googleAuthEnabled() && filled($user->google_id) && AllowedLoginEmail::isAllowed($user->email);
+
+        return match ($method) {
+            'local' => $local,
+            'google' => $google,
+            default => $local || $google,
+        };
     }
 
     public function ttl(): int
@@ -89,7 +109,13 @@ class MediaMtxAccessTokenService
 
     private function secret(): string
     {
-        return (string) config('mediamtx.auth.token_secret', config('app.key'));
+        $secret = (string) config('mediamtx.auth.token_secret', config('app.key'));
+
+        if ($secret === '') {
+            throw new \RuntimeException('Media authentication requires a private signing key.');
+        }
+
+        return $secret;
     }
 
     private function normalizeAction(string $action): string

@@ -15,8 +15,8 @@ class SimplifiedThemeTest extends TestCase
         preg_match_all('/@import url\([\'"]([^\'"]+)[\'"]\);/', $appStyles, $imports);
         $this->assertSame(['./pages/simplified-theme.css', './pages/mobile.css', './pages/live-wall.css'], $imports[1]);
         $this->assertStringNotContainsString("@import url('./mobile.css');", $themeStyles);
-        $this->assertStringNotContainsString("data-theme", $themeStyles);
-        $this->assertStringNotContainsString("theme-toggle", $themeStyles);
+        $this->assertStringNotContainsString('data-theme', $themeStyles);
+        $this->assertStringNotContainsString('theme-toggle', $themeStyles);
     }
 
     public function test_application_layout_has_no_theme_switching_runtime(): void
@@ -28,11 +28,12 @@ class SimplifiedThemeTest extends TestCase
         $this->assertStringNotContainsString('prefers-color-scheme', $layout);
     }
 
-    public function test_operator_layout_exposes_one_global_header_with_responsive_navigation_and_a_skip_link(): void
+    public function test_operator_layout_exposes_desktop_sidebar_mobile_header_and_a_skip_link(): void
     {
         $projectPath = dirname(__DIR__, 2);
         $layout = (string) file_get_contents($projectPath.'/resources/views/layouts/app.blade.php');
         $header = (string) file_get_contents($projectPath.'/resources/views/layouts/partials/global-header.blade.php');
+        $sidebar = (string) file_get_contents($projectPath.'/resources/views/layouts/partials/desktop-sidebar.blade.php');
         $navigation = (string) file_get_contents($projectPath.'/resources/views/layouts/partials/primary-navigation.blade.php');
 
         $this->assertStringContainsString('class="skip-link"', $layout);
@@ -40,7 +41,8 @@ class SimplifiedThemeTest extends TestCase
         $this->assertStringContainsString('class="global-header"', $header);
         $this->assertStringContainsString('data-global-navigation', $header);
         $this->assertStringContainsString('id="main-content"', $layout);
-        $this->assertStringContainsString("'navigationIdSuffix' => 'desktop'", $header);
+        $this->assertStringContainsString("@include('layouts.partials.desktop-sidebar')", $layout);
+        $this->assertStringContainsString("'navigationIdSuffix' => 'desktop'", $sidebar);
         $this->assertStringContainsString("'navigationIdSuffix' => 'mobile'", $header);
         $this->assertStringContainsString('primary-navigation-section-{{ $navigationIdSuffix }}-', $navigation);
     }
@@ -63,7 +65,7 @@ class SimplifiedThemeTest extends TestCase
         $this->assertStringContainsString('.fleet-modal__panel', $mobileStyles);
         $this->assertStringContainsString('.player-sidebar > .screen-card', $mobileStyles);
         $this->assertStringContainsString('.player-sidebar .empty-state strong', $mobileStyles);
-        $this->assertStringContainsString("font-size: 16px", $mobileStyles);
+        $this->assertStringContainsString('font-size: 16px', $mobileStyles);
         $this->assertStringContainsString('env(safe-area-inset-bottom', $mobileStyles);
     }
 

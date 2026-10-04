@@ -9,13 +9,13 @@ $resolvedAppKey = (static function (): string {
 
     $keyFile = trim((string) env('APP_KEY_FILE', storage_path('app/private/app.key')));
 
-    if ($keyFile === '' || !is_file($keyFile) || !is_readable($keyFile)) {
+    if ($keyFile === '' || ! is_file($keyFile) || ! is_readable($keyFile)) {
         return '';
     }
 
     $storedKey = @file_get_contents($keyFile);
 
-    if (!is_string($storedKey)) {
+    if (! is_string($storedKey)) {
         return '';
     }
 
@@ -25,7 +25,7 @@ $resolvedAppKey = (static function (): string {
 $optionalEnvString = static function (string $key): ?string {
     $value = env($key);
 
-    if (!is_string($value)) {
+    if (! is_string($value)) {
         return null;
     }
 
@@ -37,7 +37,7 @@ $optionalEnvString = static function (string $key): ?string {
 $envStringAllowEmpty = static function (string $key): ?string {
     $value = env($key);
 
-    if (!is_string($value)) {
+    if (! is_string($value)) {
         return null;
     }
 
@@ -47,7 +47,7 @@ $envStringAllowEmpty = static function (string $key): ?string {
 $optionalEnvCsv = static function (string $key): ?array {
     $value = env($key);
 
-    if (!is_string($value)) {
+    if (! is_string($value)) {
         return null;
     }
 
@@ -91,7 +91,7 @@ $configuredAuthCallbackUrl = $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_URL');
 $defaultAuthCallbackUrl = $configuredAuthCallbackUrl ?? $defaultCallbackOrigin.'/relay/auth/mediamtx';
 $defaultIcePort = max(1, (int) env('MEDIAMTX_ICE_PORT', 8190));
 $appKey = $resolvedAppKey;
-$defaultTokenSecret = $appKey !== '' ? $appKey : hash('sha256', $defaultAppUrl.'|mediamtx-token-secret');
+$defaultTokenSecret = $appKey;
 $configuredTokenSecret = $optionalEnvString('MEDIAMTX_AUTH_TOKEN_SECRET') ?? $defaultTokenSecret;
 
 return [
@@ -146,15 +146,15 @@ return [
     'auth' => [
         'enabled' => true,
         'callback_url' => $defaultAuthCallbackUrl,
-        'callback_secret' => $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_SECRET') ?? hash('sha256', ($appKey !== '' ? $appKey : $defaultAuthCallbackUrl).'|mediamtx-auth-callback'),
+        'callback_secret' => $optionalEnvString('MEDIAMTX_AUTH_CALLBACK_SECRET') ?? ($appKey !== '' ? hash('sha256', $appKey.'|mediamtx-auth-callback') : ''),
         'token_secret' => $configuredTokenSecret,
         'token_ttl' => 180,
         'reader_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_READER_ALLOWED_IPS') ?? ['127.0.0.1', '::1', '172.16.0.0/12'],
         'publisher_allowed_ips' => $optionalEnvCsv('MEDIAMTX_AUTH_PUBLISHER_ALLOWED_IPS') ?? ['127.0.0.1', '::1', '172.16.0.0/12'],
         'reader_user' => 'internal-reader',
-        'reader_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-reader'), 0, 32),
+        'reader_pass' => ($configuredTokenSecret !== '' ? substr(hash('sha256', $configuredTokenSecret.'|mediamtx-reader'), 0, 32) : ''),
         'publisher_user' => 'publisher',
-        'publisher_pass' => substr(hash('sha256', $configuredTokenSecret.'|mediamtx-publisher'), 0, 32),
+        'publisher_pass' => ($configuredTokenSecret !== '' ? substr(hash('sha256', $configuredTokenSecret.'|mediamtx-publisher'), 0, 32) : ''),
     ],
 
     'transcode' => [

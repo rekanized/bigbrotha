@@ -8,6 +8,11 @@ use Livewire\Component;
 
 class NetworkStorageSettingsPanel extends Component
 {
+    public function boot(): void
+    {
+        abort_unless(auth()->user()?->fresh()?->isAdmin(), 403);
+    }
+
     public string $networkStorageEnabled = '0';
 
     public string $networkStoragePath = '';
@@ -42,6 +47,7 @@ class NetworkStorageSettingsPanel extends Component
             'networkStoragePassword' => ['nullable', 'string', 'max:255', 'not_regex:/[\r\n\x00]/'],
         ]);
 
+        $this->hasStoredPassword = $settings->networkStorageSettings()['has_password'];
         $enabled = $validated['networkStorageEnabled'] === '1';
         $path = trim((string) ($validated['networkStoragePath'] ?? ''));
         $username = trim((string) ($validated['networkStorageUsername'] ?? ''));
@@ -60,7 +66,7 @@ class NetworkStorageSettingsPanel extends Component
                 $this->addError('networkStorageUsername', 'Enter the SMB username when network storage is enabled.');
             }
 
-            if (!$this->hasStoredPassword && $password === '') {
+            if (! $this->hasStoredPassword && $password === '') {
                 $this->addError('networkStoragePassword', 'Enter the SMB password when network storage is enabled.');
             }
         }

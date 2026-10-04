@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\EnsureAdminUser;
 use App\Services\ApplicationSettingsService;
 use App\Services\ApplicationSettingStore;
 use App\Services\AuthenticationSettingsService;
@@ -15,8 +16,10 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 use Throwable;
 
 class AppServiceProvider extends ServiceProvider
@@ -66,6 +69,15 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->normalizeSharedRuntimePaths();
         }
+
+        // Public URLs come from deployment configuration, never forwarding headers.
+        $publicUrl = (string) config('app.url');
+        if (parse_url($publicUrl, PHP_URL_SCHEME) === 'https') {
+            URL::useOrigin($publicUrl);
+            URL::forceScheme('https');
+        }
+
+        Livewire::addPersistentMiddleware([EnsureAdminUser::class]);
 
         $this->registerWorkerHeartbeatHooks();
 

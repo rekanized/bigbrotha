@@ -7,6 +7,7 @@ use App\Livewire\Setup\SetupWizard;
 use App\Models\User;
 use App\Services\AuthenticationSettingsService;
 use App\Services\GoogleOAuthTestService;
+use App\Services\SetupAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
@@ -32,6 +33,7 @@ class SetupWizardTest extends TestCase
         $this->clearAuthenticationSetupState();
 
         Livewire::test(SetupWizard::class)
+            ->set('setupToken', app(SetupAccessService::class)->token())
             ->set('manualAuthEnabled', '1')
             ->set('googleAuthEnabled', '0')
             ->set('adminName', 'Initial Admin')
@@ -68,6 +70,7 @@ class SetupWizardTest extends TestCase
         $this->clearAuthenticationSetupState();
 
         Livewire::test(SetupWizard::class)
+            ->set('setupToken', app(SetupAccessService::class)->token())
             ->set('manualAuthEnabled', '0')
             ->set('googleAuthEnabled', '1')
             ->set('googleClientId', 'client-id')
@@ -82,6 +85,7 @@ class SetupWizardTest extends TestCase
         $this->clearAuthenticationSetupState();
 
         Livewire::test(SetupWizard::class)
+            ->set('setupToken', app(SetupAccessService::class)->token())
             ->set('manualAuthEnabled', '0')
             ->set('googleAuthEnabled', '0')
             ->call('save')
@@ -102,14 +106,14 @@ class SetupWizardTest extends TestCase
             'redirect_uri' => route('auth.google.callback'),
         ]);
 
-        $googleUser = new SocialiteUser;
+        $googleUser = (new SocialiteUser)->setRaw(['email_verified' => true, 'hd' => 'example.com']);
         $googleUser->map([
             'id' => 'google-admin-123',
             'name' => 'Google Admin',
             'email' => 'google-admin@example.com',
         ]);
 
-        $otherUser = new SocialiteUser;
+        $otherUser = (new SocialiteUser)->setRaw(['email_verified' => true, 'hd' => 'example.com']);
         $otherUser->map([
             'id' => 'another-google-user',
             'name' => 'Another User',
@@ -159,6 +163,7 @@ class SetupWizardTest extends TestCase
         $fingerprint = $settings->googleConfigurationFingerprint('client-id', 'client-secret', route('auth.google.callback'));
 
         Livewire::test(SetupWizard::class)
+            ->set('setupToken', app(SetupAccessService::class)->token())
             ->set('manualAuthEnabled', '0')
             ->set('googleAuthEnabled', '1')
             ->set('googleClientId', 'client-id')
@@ -184,7 +189,7 @@ class SetupWizardTest extends TestCase
             'redirect_uri' => route('auth.google.callback'),
         ]);
 
-        $googleUser = new SocialiteUser;
+        $googleUser = (new SocialiteUser)->setRaw(['email_verified' => true, 'hd' => 'example.com']);
         $googleUser->map(['id' => 'google-user-without-email', 'name' => 'No Email']);
 
         $provider = Mockery::mock(Provider::class);

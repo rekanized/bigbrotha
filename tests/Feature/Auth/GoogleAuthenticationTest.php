@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Models\AllowedLoginEmail;
 use App\Models\User;
+use App\Services\AuthenticationSettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
@@ -21,6 +22,17 @@ class GoogleAuthenticationTest extends TestCase
         config()->set('services.google.client_id', 'client-id');
         config()->set('services.google.client_secret', 'client-secret');
         config()->set('services.google.redirect', 'https://monitor.schollinetz.com/auth/google/callback');
+        $settings = app(AuthenticationSettingsService::class);
+        $settings->saveConfiguration(true, true, [
+            'client_id' => 'client-id',
+            'client_secret' => 'client-secret',
+            'redirect_uri' => 'https://monitor.schollinetz.com/auth/google/callback',
+        ], [
+            'fingerprint' => $settings->googleConfigurationFingerprint('client-id', 'client-secret', 'https://monitor.schollinetz.com/auth/google/callback'),
+            'tested_at' => now()->toIso8601String(),
+            'tested_email' => 'operator@example.com',
+            'tested_google_id' => 'google-user-123',
+        ]);
     }
 
     public function test_google_redirect_starts_the_oauth_flow(): void
@@ -83,7 +95,7 @@ class GoogleAuthenticationTest extends TestCase
 
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertSame('google-user-123', $user->fresh()->google_id);
-        $this->assertTrue($user->fresh()->is_admin);
+        $this->assertFalse($user->fresh()->is_admin);
     }
 
     public function test_google_callback_rejects_non_allowlisted_email_after_bootstrap(): void
@@ -113,7 +125,7 @@ class GoogleAuthenticationTest extends TestCase
 
     private function fakeGoogleUser(): SocialiteUser
     {
-        $user = new SocialiteUser();
+        $user = (new SocialiteUser)->setRaw(['email_verified' => true, 'hd' => 'example.com']);
         $user->map([
             'id' => 'google-user-123',
             'name' => 'Control Shift',

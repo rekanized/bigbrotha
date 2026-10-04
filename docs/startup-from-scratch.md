@@ -104,12 +104,18 @@ The `app` container will:
 - apply pending Laravel migrations automatically and bootstrap an empty database when needed
 - supervise Nginx and PHP-FPM after writing the bootstrap marker that unblocks `background` and `relay`
 
-After the containers are healthy on a brand-new deployment, open `/setup` on the published application URL and complete the onboarding wizard:
+After the containers are healthy on a brand-new deployment, retrieve the private setup token with:
+
+```bash
+./docker/compose.sh exec app php artisan setup:token
+```
+
+Use the same `--local` or `--dev` mode as the running stack. The command is available only before setup completes. Keep the token private; it grants permission to configure the first administrator. Then open `/setup` on the published application URL, enter the token, and complete the onboarding wizard:
 
 - choose whether local sign-in, Google OAuth, or both should be enabled
 - create the initial local administrator when local sign-in is enabled
 - enter the Google client ID, client secret, and redirect URI there and run the built-in Google validation flow before enabling Google OAuth
-- for Google-only setup, sign in first with the same Google account used for validation; it becomes the initial administrator
+- for Google-only setup, sign in first with the same verified Google identity used for validation; both email and Google subject must match, and it becomes the initial administrator
 
 ## 3. Confirm Camera Reachability
 

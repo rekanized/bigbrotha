@@ -694,7 +694,7 @@ body.page-dashboard .recording-browser__pager {
 
 body.page-dashboard .recording-player__video {
     min-height: min(64vh, 640px);
-    object-fit: fill;
+    object-fit: contain;
     background: #111827;
 }
 

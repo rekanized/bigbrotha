@@ -3,14 +3,22 @@
 namespace App\Livewire\Setup;
 
 use App\Models\AllowedLoginEmail;
+use App\Models\AppSetting;
+use App\Models\User;
+use App\Rules\LocalPassword;
 use App\Services\AuthenticationSettingsService;
 use App\Services\GoogleOAuthTestService;
 use App\Services\LocalAuthenticationService;
+use App\Services\SetupAccessService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 class SetupWizard extends Component
 {
     private const SESSION_DRAFT_KEY = 'setup.wizard.draft';
+
+    public string $setupToken = '';
 
     public string $manualAuthEnabled = '1';
 
@@ -99,6 +107,7 @@ class SetupWizard extends Component
 
     public function beginGoogleTest(GoogleOAuthTestService $tester)
     {
+        $this->assertSetupOpen();
         $validated = $this->validate([
             'googleClientId' => ['required', 'string', 'max:255'],
             'googleClientSecret' => ['required', 'string', 'max:255'],
@@ -118,6 +127,31 @@ class SetupWizard extends Component
 
     public function save(AuthenticationSettingsService $settings, LocalAuthenticationService $localAuthentication)
     {
+        $lock = Cache::lock('authentication:setup', 30);
+        abort_unless($lock->get(), 409, 'Another setup request is in progress.');
+
+        try {
+            $this->assertSetupOpen();
+
+            return DB::transaction(fn () => $this->completeSetup($settings, $localAuthentication));
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function assertSetupOpen(): void
+    {
+        abort_unless(app(SetupAccessService::class)->accepts($this->setupToken), 403, 'A valid setup token is required.');
+        abort_if(
+            User::query()->exists()
+            || AppSetting::query()->where('key', AuthenticationSettingsService::SETTING_SETUP_COMPLETE)->where('value', '1')->exists(),
+            403,
+            'Application setup is already complete.',
+        );
+    }
+
+    private function completeSetup(AuthenticationSettingsService $settings, LocalAuthenticationService $localAuthentication)
+    {
         $this->resetErrorBag();
         $this->statusMessage = null;
         $this->statusType = 'neutral';
@@ -129,8 +163,8 @@ class SetupWizard extends Component
             'googleAuthEnabled' => ['required', 'in:0,1'],
             'adminName' => ['nullable', 'string', 'max:255'],
             'adminEmail' => ['nullable', 'email:rfc', 'max:255'],
-            'adminPassword' => ['nullable', 'string', 'min:10'],
-            'adminPasswordConfirmation' => ['nullable', 'string', 'min:10'],
+            'adminPassword' => ['nullable', 'string', new LocalPassword],
+            'adminPasswordConfirmation' => ['nullable', 'string', new LocalPassword],
             'googleClientId' => ['nullable', 'string', 'max:255'],
             'googleClientSecret' => ['nullable', 'string', 'max:255'],
             'googleRedirectUri' => ['nullable', 'url', 'max:255'],
@@ -217,6 +251,7 @@ class SetupWizard extends Component
                 'fingerprint' => $verified['fingerprint'],
                 'tested_at' => $verified['tested_at'],
                 'tested_email' => $verified['tested_email'],
+                'tested_google_id' => $verified['tested_google_id'],
             ] : null,
             markSetupComplete: true,
         );
@@ -228,12 +263,19 @@ class SetupWizard extends Component
         }
 
         app(GoogleOAuthTestService::class)->forgetVerified($request, GoogleOAuthTestService::CONTEXT_SETUP);
+        app(GoogleOAuthTestService::class)->forgetDraft($request, GoogleOAuthTestService::CONTEXT_SETUP);
+        $this->setupToken = '';
+        $this->adminPassword = '';
+        $this->adminPasswordConfirmation = '';
+        $this->googleClientSecret = '';
 
         if ($user !== null) {
             auth()->login($user, true);
 
             if ($request->hasSession()) {
                 $request->session()->regenerate();
+                $request->session()->put('auth_method', 'local');
+                $request->session()->put('password_hash_web', $user->getAuthPassword());
                 $request->session()->flash('status', 'Setup complete. The initial administrator account is signed in.');
             }
 

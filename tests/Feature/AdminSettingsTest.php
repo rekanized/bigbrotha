@@ -86,7 +86,7 @@ class AdminSettingsTest extends TestCase
             ->assertSee('Application settings');
     }
 
-    public function test_first_authenticated_operator_sees_admin_navigation_when_no_admin_exists_yet(): void
+    public function test_operator_cannot_gain_admin_navigation_when_no_admin_exists(): void
     {
         $operator = User::factory()->create();
 
@@ -94,9 +94,11 @@ class AdminSettingsTest extends TestCase
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get(route('camera-fleet.index'))
             ->assertOk()
-            ->assertSee(route('admin.users.index'), false)
-            ->assertSee(route('admin.settings.index'), false)
-            ->assertSee('Admin');
+            ->assertDontSee(route('admin.users.index'), false)
+            ->assertDontSee(route('admin.settings.index'), false);
+
+        $this->get(route('admin.settings.index'))->assertForbidden();
+        $this->assertFalse($operator->fresh()->isAdmin());
     }
 
     public function test_non_admin_operator_does_not_see_admin_navigation_when_an_admin_already_exists(): void
@@ -138,6 +140,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_job_queue_component_lists_pending_and_failed_jobs(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         config()->set('queue.default', 'database');
         config()->set('recording.worker.queue', 'recordings,default,review-assets');
         config()->set('queue.failed.auto_retry.enabled', true);
@@ -385,6 +389,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_job_queue_component_can_retry_a_failed_job(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         config()->set('queue.default', 'database');
 
         $failedJobId = DB::table('failed_jobs')->insertGetId([
@@ -419,6 +425,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_job_queue_component_can_delete_a_failed_job(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         config()->set('queue.default', 'database');
 
         $failedJobId = DB::table('failed_jobs')->insertGetId([
@@ -459,6 +467,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_job_queue_component_can_clear_all_failed_jobs(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         config()->set('queue.default', 'database');
 
         DB::table('failed_jobs')->insert([
@@ -494,6 +504,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_job_queue_component_warns_when_worker_demand_reaches_the_cap(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         config()->set('queue.default', 'database');
         config()->set('recording.worker.ensure_running', true);
         config()->set('recording.worker.processes', 1);
@@ -671,6 +683,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_network_storage_panel_can_enable_smb_storage(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         Livewire::test(NetworkStorageSettingsPanel::class)
             ->set('networkStorageEnabled', '1')
             ->set('networkStoragePath', '//192.168.1.199/fileshare/Applications/bigbrotha')
@@ -690,6 +704,8 @@ class AdminSettingsTest extends TestCase
 
     public function test_admin_network_storage_panel_can_update_legacy_plaintext_password_records(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         DB::table('app_settings')->insert([
             'key' => ApplicationSettingsService::SETTING_NETWORK_STORAGE,
             'value' => null,

@@ -1,21 +1,19 @@
 @php
     $currentUser = auth()->user();
-    $canAccessAdminNavigation = $currentUser && ($currentUser->isAdmin() || !\App\Models\User::query()->where('is_admin', true)->exists());
+    $canAccessAdminNavigation = $currentUser && $currentUser->isAdmin();
     $navigation = [
         [
             'label' => 'Operations',
             'items' => [
                 [
                     'label' => 'Recordings',
-                    'icon' => 'RC',
-                    'symbol' => 'movie',
+                    'symbol' => 'recordings',
                     'caption' => 'Search recorded segments and playback history',
                     'href' => route('recordings.index'),
                     'active' => request()->routeIs('recordings.index', 'recordings.show', 'recordings.stream', 'recordings.download', 'recordings.review-stream'),
                 ],
                 [
                     'label' => 'Timeline Review',
-                    'icon' => 'TR',
                     'symbol' => 'timeline',
                     'caption' => 'Synchronized recorded playback across cameras',
                     'href' => route('recordings.timeline'),
@@ -23,8 +21,7 @@
                 ],
                 [
                     'label' => 'Live Wall',
-                    'icon' => 'LW',
-                    'symbol' => 'live_tv',
+                    'symbol' => 'wall',
                     'caption' => 'Shared authenticated WebRTC playback',
                     'href' => route('live-wall.index'),
                     'active' => request()->routeIs('live-wall.*'),
@@ -36,16 +33,14 @@
             'items' => [
                 [
                     'label' => 'Camera Fleet',
-                    'icon' => 'CF',
-                    'symbol' => 'videocam',
+                    'symbol' => 'camera',
                     'caption' => 'Probe endpoints, save cameras, and manage streams',
                     'href' => route('camera-fleet.index'),
                     'active' => request()->routeIs('camera-fleet.*'),
                 ],
                 [
                     'label' => 'Wall Tiles',
-                    'icon' => 'WT',
-                    'symbol' => 'grid_view',
+                    'symbol' => 'grid',
                     'caption' => 'Build named walls and tile layouts',
                     'href' => route('wall-tiles.index'),
                     'active' => request()->routeIs('wall-tiles.*'),
@@ -95,8 +90,7 @@
                             @if ($item['active']) aria-current="page" @endif
                         >
                             <span class="primary-navigation__icon" aria-hidden="true">
-                                <span class="primary-navigation__abbr">{{ $item['icon'] }}</span>
-                                <span class="primary-navigation__symbol material-symbols-rounded">{{ $item['symbol'] }}</span>
+                                @include('layouts.partials.ui-icon', ['name' => $item['symbol']])
                             </span>
                             <span class="primary-navigation__content">
                                 <span class="primary-navigation__label">{{ $item['label'] }}</span>
@@ -113,14 +107,13 @@
                 <summary class="primary-navigation__group-summary">
                     <span class="primary-navigation__link primary-navigation__link--summary{{ $adminNavigationActive ? ' primary-navigation__link--active' : '' }}">
                         <span class="primary-navigation__icon" aria-hidden="true">
-                            <span class="primary-navigation__abbr">AD</span>
-                            <span class="primary-navigation__symbol material-symbols-rounded">admin_panel_settings</span>
+                            @include('layouts.partials.ui-icon', ['name' => 'shield'])
                         </span>
                         <span class="primary-navigation__content">
                             <span class="primary-navigation__label">Admin</span>
                             <small class="primary-navigation__caption">Users, settings, queues, and audit controls</small>
                         </span>
-                        <span class="primary-navigation__chevron material-symbols-rounded" aria-hidden="true">expand_more</span>
+                        <span class="primary-navigation__chevron" aria-hidden="true">@include('layouts.partials.ui-icon', ['name' => 'chevron'])</span>
                     </span>
                 </summary>
 

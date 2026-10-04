@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Services\AuthenticationSettingsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -34,10 +35,12 @@ class AppSetting extends Model
     {
         $attributes = $this->getAttributes();
 
+        $isSecret = ($attributes['key'] ?? null) === AuthenticationSettingsService::SETTING_GOOGLE_CLIENT_SECRET;
+
         return $this->auditFilterPayload([
             'id' => $this->getKey(),
             'key' => $attributes['key'] ?? null,
-            'value' => $attributes['value'] ?? null,
+            'value' => $isSecret ? null : ($attributes['value'] ?? null),
             'network_storage_enabled' => (bool) ($attributes['network_storage_enabled'] ?? false),
             'network_storage_path' => $attributes['network_storage_path'] ?? null,
             'network_storage_username' => $attributes['network_storage_username'] ?? null,

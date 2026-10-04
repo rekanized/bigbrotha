@@ -24,13 +24,13 @@ use App\Http\Controllers\WallTilesController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/setup', SetupController::class)->name('setup.index');
-Route::get('/auth/google/test/redirect', GoogleTestRedirectController::class)->name('auth.google.test.redirect');
-Route::get('/auth/google/test/callback', GoogleTestCallbackController::class)->name('auth.google.test.callback');
+Route::get('/auth/google/test/redirect', GoogleTestRedirectController::class)->middleware('throttle:30,1')->name('auth.google.test.redirect');
+Route::get('/auth/google/test/callback', GoogleTestCallbackController::class)->middleware('throttle:30,1')->name('auth.google.test.callback');
 
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', fn () => view('auth.login'))->name('login');
-    Route::get('/auth/google/redirect', GoogleRedirectController::class)->name('auth.google.redirect');
-    Route::get('/auth/google/callback', GoogleCallbackController::class)->name('auth.google.callback');
+    Route::get('/auth/google/redirect', GoogleRedirectController::class)->middleware('throttle:30,1')->name('auth.google.redirect');
+    Route::get('/auth/google/callback', GoogleCallbackController::class)->middleware('throttle:30,1')->name('auth.google.callback');
 });
 
 Route::post('/logout', LogoutController::class)->middleware('auth')->name('logout');

@@ -21,6 +21,13 @@
 
     <form class="screen-grid" wire:submit="save">
         <section class="screen-card screen-card--spacious">
+            <label class="field-stack">
+                <span>Setup token</span>
+                <input class="form-input" type="password" wire:model="setupToken" autocomplete="off" required>
+                <small>Get the private setup token from your server administrator. It is required to configure the first account.</small>
+            </label>
+        </section>
+        <section class="screen-card screen-card--spacious">
             <div class="panel-heading">
                 <div>
                     <h2 class="panel-title">Authentication methods</h2>

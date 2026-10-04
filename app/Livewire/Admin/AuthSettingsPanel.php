@@ -2,12 +2,19 @@
 
 namespace App\Livewire\Admin;
 
+use App\Models\User;
 use App\Services\AuthenticationSettingsService;
 use App\Services\GoogleOAuthTestService;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 
 class AuthSettingsPanel extends Component
 {
+    public function boot(): void
+    {
+        abort_unless(auth()->user()?->fresh()?->isAdmin(), 403);
+    }
+
     public string $manualAuthEnabled = '0';
 
     public string $googleAuthEnabled = '0';
@@ -15,6 +22,8 @@ class AuthSettingsPanel extends Component
     public string $googleClientId = '';
 
     public string $googleClientSecret = '';
+
+    public bool $hasStoredGoogleSecret = false;
 
     public string $googleRedirectUri = '';
 
@@ -40,7 +49,8 @@ class AuthSettingsPanel extends Component
 
         if (is_array($draft)) {
             $this->googleClientId = $draft['client_id'];
-            $this->googleClientSecret = $draft['client_secret'];
+            // Keep the secret in the encrypted server-side session, outside snapshots.
+            $this->googleClientSecret = '';
             $this->googleRedirectUri = $draft['redirect_uri'];
         }
 
@@ -87,13 +97,19 @@ class AuthSettingsPanel extends Component
     {
         $validated = $this->validate([
             'googleClientId' => ['required', 'string', 'max:255'],
-            'googleClientSecret' => ['required', 'string', 'max:255'],
+            'googleClientSecret' => ['nullable', 'string', 'max:255'],
             'googleRedirectUri' => ['required', 'url', 'max:255'],
         ]);
 
+        if ($this->resolvedGoogleSecret() === '') {
+            $this->addError('googleClientSecret', 'Enter the Google client secret before validation.');
+
+            return null;
+        }
+
         $tester->begin(request(), GoogleOAuthTestService::CONTEXT_ADMIN, [
             'client_id' => $validated['googleClientId'],
-            'client_secret' => $validated['googleClientSecret'],
+            'client_secret' => $this->resolvedGoogleSecret(),
             'redirect_uri' => $validated['googleRedirectUri'],
         ]);
 
@@ -101,6 +117,16 @@ class AuthSettingsPanel extends Component
     }
 
     public function save(AuthenticationSettingsService $settings): void
+    {
+        DB::transaction(function () use ($settings): void {
+            User::query()->where('is_admin', true)->orderBy('id')->lockForUpdate()->get();
+            abort_unless(auth()->user()?->fresh()?->isAdmin(), 403);
+            $settings->refresh();
+            $this->saveSettings($settings);
+        });
+    }
+
+    private function saveSettings(AuthenticationSettingsService $settings): void
     {
         $this->resetErrorBag();
         $this->statusMessage = null;
@@ -143,7 +169,7 @@ class AuthSettingsPanel extends Component
             $googleEnabled,
             [
                 'client_id' => $validated['googleClientId'],
-                'client_secret' => $validated['googleClientSecret'],
+                'client_secret' => $this->resolvedGoogleSecret(),
                 'redirect_uri' => $validated['googleRedirectUri'],
             ],
             $verified,
@@ -151,6 +177,7 @@ class AuthSettingsPanel extends Component
         );
 
         app(GoogleOAuthTestService::class)->forgetVerified(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
+        app(GoogleOAuthTestService::class)->forgetDraft(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
 
         $this->loadFromSettings($settings);
         $this->statusMessage = 'Authentication settings updated.';
@@ -162,11 +189,22 @@ class AuthSettingsPanel extends Component
         return view('livewire.admin.auth-settings-panel');
     }
 
+    private function resolvedGoogleSecret(): string
+    {
+        if (trim($this->googleClientSecret) !== '') {
+            return trim($this->googleClientSecret);
+        }
+
+        $draft = app(GoogleOAuthTestService::class)->draft(request(), GoogleOAuthTestService::CONTEXT_ADMIN);
+
+        return $draft['client_secret'] ?? app(AuthenticationSettingsService::class)->googleConfiguration()['client_secret'];
+    }
+
     private function currentGoogleFingerprint(): string
     {
         return app(AuthenticationSettingsService::class)->googleConfigurationFingerprint(
             $this->googleClientId,
-            $this->googleClientSecret,
+            $this->resolvedGoogleSecret(),
             $this->googleRedirectUri,
         );
     }
@@ -178,7 +216,8 @@ class AuthSettingsPanel extends Component
         $this->manualAuthEnabled = $settings->manualAuthEnabled() ? '1' : '0';
         $this->googleAuthEnabled = $settings->googleAuthEnabled() ? '1' : '0';
         $this->googleClientId = $google['client_id'];
-        $this->googleClientSecret = $google['client_secret'];
+        $this->googleClientSecret = '';
+        $this->hasStoredGoogleSecret = $google['client_secret'] !== '';
         $this->googleRedirectUri = $google['redirect_uri'];
         $this->googleVerifiedFingerprint = $google['verified'] ? $google['fingerprint'] : null;
         $this->googleVerifiedAt = $google['tested_at'];

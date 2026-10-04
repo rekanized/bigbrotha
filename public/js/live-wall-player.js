@@ -83,7 +83,7 @@
         });
 
         document.body.classList.remove('live-wall-focus-mode');
-        document.querySelectorAll('.global-header, .live-wall-wall-switcher').forEach(element => { element.inert = false; });
+        document.querySelectorAll('.global-header, .desktop-sidebar, .live-wall-wall-switcher').forEach(element => { element.inert = false; });
         if (returnTarget?.isConnected) returnTarget.focus({ preventScroll: true });
         if (scrollPosition) window.scrollTo({ ...scrollPosition, behavior: 'instant' });
         state.focusedTile = null;
@@ -118,7 +118,7 @@
         button?.setAttribute('aria-label', 'Return to camera grid');
         if (button) button.title = 'Return to camera grid (Escape)';
         document.body.classList.add('live-wall-focus-mode');
-        document.querySelectorAll('.global-header, .live-wall-wall-switcher').forEach(element => { element.inert = true; });
+        document.querySelectorAll('.global-header, .desktop-sidebar, .live-wall-wall-switcher').forEach(element => { element.inert = true; });
         button?.focus({ preventScroll: true });
         state.focusedTile = tile;
         state.players.forEach((player) => player.setFocusEligible(player.tile === tile));

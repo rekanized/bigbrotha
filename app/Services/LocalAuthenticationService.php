@@ -15,7 +15,11 @@ class LocalAuthenticationService
             ->where('email', $this->normalizeEmail($email))
             ->first();
 
-        if (! $user instanceof User || ! $user->hasLocalAuth() || ! Hash::check($password, $user->password)) {
+        // Always verify a hash so unknown accounts do not have a cheap timing path.
+        $hash = $user?->password ?? '$2y$12$MN0VQ0.UD1F6JGH09j2P2uKingVWQCQcNZQ5j8o3CPltxARYk8nQG';
+        $validPassword = Hash::check($password, $hash);
+
+        if (! $user instanceof User || ! $user->hasLocalAuth() || ! $validPassword) {
             return null;
         }
 
@@ -30,6 +34,8 @@ class LocalAuthenticationService
 
         if (request()->hasSession()) {
             request()->session()->regenerate();
+            request()->session()->put('auth_method', 'local');
+            request()->session()->put('password_hash_web', $user->getAuthPassword());
         }
 
         return $user;
@@ -51,6 +57,7 @@ class LocalAuthenticationService
             'name' => trim($name),
             'email' => $normalizedEmail,
             'password' => $password,
+            'remember_token' => Str::random(60),
             'local_auth_enabled' => true,
             'password_updated_at' => now(),
             'email_verified_at' => $user->email_verified_at ?? now(),
@@ -64,6 +71,7 @@ class LocalAuthenticationService
     {
         $user->forceFill([
             'password' => $password,
+            'remember_token' => Str::random(60),
             'local_auth_enabled' => true,
             'password_updated_at' => now(),
             'email_verified_at' => $user->email_verified_at ?? now(),

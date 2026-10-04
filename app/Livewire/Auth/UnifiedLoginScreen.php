@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Services\AuthenticationSettingsService;
 use App\Services\LocalAuthenticationService;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Component;
 
 class UnifiedLoginScreen extends Component
@@ -14,7 +15,7 @@ class UnifiedLoginScreen extends Component
 
     public bool $showLocalForm = false;
 
-    public bool $remember = true;
+    public bool $remember = false;
 
     public bool $manualAuthAvailable = false;
 
@@ -24,7 +25,7 @@ class UnifiedLoginScreen extends Component
     {
         $this->manualAuthAvailable = $settings->manualAuthEnabled();
         $this->googleAuthAvailable = $settings->googleAuthEnabled();
-        $this->showLocalForm = $this->manualAuthAvailable && !$this->googleAuthAvailable;
+        $this->showLocalForm = $this->manualAuthAvailable && ! $this->googleAuthAvailable;
     }
 
     public function beginLocalSignIn(): void
@@ -36,7 +37,7 @@ class UnifiedLoginScreen extends Component
     {
         $this->showLocalForm = true;
 
-        if (!$settings->manualAuthEnabled()) {
+        if (! $settings->manualAuthEnabled()) {
             $this->addError('email', 'Local sign-in is disabled for this application.');
 
             return null;
@@ -47,13 +48,31 @@ class UnifiedLoginScreen extends Component
             'password' => ['required', 'string', 'max:255'],
         ]);
 
+        abort_if(auth()->check(), 403);
+        $accountKey = 'login:account:'.hash('sha256', $localAuthentication->normalizeEmail($validated['email']));
+        $ipKey = 'login:ip:'.hash('sha256', (string) request()->ip());
+
+        if (RateLimiter::tooManyAttempts($accountKey, 5) || RateLimiter::tooManyAttempts($ipKey, 30)) {
+            $this->password = '';
+            $this->addError('email', 'Too many sign-in attempts. Please wait a minute and try again.');
+
+            return null;
+        }
+
+        RateLimiter::hit($accountKey, 60);
+        RateLimiter::hit($ipKey, 60);
+
         $user = $localAuthentication->attempt($validated['email'], $validated['password'], $this->remember);
+
+        $this->password = '';
 
         if ($user === null) {
             $this->addError('email', 'The provided email or password was not accepted.');
 
             return null;
         }
+
+        RateLimiter::clear($accountKey);
 
         return redirect()->intended(route('camera-fleet.index'));
     }

@@ -58,7 +58,7 @@
 
             <label class="field-stack field-stack--wide">
                 <span>Google client secret</span>
-                <input class="form-input" type="password" wire:model.blur="googleClientSecret" autocomplete="off">
+                <input class="form-input" type="password" wire:model.blur="googleClientSecret" autocomplete="new-password" placeholder="{{ $hasStoredGoogleSecret ? 'Saved secret retained when blank' : 'Enter client secret' }}">
                 @error('googleClientSecret')
                     <span class="field-error">{{ $message }}</span>
                 @enderror

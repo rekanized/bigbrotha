@@ -42,12 +42,18 @@ Operator pages are expected to sit behind Laravel session authentication.
 
 Current design assumptions:
 
-- Brand-new deployments remain on `/setup` until onboarding chooses at least one active sign-in method.
+- Brand-new deployments remain on `/setup` until onboarding chooses at least one active sign-in method. Setup mutations require the private token from `php artisan setup:token`; concurrent completions and replayed setup snapshots are rejected.
 - Manual local accounts and Google OAuth can be enabled together.
 - The setup and admin auth flows require a successful Google round-trip before Google credentials are saved in an enabled state.
-- In Google-only first setup, the account used for OAuth validation must make the first sign-in and becomes the initial admin. Older installations without a recorded validation email retain the legacy first-user bootstrap behavior.
-- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete Google sign-in.
-- MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens.
+- In Google-only first setup, the verified email and immutable Google subject used for OAuth validation must make the first sign-in and become the initial admin. No operator is automatically promoted merely because administrators are missing. An older installation awaiting its first Google-only login without a saved subject needs server-side recovery/reconfiguration.
+- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete Google sign-in. Verified email and subject are required; conflicting subjects/accounts are rejected. Automatic linking of an unlinked account requires Google to be authoritative for the address (Gmail or matching Workspace `hd`). Linked subjects continue to work with approved third-party addresses.
+- Local login limits failures to five attempts per normalized account and thirty attempts per client IP per minute. New/reset passwords require at least 12 characters and at most 72 bytes, matching bcrypt's input limit. Remember-me is opt-in for local login; Google uses ordinary sessions.
+- Custom admin authorization is reapplied to Livewire updates; each admin component also checks the current database role on every request. Role changes serialize access to administrator rows so concurrent demotions cannot remove the last administrator.
+- Sessions are encrypted at rest by default; switching from older unencrypted sessions requires operators to sign in again. Password changes rotate remember tokens and invalidate sessions carrying older password hashes. Disabled authentication methods and removed Google approvals reject affected sessions on their next request.
+- Public web requests must match the configured `APP_URL` host, and generated HTTPS URLs use that configured origin regardless of proxy headers. Health checks and the internally authenticated relay callback retain internal host access. Configure trusted proxies narrowly; outside Docker, the default trusts none. Nginx passes forwarding metadata without treating an untrusted scheme as native HTTPS.
+- Authentication pages and authenticated responses send `no-store`; security headers include HSTS for the configured HTTPS origin, frame restrictions, a CSP, and disabled camera/microphone/geolocation capture. Livewire currently requires inline scripts and expression evaluation, so the CSP retains `unsafe-inline` and `unsafe-eval`. The configured relay origin is permitted for its reader script, signaling, and frame.
+- MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens bound to the account password and authentication method. Expired, tampered, wrong-path/protocol/action, or revoked credentials are rejected. A missing private signing key fails closed. These checks authorize new connections; an established WebRTC connection is not forcibly terminated by an account change.
+- Inner Nginx access logs omit query strings, referrers, and authorization headers, preventing OAuth codes and relay query tokens from appearing there. Check the outer reverse proxy's logging policy separately.
 - The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
 - The callback should be protected by a shared secret query parameter or loopback-only access.
 - The internal ffmpeg publisher used by MediaMTX `runOnDemand` uses credentials from `config/mediamtx.php`, derived from `APP_KEY` by default unless explicitly overridden.
