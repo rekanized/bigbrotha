@@ -114,14 +114,14 @@ class AdminSettingsTest extends TestCase
             ->assertDontSee(route('admin.settings.index'), false);
     }
 
-    public function test_authenticated_root_redirects_to_camera_fleet(): void
+    public function test_authenticated_root_redirects_to_live_wall(): void
     {
         $operator = User::factory()->create();
 
         $this->actingAs($operator)
             ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
             ->get('/')
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
     }
 
     public function test_admin_settings_page_shows_recorder_runtime_information(): void
