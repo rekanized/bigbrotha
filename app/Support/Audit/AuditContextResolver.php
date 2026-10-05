@@ -29,19 +29,19 @@ class AuditContextResolver
 
     protected function httpRequest(): ?Request
     {
-        if (!app()->bound('request')) {
+        if (! app()->bound('request')) {
             return null;
         }
 
         $request = request();
 
-        if (!$request instanceof Request) {
+        if (! $request instanceof Request) {
             return null;
         }
 
         $method = $request->server('REQUEST_METHOD');
 
-        if (!is_string($method) || trim($method) === '') {
+        if (! is_string($method) || trim($method) === '') {
             return null;
         }
 

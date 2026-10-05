@@ -1,7 +1,7 @@
 <?php
 
-use App\Providers\CameraStorageServiceProvider;
 use App\Providers\AppServiceProvider;
+use App\Providers\CameraStorageServiceProvider;
 
 return [
     AppServiceProvider::class,

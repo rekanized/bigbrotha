@@ -32,5 +32,4 @@ class RecorderStatusService
             'temporary_directory_writable' => $temporaryDirectoryWritable,
         ];
     }
-
 }

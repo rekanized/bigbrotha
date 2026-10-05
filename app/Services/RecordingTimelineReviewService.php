@@ -12,8 +12,7 @@ class RecordingTimelineReviewService
     public function __construct(
         private readonly ApplicationSettingsService $settings,
         private readonly RecordingReviewAssetService $reviewAssets,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  Collection<int, Camera>  $selectedCameras
@@ -31,7 +30,7 @@ class RecordingTimelineReviewService
             ->filter(fn (mixed $recording): bool => $recording instanceof CameraRecording)
             ->groupBy('camera_id');
 
-        return $selectedCameras->map(function (Camera $camera) use ($focusAt, $recordingsByCamera, $reviewWindowStart, $reviewWindowEnd): array {
+        return $selectedCameras->map(function (Camera $camera) use ($focusAt, $recordingsByCamera): array {
             /** @var Collection<int, CameraRecording> $cameraRecordings */
             $cameraRecordings = $recordingsByCamera->get($camera->getKey(), collect())
                 ->sortBy(fn (CameraRecording $recording): int => (int) ($recording->scheduled_for?->getTimestamp() ?? 0))
@@ -191,7 +190,7 @@ class RecordingTimelineReviewService
     {
         $preview = $camera->latestRtspPreview();
 
-        if (!is_array($preview) || !is_numeric($preview['index'] ?? null)) {
+        if (! is_array($preview) || ! is_numeric($preview['index'] ?? null)) {
             return null;
         }
 
@@ -218,7 +217,7 @@ class RecordingTimelineReviewService
 
     private function recordingTimeLabel(?CameraRecording $recording): ?string
     {
-        if (!$recording instanceof CameraRecording) {
+        if (! $recording instanceof CameraRecording) {
             return null;
         }
 
@@ -253,7 +252,7 @@ class RecordingTimelineReviewService
      */
     private function timelineScrubSpriteUrl(CameraRecording $recording, ?array $scrubSprite): ?string
     {
-        if (!is_array($scrubSprite) || empty($scrubSprite['relative_path']) || empty($scrubSprite['available'])) {
+        if (! is_array($scrubSprite) || empty($scrubSprite['relative_path']) || empty($scrubSprite['available'])) {
             return null;
         }
 
@@ -315,7 +314,7 @@ class RecordingTimelineReviewService
 
     private function durationSeconds(CameraRecording $recording): ?int
     {
-        if (!$recording->started_at instanceof Carbon || !$recording->ended_at instanceof Carbon) {
+        if (! $recording->started_at instanceof Carbon || ! $recording->ended_at instanceof Carbon) {
             return null;
         }
 
@@ -327,7 +326,7 @@ class RecordingTimelineReviewService
      */
     private function thumbnailFrameIndex(int $durationSeconds, ?array $scrubSprite): int
     {
-        if (!is_array($scrubSprite)) {
+        if (! is_array($scrubSprite)) {
             return 0;
         }
 

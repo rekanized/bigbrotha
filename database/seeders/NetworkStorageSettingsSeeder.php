@@ -9,7 +9,7 @@ class NetworkStorageSettingsSeeder extends Seeder
 {
     public function run(): void
     {
-        if (!$this->shouldSeedNetworkStorage()) {
+        if (! $this->shouldSeedNetworkStorage()) {
             return;
         }
 
@@ -33,7 +33,7 @@ class NetworkStorageSettingsSeeder extends Seeder
             $path !== '' ? $path : null,
             $username !== '' ? $username : null,
             $password !== '' ? $password : null,
-            preserveExistingPassword: !$passwordProvided,
+            preserveExistingPassword: ! $passwordProvided,
         );
     }
 

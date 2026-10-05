@@ -1,471 +1,97 @@
-# Known Issues And Constraints
-
-## Frontend Constraint
-
-This repository is intentionally no-build.
-
-Do not add:
-
-- npm or npx.
-- Vite, Webpack, or other frontend build pipelines.
-- Tailwind, Bootstrap, Sass, Less, PostCSS, or similar preprocessors.
-
-Use Blade, standard CSS under `public/css`, and plain JavaScript only when necessary.
-
-## Operator Header And Mobile Layout
-
-- Authenticated operator views use `resources/views/layouts/app.blade.php` and its single global header. Do not add page-specific application navigation to individual views.
-- Primary link definitions, admin authorization, and active-route behavior live in `resources/views/layouts/partials/primary-navigation.blade.php`; desktop and mobile header variants must continue to render from that same source.
-- `public/css/components/global-header.css` owns header breakpoints, safe-area offsets, the mobile drawer, and the reduced immersive viewport below the sticky header.
-- Live Wall may keep its bottom wall/audio control dock, but general application links and sign-out belong only to the global header.
-- Login and first-launch setup remain intentionally outside the authenticated operator header because operator navigation is not available before authentication and onboarding.
-
-## HTTP Access Restriction
-
-`App\Http\Middleware\RestrictWebsiteIp` is now driven by `WEBSITE_ALLOWED_IPS`.
-
-This affects:
-
-- authenticated root redirects and operator pages.
-- Camera Fleet pages.
-- preview routes.
-
-This does not grant network reachability to camera HTTP, ONVIF, or RTSP endpoints by itself.
-
-If `WEBSITE_ALLOWED_IPS` is blank, the HTTP restriction is effectively disabled.
-
-If the app is behind Nginx or another reverse proxy, set `TRUSTED_PROXIES` so Laravel trusts `X-Forwarded-*` headers before evaluating the allow list.
-
-## Application Authentication
-
-Operator pages are expected to sit behind Laravel session authentication.
-
-Current design assumptions:
-
-- Brand-new deployments remain on `/setup` until onboarding chooses at least one active sign-in method. Setup mutations require the private token from `php artisan setup:token`; concurrent completions and replayed setup snapshots are rejected.
-- Manual local accounts and Google OAuth can be enabled together.
-- The setup and admin auth flows require a successful Google round-trip before Google credentials are saved in an enabled state.
-- In Google-only first setup, the verified email and immutable Google subject used for OAuth validation must make the first sign-in and become the initial admin. No operator is automatically promoted merely because administrators are missing. An older installation awaiting its first Google-only login without a saved subject needs server-side recovery/reconfiguration.
-- After that bootstrap login, only Google email addresses stored in the admin allowlist may complete Google sign-in. Verified email and subject are required; conflicting subjects/accounts are rejected. Automatic linking of an unlinked account requires Google to be authoritative for the address (Gmail or matching Workspace `hd`). Linked subjects continue to work with approved third-party addresses.
-- Local login limits failures to five attempts per normalized account and thirty attempts per client IP per minute. New/reset passwords require at least 12 characters and at most 72 bytes, matching bcrypt's input limit. Remember-me is opt-in for local login; Google uses ordinary sessions.
-- Custom admin authorization is reapplied to Livewire updates; each admin component also checks the current database role on every request. Role changes serialize access to administrator rows so concurrent demotions cannot remove the last administrator.
-- Sessions are encrypted at rest by default; switching from older unencrypted sessions requires operators to sign in again. Password changes rotate remember tokens and invalidate sessions carrying older password hashes. Disabled authentication methods and removed Google approvals reject affected sessions on their next request.
-- Public web requests must match the configured `APP_URL` host, and generated HTTPS URLs use that configured origin regardless of proxy headers. Health checks and the internally authenticated relay callback retain internal host access. Configure trusted proxies narrowly; outside Docker, the default trusts none. Nginx passes forwarding metadata without treating an untrusted scheme as native HTTPS.
-- Authentication pages and authenticated responses send `no-store`; security headers include HSTS for the configured HTTPS origin, frame restrictions, a CSP, and disabled camera/microphone/geolocation capture. Livewire currently requires inline scripts and expression evaluation, so the CSP retains `unsafe-inline` and `unsafe-eval`. The configured relay origin is permitted for its reader script, signaling, and frame.
-- MediaMTX WebRTC reads are authorized through Laravel with short-lived signed tokens bound to the account password and authentication method. Expired, tampered, wrong-path/protocol/action, or revoked credentials are rejected. A missing private signing key fails closed. These checks authorize new connections; an established WebRTC connection is not forcibly terminated by an account change.
-- Inner Nginx access logs omit query strings, referrers, and authorization headers, preventing OAuth codes and relay query tokens from appearing there. Check the outer reverse proxy's logging policy separately.
-- The MediaMTX HTTP auth callback must remain reachable from the relay process and must be exempt from CSRF protection.
-- The callback should be protected by a shared secret query parameter or loopback-only access.
-- The internal ffmpeg publisher used by MediaMTX `runOnDemand` uses credentials from `config/mediamtx.php`, derived from `APP_KEY` by default unless explicitly overridden.
-- The internal relay reader for live-preview and recording fallback reads also uses the dedicated reader credentials from `config/mediamtx.php` and is expected to come from loopback only.
-
-## Relay Process Detection
-
-`MediaMtxProcessService` cannot rely only on `kill -0` or `posix_kill(pid, 0)` for liveness checks.
-
-On this host, PHP-FPM runs as `www-data` while MediaMTX may be started by another user. In that situation, signal-based liveness checks can fail with `EPERM` even though the relay is still running.
-
-Current expectation:
-
-- relay detection should reconcile stale pid files.
-- relay detection should validate the expected MediaMTX binary and config path from process arguments.
-- wall and standalone page entry use `ensureRunning()`; per-tile session refresh uses a cheap status check to avoid repeated full configuration rebuilds during a reconnect storm.
-
-## ONVIF Probe Reality
-
-If the direct ONVIF probe in Camera Fleet fails, likely causes are outside Laravel:
-
-
-- the device service URL is wrong.
-- the camera is not reachable from this host or container.
-- the ONVIF endpoint requires credentials that were not supplied.
-- the camera exposes ONVIF device information but not media profiles or network-interface details.
-
-The practical workflow is to start from the direct probe step inside `/camera-fleet`, confirm the ONVIF device response, then adjust the hydrated draft before saving.
-
-For the repository Docker stack, the important requirement is simple routed reachability from the `app` container to the camera LAN or routed camera subnet. Confirm firewall and network pathing before changing Laravel code.
-
-## Preview Storage History
-
-The current preview layout is:
-
-`storage/app/private/cameras/{id}/previews`
-
-Older `storage/app/private/stream-previews` directories may still remain from previous implementations. Those folders are historical and should not be used for new writes.
-
-## SMB Camera Storage Requirements
-
-See [SMB recording storage audit](smb-storage-audit.md) for the complete connection, upload, read, retry, and cleanup flow.
-
-The admin settings page at `/admin/settings` can route durable camera recording clips onto an SMB share.
-
-Current constraints:
-
-- only durable saved recording clip files under `storage/app/private/cameras/{id}/recordings/YYYY/MM/DD/*` are rerouted; previews, review assets, manifests, sprites, and other private-storage paths remain local.
-- the configured path must include at least a host and share, and it should point at the dedicated camera-storage root itself, for example `//fileserver/share/cameras`, `smb://fileserver/share/cameras`, or `//fileserver/share/Applications/bigbrotha/cameras`.
-- if an older saved path points at the parent directory above `cameras`, the application now normalizes it onto that directory's `cameras` child for compatibility. New operator-facing values should still use the explicit `.../cameras` path.
-- older recordings that were already uploaded before that normalization fix can still exist under the legacy parent-root layout such as `Applications/bigbrotha/{camera}/recordings/...`; SMB-backed reads now fall back to that legacy layout so timeline playback and downloads continue to work while the share is cleaned up or migrated.
-- active FFmpeg work files stay local under `storage/app/private/ffmpeg-temp`, including network-backed camera staging files. The SMB share is contacted when a finished clip is published, and the publish step creates the full normalized remote directory chain when needed.
-- the SMB username field may include a workgroup or domain prefix such as `DOMAIN\operator`.
-- SMB paths reject embedded URI credentials, control characters, query/fragment suffixes, `.` / `..` traversal segments, and SMB command separators or quotes. The host must be a DNS name or IPv4 address. Credentials reject line breaks so they cannot alter Samba authentication-file fields.
-- the host must provide an SMB backend that `icewind/smb` can use. In practice that means `smbclient` must be available in `PATH` or the php smbclient extension must be installed.
-- when SMB mode is enabled, ffmpeg still writes clip captures to local staging paths first; Laravel uploads the finished clip under a temporary remote name, verifies its size, promotes it onto the final path, verifies the final size, and only then deletes the local staged clip. A replacement keeps the previous remote file as a backup until promotion succeeds. Retry uploads reuse an already-complete matching remote file.
-- the app checks the final recording directory first, avoiding repeated checks of every ancestor on routine uploads. Upload timeouts scale with clip size up to 180 seconds. When remote size cannot be confirmed, the local staged clip is kept for retry.
-- SMB settings are saved without a live connection probe. After enabling them, check recording jobs and the background container's health. Camera deletion stops if the network directory cannot be removed, leaving the database row and local files for retry.
-- direct `smbclient` fallbacks use a per-operation mode-0600 authentication file that is deleted immediately after the command; the SMB password is not placed in the process argument list.
-- temporary motion buffers, continuous segmenter work files, previews, and review-asset outputs stay on container-local private storage even when clip storage is network-backed.
-- playback downloads and streamed remux reads may create short-lived local cache files while serving content from SMB-backed storage. Previews and review assets are local.
-
-## Preview Rendering Behavior
-
-The preview controller validates that a saved preview file is a real image before serving it.
-
-If the file is missing, corrupt, or contains invalid bytes, the route returns a placeholder SVG image instead of a broken image response.
-
-## Media Binary Assumptions
-
-The default application expectation is that `config/ffmpeg.php` resolves `ffmpeg` and `ffprobe` from the runtime image, preferring `/usr/bin/*` or `/usr/local/bin/*` and then falling back to `PATH` lookups.
-
-Docker deployments use the image-installed MediaMTX binary at `MEDIAMTX_BINARY_PATH=/usr/local/bin/mediamtx`, which is how the repository `Dockerfile` is wired.
-
-If RTSP diagnostics fail unexpectedly, verify the configured binaries exist, are executable, and that any optional `FFMPEG_BINARIES`, `FFPROBE_BINARIES`, or `FFMPEG_TEMPORARY_DIRECTORY` overrides still point at the intended locations.
-
-## Application Key Durability
-
-- Docker startup persists the Laravel application key at `./.docker-state/app.key` on the host.
-- Every Laravel container reads that same mounted file through `APP_KEY_FILE`, so container recreation does not rotate the encryption key.
-- Do not delete `./.docker-state/app.key` during rebuilds, cleanups, or host migrations if the database still contains encrypted values.
-
-## Docker Deployment Security And PostgreSQL 18
-
-- `.env.docker` contains the database credential and must be mode `0600`; `docker/compose.sh` enforces that permission when it manages the deployment.
-- `APP_URL` and `DB_PASSWORD` are required Compose values. `docker/compose.sh` generates `DB_PASSWORD` when it is empty or missing, while raw Compose users must provide it themselves.
-- `MEDIAMTX_ICE_PORT` configures both published ICE transports and both internal MediaMTX listeners. Compose forwards the resolved value explicitly to Laravel, so shell overrides and `.env.docker` entries keep listeners aligned with published ports. Only use the lower-level listener variables when an intentionally asymmetric deployment requires them.
-- The compact Compose file and application image are one runtime contract. The image must contain `run-relay`, the role-aware health check, and the baked production defaults from the same revision; build locally or publish the matching image before recreating a deployment from a newer Compose file.
-- `CAMERA_RECORDING_WORKER_PROCESSES` overrides the image's default of two queue workers inside the single `background` container.
-- Source builds use a separate `bigbrotha:local` image (`BIGBROTHA_BUILD_IMAGE` override), so they do not replace a pinned published image. Use `./docker/compose.sh --local start` and keep `--local` for later commands on a built stack. `--dev` selects development; no mode selects published images.
-- Background shutdown can take up to six minutes while workers drain active jobs. Supervisor allows 300 seconds per worker, then 55 seconds for the scheduler; custom job timeouts longer than this need matching Supervisor and Compose shutdown budgets.
-- Docker JSON logs are rotated, the relay runs as `www-data` with all capabilities dropped, and `no-new-privileges` is enabled for the stack services.
-- PostgreSQL 18 changed its official-image `PGDATA` to a version-specific directory below `/var/lib/postgresql`. The Compose volume must therefore target `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
-- An existing PostgreSQL 18 deployment started with the old child mount stores its real cluster in an anonymous parent volume. Do not recreate that database container until `docker/migrate-postgres-18-volume.sh` has created a logical backup and copied the stopped cluster into the named `db-data` volume.
-- The migration script deliberately retains both the logical backup and the original anonymous source volume. Remove the old volume only after application-level verification and an appropriate retention period.
-- Use `docker/rotate-db-password.sh` to replace an inherited default database password and recreate all dependent services with the new credential.
-
-## Production Runtime Caching
-
-- Container startup caches Laravel events, routes, and compiled Blade views, but deliberately clears the configuration cache. Database-backed authentication and network-storage secrets must not be persisted into `bootstrap/cache/config.php`.
-- Production OPcache disables timestamp validation because application code is immutable inside a tagged image. PHP or Blade source changes therefore require recreating the app and background containers from the new image; clearing Laravel caches inside an old container is not a supported code-deployment path.
-- CSS responses use conditional revalidation so nested no-build `@import` files cannot remain stale after a deployment. Versioned JavaScript and images may remain fresh in the browser for one hour.
-- The audit-log listing index is created concurrently on PostgreSQL. Initial deployment can spend extra time in the migration while existing audit history is indexed, but routine audit writes remain available.
-
-## Recording Worker Requirements
-
-Per-camera recording is scheduler-orchestrated, with queue-backed motion work and a persistent ffmpeg segmenter for continuous mode.
-
-Current expectations:
-
-- the `background` container runs `php artisan schedule:run` every minute so `camera-recordings:tick` and `camera-recordings:prune` keep running; check its scheduler health before adding host cron.
-- a queue worker must process `recordings,default,review-assets` in that order so motion clips and legacy continuous recovery rows stay ahead of SMB-heavy review-asset generation; the minute scheduler still has to run because continuous segmenters are started, recovered, and imported there.
-- the recommended worker shape is a bounded process such as `php artisan queue:work --queue=recordings,default,review-assets --max-jobs=50 --max-time=3600 --memory=256` so worker memory is recycled regularly.
-- the repository Docker stack satisfies those requirements with separate scheduler and worker process groups inside the `background` container.
-- the background health check also verifies that nested motion and continuous runtime directories remain writable and that every eligible persistent camera recorder process is alive; a fresh scheduler heartbeat alone is not sufficient for a healthy recording container.
-- container startup recursively repairs the owner and group-writable setgid directory modes under `storage/app/private/motion-recorders` and `storage/app/private/continuous-recorders`. This recovers runtime trees left owned by root after older maintenance commands were run with `docker exec` without `--user www-data`.
-- if you need more recorder capacity, raise `CAMERA_RECORDING_WORKER_PROCESSES` and recreate `background` so Supervisor starts the requested process count.
-- the scheduler remains a scheduling loop only; it is not a fallback worker supervisor.
-- the scheduler runs a bounded failed-job retry sweep, so entries in `failed_jobs` are automatically requeued after the configured cooldown until `QUEUE_FAILED_AUTO_RETRY_MAX_RETRIES` is reached; terminal rows are retained for `QUEUE_FAILED_TERMINAL_RETENTION_HOURS` (24 hours by default) for operator inspection and are then pruned automatically. Long recording, preview, review-asset, and retention commands run as overlap-protected background scheduler events so they cannot block retry and pruning sweeps. The Admin settings queue panel shows the recorded exception excerpt and current retry state for each failed row.
-- recording rows now recover stale `queued` and `processing` states on later scheduler ticks, but that is a recovery path for dead workers, not a substitute for a healthy recorder worker pool.
-- continuous recording no longer trusts the minute scheduler as the clip boundary. Once the scheduler boots a camera's segmenter, ffmpeg keeps rotating segment-muxer files on its own so scheduler jitter does not create minute-aligned gaps.
-- continuous recording timestamps are anchored to the imported UTC filename and measured file duration. The next filename caps overlap but does not stretch a short clip across an outage.
-- continuous recording encodes H.264/AAC with forced keyframes at 60-second boundaries (configurable with `CAMERA_RECORDING_SEGMENT_SECONDS`); the first clip starts a full interval instead of ending at the next wall-clock minute. Shutdown/source-loss tails can be shorter, and audio packet rounding can add a few milliseconds. Encoding costs CPU per continuous camera; defaults are two ffmpeg threads, `veryfast`, CRF 20, and 20 fps. Review generation remuxes compatible clips into fast-start MP4 and creates scrub sprites. Motion buffers retain stream copy. PHP orchestrates these direct-to-disk processes.
-- if older crashes, tests, or manual row cleanup leave files behind without matching `camera_recordings` rows, use `php artisan camera-recordings:orphans` to audit them and `php artisan camera-recordings:orphans --purge` to remove the orphan files plus matching `_review` assets.
-
-## Shared Storage Permissions
-
-The Docker runtime runs Nginx, PHP-FPM, scheduler, and queue worker processes as `www-data` against the shared application-storage volume.
-
-Current expectations:
-
-- shared Laravel runtime paths such as `storage/logs` and `storage/app/private/ffmpeg-temp` must remain group-writable across both users.
-- persistent recorder subdirectories under `storage/app/private/motion-recorders` and `storage/app/private/continuous-recorders` must remain writable by `www-data`; root-owned mode-0755 camera directories can leave the scheduler and workers healthy while every ffmpeg segmenter exits with `Permission denied`.
-- if `storage/logs/laravel.log` becomes owner-only, `php artisan schedule:run` can fail in an earlier scheduled task before `camera-recordings:tick` runs, which stalls new recordings even when the queue workers are healthy.
-- if review playback or review-asset generation reports `Permission denied` in `storage/app/private/ffmpeg-temp`, inspect directory modes under that tree before changing recorder logic.
-
-## Operator Timezone Setting
-
-- Operator-facing timestamps now use the admin-configured display timezone instead of hard-coded UTC labels.
-- The admin route is `/admin/settings` and is restricted to authenticated admin users.
-- Internal recording storage, retention logic, scheduler timestamps, and review asset metadata still use UTC for consistency.
-- The default fallback display timezone is `Europe/Stockholm`, which matches Amsterdam's offset and daylight-saving rules.
-
-## Motion Recording Tradeoff
-
-The current movement-recording implementation uses grayscale frame differencing on a saved low-resolution motion mask.
-
-Implications:
-
-- it is intentionally basic pixel-change detection, not object classification.
-- the configured area is stored as painted mask coordinates on a normalized motion grid instead of as one rectangle.
-- the threshold is an effective trigger-pixel count over the selected mask. Connected clusters receive bonus weight, while the stored activity ratio is still bounded to `0..1`.
-- camera-wide changes are treated as feed artifacts before mask evaluation: transitions affecting most of the full frame, coherent exposure or infrared-mode shifts covering most of the image, and short flip-and-recover refreshes do not start an event. These gates are intentionally camera-agnostic and configurable through the `CAMERA_MOTION_ARTIFACT_*` environment values.
-- motion mode now depends on a persistent per-camera rolling buffer of short closed segments, not a one-shot buffered capture window.
-- the first detected motion segment opens the event, pre-roll is recovered from the buffered segments before that point, and the event stays open while later motion segments keep resetting the quiet post-trigger deadline.
-- long-running stitched motion events now roll over onto a new recording once they reach the configured `recording.motion.max_stitched_seconds` limit; the handoff happens on the next closed buffered-segment boundary so a continuously active camera produces multiple bounded clips instead of one unbounded event.
-- Motion synchronization clears event links whose recording row has already failed or finished. An event and its state that have both been stale for more than 12 hours without a ready staged clip are marked failed and cleared, allowing new clips to start and old rolling buffers to be pruned. A ready staged clip remains available for SMB upload retry.
-- once a motion event has already been stitched into a local staged clip, later SMB upload or verification retries no longer pin the full raw motion buffer in place; the rolling `motion-recorders` spool can fall back to the normal idle-buffer window while Laravel retries the staged upload.
-- a failed motion publish stops that camera's segment scan for the current scheduler tick. The staged clip and any still-needed source segments remain available, and the next tick retries publication once; this prevents a large buffer backlog from causing repeated ffmpeg stitching and SMB attempts within one tick.
-- quiet motion scans remain transient work with no durable row until a real motion event opens, while stale legacy motion rows without an owning motion state are still discarded during recovery.
-- the hourly `camera-recordings:prune` maintenance pass reconciles `recorded` rows only when storage can confirm the backing segment file is actually missing; transient SMB reachability failures leave the row unchanged so healthy clips are not reclassified as failed, and rows previously failed by that reconcile step are restored automatically once the file becomes reachable again.
-- motion recording should read from the local MediaMTX source path for the selected profile so mask updates, relay playback, and recorder segmenters do not compete by opening separate direct RTSP sessions to the same camera stream.
-- the live motion painter must not infer recorder state from canvas differences on the browser-facing WebRTC transcode. Its authenticated backend endpoint uses a shared, temporary decoder on the canonical recording source. It samples at twice the recorder analysis rate (6 fps by default), evaluates alternating phases with the recorder's original comparison spacing, and withholds the newest transition for future-frame artifact confirmation. The latest confirmed cells and threshold qualification describe the draft; only closed-segment worker analysis opens saved recording events. Frames are cached locally in a bounded window and shared across viewers and masks. A kernel lock prevents duplicate producers, and the producer terminates its decoder when no editor renews its five-second lease. The client polls at a 150 ms target and expires stale samples after three seconds. Actual moving-cell coverage excludes cluster bonus; the effective trigger count includes it. Expired sessions suspend polling until the operator signs in again and reconnects.
-- the recorder and motion editor should no longer use direct-camera diagnostic fallbacks during mask editing; if the internal MediaMTX source path cannot be resolved, the motion editor should fail closed instead of opening an extra hardware RTSP session.
-- MediaMTX path design treats `camera-*-source*` as the only allowed hardware-ingest paths. Derived `camera-*-live*` playback paths and recorder workers read those loopback RTSP paths rather than the physical camera URI; bypassing the source path can produce periodic freezes on older cameras when recording and live playback compete for RTSP sessions.
-- motion buffers remain active independently of the editor. Recording events extend through subsequent qualifying segments; mask editing does not start, stop, or commit recorder events.
-- the scheduler now refuses to enqueue a new motion evaluation for a camera while any older motion row for that camera is still pending, which prevents backlog explosions when the worker or host is unhealthy.
-- ffmpeg runtime settings are now split by workload: recording and motion retain their timestamp recovery settings. Shared relay ingest retains the established source clock policy; source and live RTSP output use a positive 100 ms interleaving limit so sparse audio cannot hold video in the default ten-second mux queue.
-- finalized MP4 review assets should keep `+faststart`, and the Timeline Review fallback route now also materializes a short-lived finalized MP4 with `+faststart` before serving it so browser seeks and audio playback do not depend on fragmented stdout remuxing.
-- H.264 is copied into a review MP4 only when ffprobe confirms strictly increasing video DTS values. Cameras that repeat or omit DTS values are normalized through the CFR H.264 path instead; this safety gate now applies to both durable review generation and emergency request-time playback.
-- recording and review commands map only the first optional audio stream (`0:a:0?`) so multi-audio cameras do not unexpectedly expand a clip or produce an ambiguous browser playback asset.
-- WebRTC relay audio uses asynchronous resampling with a bounded hard-compensation threshold before Opus encoding, which absorbs camera clock drift while keeping the browser-facing audio timeline anchored at zero.
-- Cameras with nominally H.264 output can opt into per-camera live stream normalization. Compatibility mode retains native source timestamps, rebuilds backward or bursty AAC clocks into continuous sample-counted 48 kHz Opus timestamps, and lets MediaMTX fragment H.264 NAL units for RTP; encoder-side slicing is intentionally avoided because MediaMTX rejects access units containing more than 50 NAL units. Recordings continue to consume the canonical source stream without the browser-facing re-encode.
-
-## Recording Playback Tradeoff
-
-Saved footage is still captured in the recorder's copy-friendly container first, but playback no longer needs to do most of its compatibility work inside the browser request itself: the recorder's existing post-save review-assets job now rewrites the durable saved recording itself into a browser-playable MP4 with audio under the real recordings directory.
-
-Implications:
-
-- playback still depends on ffmpeg being available on the worker host when the post-save normalization job runs, but most steady-state browser playback no longer depends on spawning ffmpeg in the request path.
-- Timeline Review now uses the same buffered review-stream route as the standalone Recordings page for the stage player. Preview assets are still used for thumbnails and scrub metadata, but the stage itself does not hop between preview, buffered review, and streamed remux routes.
-- opening many recorded tiles at once should usually reuse those already-normalized MP4 recording files instead of starting several remux jobs in parallel; the main remaining cost is background normalization when clips are first saved or when an old recording still has not been rewritten yet.
-- the browser review flow avoids exposing private storage paths directly, but the emergency fallback route still depends on request-time ffmpeg work if an older recording has not been normalized yet.
-- the original file remains downloadable even if the browser player cannot render the remuxed segment.
-- the review-stream route can still remux to a short-lived local MP4 file as an emergency fallback, but the preferred steady-state path is the normalized MP4 that replaced the original saved recording.
-
-## Timeline Review Preview Assets
-
-Timeline Review now generates private derived assets for saved recordings.
-
-Current behavior:
-
-- each recorded segment is normalized into a full browser-playback MP4 with audio in the real recordings directory so the main Recordings player can serve the saved file without live transcoding in the request path.
-- each recorded segment can also produce a scrub sprite sheet plus manifest metadata so the stage can show in-frame hover previews without opening the full clip.
-- manifest and scrub-sprite review files live under a private `_review` directory beside the parent recording path and are pruned with the parent recording.
-- when camera storage is routed to SMB, scrub sprite sheets are stored under the local private `review-sprites/...` tree instead of on the network share so `preview-sprite` stays local and does not fan out into SMB reads; those local sprite files are still pruned with the parent recording.
-- the initial timeline page and rail JSON route now trust recorded database rows plus the review-asset manifest state; they do not synchronously probe the backing recording file on SMB during page load.
-- the timeline preview page now renders a plain Blade shell from controller payloads; public/js/recordings-review.js owns active camera switching, focus movement, stage playback, and rail virtualization without a mounted Livewire review component morphing the player DOM.
-- on network-backed camera storage, timeline page, stage, and rail payload assembly now skips synchronous `_review/manifest.json` probes during request handling, emits deterministic scrub-sprite metadata for the client, and uses the shared fallback thumbnail asset instead of per-recording thumbnail routes; the rail no longer preloads `preview-sprite` URLs on first paint, and scrub sprites are left for on-demand hover preview so the timeline does not fan out into dozens of SMB-backed sprite requests at once. When local sprite storage is enabled, the emitted `preview-sprite` route serves that local `review-sprites/...` copy instead of touching SMB.
-- the review shell should keep only camera-summary data in its public Livewire state; the rail now loads segment windows on demand instead of hydrating every segment for every selected camera into the initial payload.
-- the timeline stage player uses the buffered review-stream route so it behaves like the standalone Recordings viewer while still supporting timeline seeks against SMB-backed clips.
-- if scrub sprite generation has not completed yet, the thumbnail route still returns a placeholder image, but the stage player continues to use the buffered review-stream route instead of swapping to another stage source.
-- use `php artisan camera-recordings:queue-review-assets --camera_id=...` or a `--date_from` / `--date_to` display-date range to selectively queue missing scrub-sprite backfills when you want to drive the async queue directly; the command still refuses an unfiltered whole-library queue sweep.
-- the minute scheduler now also runs a bounded synchronous safety-net backfill through `camera-recordings:build-review-assets --missing --limit=...`, ordered newest-first, so recent clips still pick up playback normalization and scrub-sprite assets even when the async review queue is delayed; tune it with `CAMERA_REVIEW_ASSET_SCHEDULER_ENABLED` and `CAMERA_REVIEW_ASSET_SCHEDULER_LIMIT`.
-- recordings worker capacity is fixed to the supervised process count. Set `CAMERA_RECORDING_WORKER_PROCESSES` to the exact number of worker processes required and recreate `background` so its process pool matches the expected count.
-- the vertical rail relies on client-side virtualization plus `content-visibility` for thumbnail cards, so off-screen rail nodes should stay out of the DOM unless they are close to the viewport.
-- scrub sprite requests are deduplicated, loaded only when a thumbnail approaches the viewport or an operator actively scrubs, validated against the manifest's expected sprite-grid dimensions, kept in a bounded recent-success cache, and placed on a short failure cooldown so a missing or placeholder sprite cannot be requested repeatedly during fast scrolling.
-- native timeline scrolling takes precedence over scrubbing on touch devices; operators drag the explicit blue focus handle to scrub, while ordinary rail swipes retain inertial scrolling. Unmodified mouse-wheel input scrolls and Ctrl/Command + wheel zooms.
-- timeline clip selection now uses half-open bounds, so a focus time that lands exactly on the shared edge between two adjacent clips resolves to the later clip instead of duplicating the earlier one.
-
-## Live Wall Delivery Tradeoff
-
-The current live wall uses MediaMTX plus WebRTC instead of per-viewer MJPEG.
-
-Implications:
-
-- wall tiles still require ffmpeg to decode and re-encode for browser-safe playback, but only once per active camera path instead of once per viewer.
-- the implementation mitigates this by preferring lower-cost RTSP substreams when available.
-- MediaMTX requires its own HTTP and ICE ports in addition to the Laravel web port.
-- a separate `/live-wall/{camera}/relay` endpoint is available for a no-transcode path that remuxes copied video into fragmented MP4. This endpoint and the legacy MJPEG route use the active canonical source path when one is ready. They still open a direct camera connection when no canonical source is active, so avoid using them as a multi-viewer wall fallback during a relay outage.
-- live-wall tiles must stay live-only. If a camera feed is unavailable, the tile should fail closed, show the stream error, and retry the live session instead of swapping to a saved preview image.
-- browser receiver work is visibility-aware: off-screen tiles pause after 30 seconds, dimmed tiles pause for the duration of focused mode, and a hidden wall pauses after 10 seconds. Returning to the wall reconnects those live receivers with staggered startup, so a briefly resumed tile can take a few seconds to display again while MediaMTX wakes an on-demand path.
-- reconnects use bounded exponential backoff with jitter and a decoded-frame watchdog. This reduces synchronized retry storms and recovers WebRTC sessions whose signaling remains open after video delivery has stalled.
-
-If browsers still fail to connect over WebRTC, check `webrtcAdditionalHosts`, `webrtcLocalUDPAddress`, `webrtcLocalTCPAddress`, host firewall rules, and TURN requirements before changing the Laravel UI.
-
-## Live Wall PTZ Availability
-
-- PTZ requires reachable ONVIF Device, Media, and PTZ services and camera credentials with movement permission. RTSP alone carries video and cannot advertise or control PTZ.
-- The wall offers controls only after discovering a PTZ-enabled media profile with continuous pan/tilt or zoom velocity spaces that accept a one-second timeout. Cameras supporting only absolute/relative movement, proprietary PTZ APIs, or Media2-only profiles are not currently controlled.
-- Pan/tilt and zoom are detected separately; a fixed camera with optical zoom can show zoom controls without directional arrows. Capability detection cannot guarantee that the configured account is allowed to move the camera; command errors are shown in the control panel.
-- Capability checks do not block playback. Unreachable/authentication failures keep the button hidden and retry after a minute. Cached unsupported results expire after five minutes; reopen the wall to check again. Supported results expire after ten minutes, and changing the camera connection, credentials, or stream profiles invalidates discovery.
-- Each press moves for at most one second at a moderate speed. There is no hold-to-move behavior. The device enforces the timeout even if the browser closes or the network drops. Stop is also available in the panel.
-- Hardware movement should be verified with an operator present; automated browser checks can verify capability detection and mock commands without moving a real camera.
-
-## HEVC WebRTC Transcoding
-
-Browsers commonly render a grey or blank WebRTC tile when the relay publishes HEVC video, even if the WHEP session itself succeeds. For any camera feed that arrives as HEVC video plus AAC audio, the shared WebRTC path should publish H.264 video plus Opus audio instead.
-
-The software ffmpeg shape used by the relay is:
-
-```bash
-ffmpeg -nostdin -hide_banner -loglevel error \
-	-rtsp_transport tcp \
-	-thread_queue_size 1024 \
-	-timeout 10000000 \
-	-rtbufsize 64M \
-	-fflags +genpts+discardcorrupt \
-	-use_wallclock_as_timestamps 1 \
-	-analyzeduration 1000000 \
-	-probesize 131072 \
-	-i 'rtsp://operator:secret@camera.example/live' \
-	-map 0:v:0 -map 0:a:0? -sn -dn \
-	-fps_mode cfr \
-	-avoid_negative_ts make_zero \
-	-r 15 \
-	-c:v libx264 -pix_fmt yuv420p -profile:v baseline \
-	-preset ultrafast -tune zerolatency -bf 0 -refs 1 \
-	-g 30 -keyint_min 30 -sc_threshold 0 \
-	-crf 23 -b:v 1200k -maxrate 1800k -bufsize 1800k \
-	-af 'aresample=async=1:first_pts=0' \
-	-c:a libopus -ac 2 -ar 48000 -b:a 96k \
-	-max_interleave_delta 100000 -flush_packets 1 \
-	-max_muxing_queue_size 1024 \
-	-f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
+# Deployment constraints and troubleshooting
+
+## Supported runtime
+
+Use the four-service Docker Compose stack. Host PHP is not the supported test
+runtime. PostgreSQL is the deployment database; SQLite is included for isolated
+tests and development.
+
+The frontend uses Blade, Livewire, plain CSS, and browser JavaScript. There is no
+Node package manager, Vite/Webpack pipeline, CSS preprocessor, or asset build.
+
+## Access and authentication
+
+- Complete initial setup with the private token from `php artisan setup:token`.
+  Startup creates no default administrator or sample cameras in production.
+- Set `APP_URL` to the exact public origin, including a directly mapped HTTP port.
+  Requests must match its host; generated URLs use the configured origin.
+- Use HTTPS for internet-facing deployments and configure `TRUSTED_PROXIES`
+  narrowly. Forwarded client information is trusted only from those addresses.
+- `WEBSITE_ALLOWED_IPS` restricts incoming HTTP access when populated. It does not
+  provide outbound camera-network reachability.
+- Google OAuth requires a successful validation round-trip and a matching provider
+  callback URL. New Google-only setup must use the verified identity used during
+  validation. Email allowlisting does not override an account's Google subject.
+- Operators share access to the camera fleet, walls, and recordings. Administration
+  is role restricted; this is not a per-camera or multi-tenant permission model.
+- Authorization changes reject subsequent requests and new relay authorizations.
+  Established media connections are not forcibly terminated by those changes.
+
+The current Livewire/Alpine implementation requires inline scripts and expression
+evaluation, so the CSP permits `unsafe-inline` and `unsafe-eval`. Escape dynamic
+content and review changes to browser script sources carefully.
+
+## Camera network and codecs
+
+The `app` container must reach camera HTTP, ONVIF, and RTSP endpoints. Check the
+address, device-service path, credentials, routing, and firewall rules when a probe
+fails. Direct ONVIF intake does not depend on multicast discovery.
+
+Some cameras omit optional ONVIF operations or permit only one RTSP reader.
+BigBrotha shares canonical relay sources where possible and supports manual
+RTSP-only configuration. Supported camera HTTPS probes can accept self-signed
+certificates; use trusted routes and isolate camera networks.
+
+H.264 with detected B-frames and incompatible source codecs require live
+transcoding. This increases CPU demand. Camera firmware and upstream network
+interruptions can still cause gaps; application buffering cannot guarantee smooth
+playback when the source stops delivering packets.
+
+## WebRTC and reverse proxies
+
+The web reverse proxy handles HTTP and WHEP signaling through `/__webrtc/`.
+Browsers also need access to `MEDIAMTX_ICE_PORT` over TCP/UDP. Exposing HTTPS alone
+is insufficient. If that port cannot be reached, additional ICE/TURN infrastructure
+may be required for the network arrangement.
+
+If WHEP `PATCH` or `DELETE` requests lose the `/__webrtc/` prefix, check the Nginx
+proxy block and `X-Forwarded-Prefix`. Keep relay APIs and RTSP listeners internal.
+
+If FFmpeg publishing fails with `ANNOUNCE`/HTTP 401, check that the relay callback
+and derived publisher credentials use the same application key and configuration.
+Do not expose those credentials in logs or support requests.
+
+## Storage and recovery
+
+Private previews, review assets, buffers, and staging remain local. Only durable
+recording clips use an enabled SMB destination. Configure a dedicated camera root
+such as `//fileserver/share/cameras`; the application creates nested recording
+folders within it.
+
+A share must be reachable from both application and background containers and
+allow the configured account to create, read, rename, and delete files. Test
+recording and playback before relying on it. A network failure must not be treated
+as proof that stored footage is missing. See [recording storage](recording-storage.md).
+
+Retain the database, private storage, and `.docker-state/app.key` together. Losing
+the key makes encrypted settings and passwords unreadable. Back up the external
+recording tree separately when SMB is enabled. See [backup and restore](backup-and-restore.md).
+
+## Diagnosing application health
+
+```sh
+./docker/compose.sh ps
+./docker/compose.sh logs --tail=100 app background relay
+./docker/compose.sh exec app php artisan relay:status
+./docker/compose.sh exec app php artisan migrate:status
 ```
 
-The default relay timing flags are `-fflags +genpts`, `-use_wallclock_as_timestamps 1`, `-fps_mode cfr`, `-r 15`, `-af aresample=async=1:first_pts=0`, and `-avoid_negative_ts make_zero`. The existing wallclock repair defaults are retained after live comparisons. Forced compatibility mode retains native source timing, and detected B-frame inputs preserve presentation/decode timestamps in both stages. Both source and live publishing also set `-max_interleave_delta 100000 -flush_packets 1`; zero would disable the buffering bound. These settings cannot recover frames while a camera or its network stops sending data.
+Use the same image mode as the running installation. Inspect the administrator job
+queue and audit log to narrow capture, publication, and permission failures. Healthy
+services do not prove camera reachability, remote storage access, or browser ICE
+connectivity. Do not run destructive migration, seeding, pruning, or purge commands
+as a troubleshooting shortcut.
 
-When GPU offload is available, the relay can switch to hardware-assisted decode and H.264 encode through `MEDIAMTX_TRANSCODE_HWACCEL`:
-
-- `MEDIAMTX_TRANSCODE_HWACCEL=nvidia` inserts `-hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid` on input and uses `-c:v h264_nvenc -tune ll -rc cbr` on output.
-- `MEDIAMTX_TRANSCODE_HWACCEL=qsv` inserts `-hwaccel qsv -hwaccel_output_format qsv -c:v hevc_qsv` on input and uses `-c:v h264_qsv -look_ahead 0` on output.
-- `MEDIAMTX_TRANSCODE_HWACCEL_DEVICE`, `MEDIAMTX_TRANSCODE_HWACCEL_DECODER`, `MEDIAMTX_TRANSCODE_HWACCEL_ENCODER`, `MEDIAMTX_TRANSCODE_HWACCEL_INPUT_ARGS`, and `MEDIAMTX_TRANSCODE_HWACCEL_OUTPUT_ARGS` remain available for host-specific overrides.
-
-Representative accelerated command shapes are:
-
-```bash
-ffmpeg -nostdin -hide_banner -loglevel error \
-	-rtsp_transport tcp -thread_queue_size 1024 -timeout 10000000 -rtbufsize 64M \
-	-fflags +genpts+discardcorrupt -use_wallclock_as_timestamps 1 \
-	-analyzeduration 1000000 -probesize 131072 \
-	-hwaccel cuda -hwaccel_output_format cuda -c:v hevc_cuvid \
-	-i 'rtsp://operator:secret@camera.example/live' \
-	-map 0:v:0 -map 0:a:0? -sn -dn -fps_mode cfr -avoid_negative_ts make_zero -r 15 \
-	-c:v h264_nvenc -profile:v baseline -preset p4 -tune ll -bf 0 -g 30 -keyint_min 30 \
-	-rc cbr -b:v 1200k -maxrate 1800k -bufsize 1800k \
-	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
-	-max_interleave_delta 100000 -flush_packets 1 \
-	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
-```
-
-```bash
-ffmpeg -nostdin -hide_banner -loglevel error \
-	-rtsp_transport tcp -thread_queue_size 1024 -timeout 10000000 -rtbufsize 64M \
-	-fflags +genpts+discardcorrupt -use_wallclock_as_timestamps 1 \
-	-analyzeduration 1000000 -probesize 131072 \
-	-hwaccel qsv -hwaccel_output_format qsv -c:v hevc_qsv \
-	-i 'rtsp://operator:secret@camera.example/live' \
-	-map 0:v:0 -map 0:a:0? -sn -dn -fps_mode cfr -avoid_negative_ts make_zero -r 15 \
-	-c:v h264_qsv -profile:v baseline -preset veryfast -look_ahead 0 -bf 0 -g 30 -keyint_min 30 \
-	-b:v 1200k -maxrate 1800k -bufsize 1800k \
-	-af 'aresample=async=1:first_pts=0' -c:a libopus -ac 2 -ar 48000 -b:a 96k \
-	-max_interleave_delta 100000 -flush_packets 1 \
-	-max_muxing_queue_size 1024 -f rtsp -rtsp_transport tcp 'rtsp://publisher:***@relay:8554/camera-1-live'
-```
-
-The browser-side receiver should still initialize the HTML media element in a muted state. The shared `public/js/live-wall-player.js` player now retries playback after the first user interaction if autoplay is blocked and the standalone player exposes an explicit audio-enable button so Opus audio is only unmuted on a deliberate gesture.
-
-The wall now reports Live only after a video frame is presented. Off-screen presentation throttling and deliberate native-player pause do not trigger the frozen-frame watchdog. Camera focus has a visible return control and Escape/keyboard handling; portrait and square containers preserve the source video proportions. A camera without a configured live path requires configuration and reopening the wall; it cannot be repaired by retrying a nonexistent player. See [live-wall-audit.md](live-wall-audit.md).
-
-## Secure Live Wall Troubleshooting
-
-If the player stays on `Loading secure stream…`, check these in order:
-
-1. confirm `/live-wall/{camera}/session` returns JSON instead of `503`, `401`, or HTML.
-2. run `php artisan relay:status` and confirm MediaMTX is installed, running, and the API is reachable.
-3. inspect `storage/logs/mediamtx.log` for these common failure modes:
-	- `deadline exceeded while waiting connection`: the browser reached WHEP but ICE did not complete.
-	- `closed: source of path ... has timed out`: the camera source did not come up in time.
-	- `method ANNOUNCE failed: 401 Unauthorized`: the internal ffmpeg publisher was rejected by MediaMTX auth.
-	- `authHTTPAddress is empty`: the auth callback URL resolved to blank config.
-4. if the relay uses the two-stage `camera-*-source*` to `camera-*-live*` topology, remember that a cold live start has to wait for the upstream source path to ingest from the camera first. Keep the live-path `runOnDemandStartTimeout` higher than the source-path timeout so chained startup does not collapse at the same 20 to 30 second boundary on both legs.
-5. verify the generated `storage/app/private/mediamtx/mediamtx.yml` contains:
-	- the expected `authHTTPAddress` with the callback secret.
-	- a `runOnDemand` RTSP publish target that includes the internal publisher credentials.
-6. if MediaMTX is behind `/__webrtc/`, verify the Nginx block preserves the prefix on WHEP session `Location` headers.
-7. if the relay log shows sessions being created and then timing out, check `MEDIAMTX_ICE_PORT` UDP and TCP reachability before changing Laravel code.
-8. after changing `.env` values related to relay auth, run `php artisan config:clear`, `php artisan view:clear`, and `php artisan relay:sync`.
-9. in Docker, keep `MEDIAMTX_AUTH_CALLBACK_URL` on `http://app:8080/relay/auth/mediamtx`; Nginx listens inside `app` on port `8080`, and an unreachable callback makes MediaMTX reject otherwise valid internal RTSP reads with `401 Unauthorized`.
-10. if the browser still appears to run old PHP or Blade behavior, confirm the app and background containers were recreated from the intended immutable image tag; production OPcache intentionally does not poll source timestamps.
-
-## Nginx Reverse Proxy Requirements
-
-For a site published at a hostname like `monitor.schollinetz.com`, there are two separate traffic classes:
-
-- Laravel UI HTTP traffic.
-- MediaMTX WebRTC traffic.
-
-Recommended setup:
-
-1. proxy the MediaMTX HTTP player and WHEP handshake through Nginx on the same HTTPS origin, for example `/__webrtc/`.
-2. expose MediaMTX ICE transport on `MEDIAMTX_ICE_PORT` for UDP and TCP (default 8190) to the public internet or upstream load balancer.
-3. set `APP_URL=https://monitor.schollinetz.com` so Laravel derives the default public relay URL `https://monitor.schollinetz.com/__webrtc`. In the Docker image, the relay auth callback remains internal at `http://app:8080/relay/auth/mediamtx`.
-4. add `MEDIAMTX_WEBRTC_PUBLIC_URL` or `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS` when the public relay origin or ICE address differs from the defaults; change `MEDIAMTX_AUTH_CALLBACK_URL` only when the internal app endpoint differs.
-5. add `MEDIAMTX_AUTH_CALLBACK_SECRET` only if you need an explicit callback secret instead of the default derived from `APP_KEY`.
-6. set `TRUSTED_PROXIES` to your Nginx proxy IPs or `*` if you fully trust the proxy layer.
-
-Example Nginx HTTP location for the player and WebRTC handshake:
-
-```nginx
-location /__webrtc/ {
-	proxy_pass http://127.0.0.1:8889/;
-	proxy_http_version 1.1;
-	proxy_set_header Host $host;
-	proxy_set_header X-Forwarded-Host $host;
-	proxy_set_header X-Forwarded-Proto $scheme;
-	proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-	proxy_set_header X-Forwarded-Prefix /__webrtc;
-	proxy_redirect http://127.0.0.1:8889/ /__webrtc/;
-	proxy_redirect ~^(/.+)$ /__webrtc$1;
-}
-```
-
-If Nginx has the stream module enabled, example TCP and UDP forwarding for the default ICE port 8190:
-
-```nginx
-stream {
-	server {
-		listen 8190 udp;
-		proxy_pass 127.0.0.1:8190;
-	}
-
-	server {
-		listen 8190;
-		proxy_pass 127.0.0.1:8190;
-	}
-}
-```
-
-For a same-host deployment where MediaMTX already listens directly on `MEDIAMTX_ICE_PORT`, prefer opening that port in the host firewall instead of binding the same public port again through a site-level Nginx configuration file.
-
-Important deployment note:
-
-- `stream {}` cannot be nested inside a normal `server {}` block.
-- many distributions load `stream` configuration from a separate top-level include such as `/etc/nginx/nginx.conf` or `/etc/nginx/stream-conf.d/*.conf`.
-- if MediaMTX and Nginx run on the same host, the simplest setup is often to let MediaMTX own `MEDIAMTX_ICE_PORT` directly and use Nginx only for `/__webrtc/` HTTP proxying.
-
-If you cannot expose the configured ICE port at all, WebRTC will usually require a TURN server instead of plain Nginx HTTP proxying alone.
-
-If the WHEP URL is under `/__webrtc/...` but the browser console shows `PATCH` or `DELETE` requests failing on `/camera-*-live/whep/...` without the `/__webrtc` prefix, the reverse proxy is not preserving the WebRTC prefix on WHEP session URLs. Check the `/__webrtc/` proxy block, especially `X-Forwarded-Prefix`, before changing Laravel code.
-
-If MediaMTX starts the camera path but the log shows `method ANNOUNCE failed: 401 Unauthorized`, the local ffmpeg publisher credentials are not aligned with the Laravel auth callback. Check the derived publisher credentials in `config/mediamtx.php`, clear Laravel config, and re-sync the relay config before debugging WebRTC itself.
-
-## High-Value Tests
-
-When changing this platform, the most relevant tests are:
-
-- `tests/Feature/OnvifDeviceProbeServiceTest.php`
-- `tests/Feature/OnvifRtspStreamServiceTest.php`
-- `tests/Feature/RtspStreamDiagnosticsServiceTest.php`
-- `tests/Feature/CameraFleetManagerTest.php`
-- `tests/Feature/CameraRecordingCommandTest.php`
-- `tests/Feature/CameraRecordingMotionCommandTest.php`
-- `tests/Feature/CameraRecordingMaintenanceCommandTest.php`
-- `tests/Feature/LiveWallStreamTest.php`
-- `tests/Feature/Relay/MediaMtxAuthCallbackTest.php`
-- `tests/Feature/Relay/MediaMtxProcessServiceTest.php`
-
-## Periodic IMOU freezes
-
-The [10 September Camera 3 follow-up](imou-camera-3-investigation.md) reproduced the issue on the test inventory and correlated video interruptions with roughly 3.1-second delays in ordinary ping replies every 34 seconds. TCP and UDP both pause. Browser buffering and paced relay experiments did not provide consistently smooth playback and were reverted. Resolving the remaining interruption requires camera/network diagnostics; forcing H.264 transcoding is already enabled for this test camera and does not fix the delivery gap.
-
-The September 2026 audit measured approximately three-second gaps in incoming camera TCP payloads on the host network interface, while the receiver continued advertising a nonzero window. These gaps precede Laravel, live transcoding, and WebRTC. Software buffering fixes reduce avoidable delay but cannot guarantee uninterrupted video during camera/network delivery gaps. See [live-streaming-audit.md](live-streaming-audit.md) for evidence and validation.
+The background service may take several minutes to stop while existing jobs
+finish. The Compose shutdown budget matches Supervisor's worker and scheduler
+budgets; custom job timeouts need corresponding changes to both.

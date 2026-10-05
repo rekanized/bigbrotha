@@ -81,12 +81,13 @@ class Manager extends Component
     {
         $this->isEditorModalOpen = false;
         $this->showCameraPassword = false;
+        $this->form['password'] = '';
         $this->resetErrorBag();
     }
 
     public function toggleCameraPasswordVisibility(): void
     {
-        $this->showCameraPassword = !$this->showCameraPassword;
+        $this->showCameraPassword = ! $this->showCameraPassword;
     }
 
     public function enableRtspOnlyMode(): void
@@ -192,7 +193,7 @@ class Manager extends Component
             'recording_rtsp_path' => $camera->recording_rtsp_path ?? $camera->rtsp_path ?? '',
             'rtsp_transport' => $camera->rtsp_transport,
             'username' => $camera->username ?? '',
-            'password' => $camera->password ?? '',
+            'password' => '',
             'supports_onvif' => $camera->supports_onvif,
             'supports_rtsp' => $camera->supports_rtsp,
             'is_enabled' => $camera->is_enabled,
@@ -214,7 +215,7 @@ class Manager extends Component
         ];
         $this->probeEndpointUrl = $camera->onvifEndpoint() ?? '';
         $this->probeResponse = [];
-        $this->draftMetadata = is_array($camera->metadata) ? $camera->metadata : [];
+        $this->draftMetadata = [];
         $this->rtspProfiles = $camera->rtspProfiles();
         $this->statusMessage = null;
         $this->errorMessage = null;
@@ -275,7 +276,7 @@ class Manager extends Component
                 $this->recordingMotionAreaPayload($this->form),
             );
 
-            if ($recordingMode !== Camera::RECORDING_MODE_OFF && !(bool) ($this->form['supports_rtsp'] ?? false)) {
+            if ($recordingMode !== Camera::RECORDING_MODE_OFF && ! (bool) ($this->form['supports_rtsp'] ?? false)) {
                 $validator->errors()->add('form.recording_mode', 'Recording requires RTSP support to be enabled for this camera.');
             }
 
@@ -297,7 +298,7 @@ class Manager extends Component
             }
 
             if (($this->form['live_transcode_rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT) === Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR
-                && !is_numeric($this->form['live_transcode_bitrate_kbps'] ?? null)) {
+                && ! is_numeric($this->form['live_transcode_bitrate_kbps'] ?? null)) {
                 $validator->errors()->add('form.live_transcode_bitrate_kbps', 'Enter a target bitrate in kbps when constant bitrate mode is selected.');
             }
         });
@@ -308,7 +309,7 @@ class Manager extends Component
 
         $camera = $this->editingCameraId !== null
             ? Camera::query()->findOrFail($this->editingCameraId)
-            : new Camera();
+            : new Camera;
 
         $password = $validated['password'];
         $onvifPort = $validated['onvif_port'] ?? $camera->onvif_port ?? 80;
@@ -366,7 +367,9 @@ class Manager extends Component
 
         $camera->metadata = $metadata !== [] ? $metadata : null;
 
-        $camera->password = $password !== '' ? $password : null;
+        if ($password !== null && $password !== '') {
+            $camera->password = $password;
+        }
 
         $camera->save();
         app(CameraStorageService::class)->ensureCameraDirectories($camera);
@@ -432,7 +435,7 @@ class Manager extends Component
     public function toggleEnabled(int $cameraId): void
     {
         $camera = Camera::query()->findOrFail($cameraId);
-        $camera->forceFill(['is_enabled' => !$camera->is_enabled])->save();
+        $camera->forceFill(['is_enabled' => ! $camera->is_enabled])->save();
         $this->syncRelayConfig();
 
         $this->pendingDeleteCameraId = null;
@@ -495,7 +498,7 @@ class Manager extends Component
         $camera = Camera::query()->findOrFail($cameraId ?? $this->editingCameraId);
 
         try {
-            if (!$camera->supports_onvif || $camera->onvifEndpoint() === null) {
+            if (! $camera->supports_onvif || $camera->onvifEndpoint() === null) {
                 $camera = $this->syncSavedRtspEndpoint($camera);
                 $this->syncRelayConfig();
 
@@ -582,7 +585,7 @@ class Manager extends Component
         $profiles = $camera->rtspProfiles();
         $profile = $profiles[$profileIndex] ?? null;
 
-        if (!is_array($profile)) {
+        if (! is_array($profile)) {
             $this->rtspErrorMessage = 'That RTSP profile is no longer available. Refresh the profile list and try again.';
 
             return;
@@ -753,7 +756,7 @@ class Manager extends Component
 
     private function nullableString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -794,13 +797,13 @@ class Manager extends Component
     {
         $quality = strtolower(trim((string) ($values['live_transcode_quality'] ?? Camera::LIVE_TRANSCODE_QUALITY_DEFAULT)));
 
-        if (!in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+        if (! in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
             $quality = Camera::LIVE_TRANSCODE_QUALITY_DEFAULT;
         }
 
         $rateControl = strtolower(trim((string) ($values['live_transcode_rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
 
-        if (!in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+        if (! in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
             $rateControl = Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
         }
 
@@ -814,7 +817,7 @@ class Manager extends Component
         if ($quality === Camera::LIVE_TRANSCODE_QUALITY_DEFAULT
             && $rateControl === Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT
             && $bitrateKbps === null
-            && !$forceVideoTranscode) {
+            && ! $forceVideoTranscode) {
             return null;
         }
 
@@ -945,7 +948,7 @@ class Manager extends Component
         $name = $this->nullableString($profile['name'] ?? null);
 
         foreach ($savedProfiles as $savedProfile) {
-            if (!is_array($savedProfile)) {
+            if (! is_array($savedProfile)) {
                 continue;
             }
 
@@ -974,7 +977,7 @@ class Manager extends Component
     {
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return null;
         }
 

@@ -29,7 +29,8 @@ RUN set -eux; \
     echo "${mediamtx_sha256}  /tmp/${archive}" | sha256sum -c -; \
     mkdir -p /tmp/mediamtx; \
     tar -xzf "/tmp/${archive}" -C /tmp/mediamtx; \
-    install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx
+    install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx; \
+    install -Dm 0644 /tmp/mediamtx/LICENSE /usr/share/doc/mediamtx/LICENSE
 
 FROM php:8.5-fpm-bookworm AS runtime
 
@@ -37,6 +38,7 @@ ENV APP_ROOT=/app \
     COMPOSER_ALLOW_SUPERUSER=1
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         ffmpeg \
@@ -59,6 +61,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=mediamtx /usr/local/bin/mediamtx /usr/local/bin/mediamtx
+COPY --from=mediamtx /usr/share/doc/mediamtx/LICENSE /usr/share/doc/mediamtx/LICENSE
 COPY docker/php-production.ini /usr/local/etc/php/conf.d/zz-production.ini
 COPY docker/php-fpm-production.conf /usr/local/etc/php-fpm.d/zz-production.conf
 COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
@@ -120,12 +123,14 @@ ENV APP_ENV=production \
 LABEL org.opencontainers.image.title="BigBrotha Laravel application" \
       org.opencontainers.image.description="Laravel camera operations application with ffmpeg and MediaMTX" \
       org.opencontainers.image.source="https://github.com/rekanized/bigbrotha" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="$APP_VERSION" \
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.created="$BUILD_DATE"
 
 COPY app ./app
 COPY artisan composer.json composer.lock ./
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 COPY bootstrap ./bootstrap
 COPY config ./config
 COPY database ./database
@@ -195,7 +200,7 @@ RUN cp .env.example .env \
         storage/logs \
     && composer install --prefer-dist --no-interaction --no-progress \
     && composer validate --strict --no-check-publish \
-    && composer audit --locked --no-dev
+    && composer audit --locked
 
 CMD ["php", "artisan", "test"]
 

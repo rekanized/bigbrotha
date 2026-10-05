@@ -15,8 +15,7 @@ class MediaMtxConfigService
         private readonly CameraRecordingService $recordingService,
         private readonly MediaMtxPathStatusService $pathStatusService,
         private readonly MediaMtxPathNamer $pathNamer,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
@@ -272,7 +271,7 @@ class MediaMtxConfigService
     }
 
     /**
-    * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
     private function enabledRelayDefinitions(): Collection
     {
@@ -304,7 +303,7 @@ class MediaMtxConfigService
                 }
 
                 foreach ($camera->rtspProfiles() as $index => $profile) {
-                    if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+                    if (! is_array($profile) || ! is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
                         continue;
                     }
 
@@ -333,7 +332,7 @@ class MediaMtxConfigService
                 $definitions = [];
 
                 foreach ($camera->rtspProfiles() as $index => $profile) {
-                    if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+                    if (! is_array($profile) || ! is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
                         continue;
                     }
 
@@ -364,12 +363,12 @@ class MediaMtxConfigService
     }
 
     /**
-    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null  $definition
-    * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null  $definition
+     * @return array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}|null
      */
     private function playableRelayDefinition(?array $definition): ?array
     {
-        if (!is_array($definition)) {
+        if (! is_array($definition)) {
             return null;
         }
 
@@ -385,7 +384,7 @@ class MediaMtxConfigService
     }
 
     /**
-    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
      */
     private function definitionCanRetryWhenUnavailable(array $definition): bool
     {
@@ -395,7 +394,7 @@ class MediaMtxConfigService
     }
 
     /**
-    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
      */
     private function definitionSupportsColdStart(array $definition): bool
     {
@@ -422,7 +421,7 @@ class MediaMtxConfigService
     }
 
     /**
-    * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
+     * @param  array{mode: 'live'|'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
      */
     private function definitionCanBeReusedForMotionEditor(array $definition): bool
     {
@@ -439,7 +438,7 @@ class MediaMtxConfigService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -463,8 +462,6 @@ class MediaMtxConfigService
         return $scheme.'://'.$host.($port > 0 ? ':'.$port : '');
     }
 
-    /**
-     */
     private function buildRunOnDemandCommand(string $ffmpegBinary, array $definition): string
     {
         return $definition['mode'] === 'source'
@@ -554,7 +551,7 @@ class MediaMtxConfigService
             $command[] = escapeshellarg($avoidNegativeTs);
         }
 
-        if (!$transcodeVideo) {
+        if (! $transcodeVideo) {
             $command[] = '-c:v';
             $command[] = 'copy';
             $command[] = '-copyinkf';
@@ -616,7 +613,7 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) && !$preserveMediaTimestamps ? '1' : '0'),
+            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) && ! $preserveMediaTimestamps ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -677,7 +674,7 @@ class MediaMtxConfigService
      */
     private function shouldTranscodeVideo(array $profile, array $transcodeOverrides = []): bool
     {
-        return !$this->shouldCopyVideo($profile)
+        return ! $this->shouldCopyVideo($profile)
             || filter_var($transcodeOverrides['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
             || (bool) config('mediamtx.transcode.force_video_transcode', false);
     }
@@ -688,7 +685,7 @@ class MediaMtxConfigService
      */
     private function hardwareAccelerationInputArguments(array $profile, bool $transcodeVideo): array
     {
-        if (!$transcodeVideo) {
+        if (! $transcodeVideo) {
             return [];
         }
 
@@ -777,6 +774,7 @@ class MediaMtxConfigService
 
         $arguments[] = '-crf';
         $arguments[] = escapeshellarg((string) $transcodeOptions['crf']);
+
         return $arguments;
     }
 
@@ -902,13 +900,13 @@ class MediaMtxConfigService
     {
         $quality = strtolower(trim((string) ($transcodeOverrides['quality'] ?? Camera::LIVE_TRANSCODE_QUALITY_DEFAULT)));
 
-        if (!in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+        if (! in_array($quality, Camera::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
             $quality = Camera::LIVE_TRANSCODE_QUALITY_DEFAULT;
         }
 
         $rateControl = strtolower(trim((string) ($transcodeOverrides['rate_control'] ?? Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
 
-        if (!in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+        if (! in_array($rateControl, Camera::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
             $rateControl = Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
         }
 
@@ -1041,7 +1039,7 @@ class MediaMtxConfigService
         $publisherUser = rawurlencode((string) config('mediamtx.auth.publisher_user', 'publisher'));
         $publisherPass = rawurlencode((string) config('mediamtx.auth.publisher_pass', ''));
 
-        if ($publisherUser === '' || $publisherPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
+        if ($publisherUser === '' || $publisherPass === '' || ! str_starts_with($baseUrl, 'rtsp://')) {
             return $baseUrl.'/'.$path;
         }
 
@@ -1054,7 +1052,7 @@ class MediaMtxConfigService
         $readerUser = rawurlencode((string) config('mediamtx.auth.reader_user', 'internal-reader'));
         $readerPass = rawurlencode((string) config('mediamtx.auth.reader_pass', ''));
 
-        if ($readerUser === '' || $readerPass === '' || !str_starts_with($baseUrl, 'rtsp://')) {
+        if ($readerUser === '' || $readerPass === '' || ! str_starts_with($baseUrl, 'rtsp://')) {
             return $baseUrl.'/'.$path;
         }
 

@@ -61,7 +61,7 @@ class SecurityHardeningTest extends TestCase
             ->set('email', 'operator@example.com')
             ->set('password', 'valid-password')
             ->call('login')
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
     }
 
     public function test_ip_limit_prevents_spraying_unknown_accounts(): void
@@ -183,7 +183,7 @@ class SecurityHardeningTest extends TestCase
         $user = User::factory()->localOnly()->create(['email' => 'operator@example.com']);
         AllowedLoginEmail::query()->create(['email' => $user->email]);
         $this->mockGoogle($this->googleUser());
-        $this->get(route('auth.google.callback'))->assertRedirect(route('camera-fleet.index'));
+        $this->get(route('auth.google.callback'))->assertRedirect(route('live-wall.index'));
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertFalse($user->fresh()->isAdmin());
     }
@@ -409,6 +409,20 @@ class SecurityHardeningTest extends TestCase
             ->assertHeader('Strict-Transport-Security', 'max-age=31536000');
         $this->assertSame('https://monitor.example.com/css/app.css', asset('css/app.css'));
         $this->get('http://monitor.example.com/admin/settings')->assertRedirect('https://monitor.example.com/login');
+    }
+
+    public function test_http_origin_preserves_the_public_port_for_assets_and_redirects(): void
+    {
+        config()->set('app.url', 'http://monitor.example.com:8082');
+        config()->set('network.trusted_proxies', []);
+        app(AppServiceProvider::class, ['app' => $this->app])->boot();
+
+        $this->get('http://monitor.example.com/login')
+            ->assertOk()
+            ->assertSee('http://monitor.example.com:8082/livewire-', false);
+        $this->assertSame('http://monitor.example.com:8082/css/app.css', asset('css/app.css'));
+        $this->get('http://monitor.example.com/admin/settings')
+            ->assertRedirect('http://monitor.example.com:8082/login');
     }
 
     public function test_unknown_account_returns_generic_failure_with_production_hash_verification(): void

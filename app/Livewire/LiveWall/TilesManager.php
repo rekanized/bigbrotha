@@ -73,7 +73,7 @@ class TilesManager extends Component
 
     public function removeTile(int $index): void
     {
-        if (!array_key_exists($index, $this->tileForms)) {
+        if (! array_key_exists($index, $this->tileForms)) {
             return;
         }
 
@@ -85,7 +85,7 @@ class TilesManager extends Component
 
     public function reorderTiles(int $fromIndex, int $toIndex): void
     {
-        if (!array_key_exists($fromIndex, $this->tileForms) || !array_key_exists($toIndex, $this->tileForms)) {
+        if (! array_key_exists($fromIndex, $this->tileForms) || ! array_key_exists($toIndex, $this->tileForms)) {
             return;
         }
 
@@ -147,7 +147,7 @@ class TilesManager extends Component
         DB::transaction(function () use ($validated): void {
             $wall = $this->selectedWallId !== null
                 ? LiveWall::query()->findOrFail($this->selectedWallId)
-                : new LiveWall();
+                : new LiveWall;
 
             $wall->fill([
                 'name' => trim((string) $validated['wallForm']['name']),
@@ -368,7 +368,7 @@ class TilesManager extends Component
 
     private function nullableString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

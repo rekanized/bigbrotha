@@ -9,13 +9,13 @@ $resolvedAppKey = (static function (): ?string {
 
     $keyFile = trim((string) env('APP_KEY_FILE', storage_path('app/private/app.key')));
 
-    if ($keyFile === '' || !is_file($keyFile) || !is_readable($keyFile)) {
+    if ($keyFile === '' || ! is_file($keyFile) || ! is_readable($keyFile)) {
         return null;
     }
 
     $storedKey = @file_get_contents($keyFile);
 
-    if (!is_string($storedKey)) {
+    if (! is_string($storedKey)) {
         return null;
     }
 

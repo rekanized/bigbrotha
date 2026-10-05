@@ -13,7 +13,7 @@ IMAGE_TAG="${IMAGE_TAG:-$DEFAULT_TAG}"
 PUBLISH_LATEST="${PUBLISH_LATEST:-true}"
 PUSH_IMAGES="${PUSH_IMAGES:-true}"
 BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-BUILD_FLAGS="${BUILD_FLAGS:---pull}"
+BUILD_FLAGS="${BUILD_FLAGS:---pull --no-cache}"
 TEST_TIMEOUT_SECONDS="${TEST_TIMEOUT_SECONDS:-300}"
 
 APP_IMAGE="$USERNAME/bigbrotha-app:$IMAGE_TAG"
@@ -40,35 +40,7 @@ validate_repo_root() {
 
 validate_app_image() {
     echo "Validating app image contents..."
-
-    docker run --rm --entrypoint sh "$APP_IMAGE" -lc '
-        set -eu
-        test -f /app/vendor/autoload.php
-        test -f /app/app/Providers/AppServiceProvider.php
-        test ! -e /app/.env
-        test ! -e /app/.env.docker
-        test ! -e /app/.docker-state
-        test ! -e /app/auth.json
-        test -x /usr/local/bin/mediamtx
-        command -v ffmpeg >/dev/null
-        command -v ffprobe >/dev/null
-        command -v nginx >/dev/null
-        command -v smbclient >/dev/null
-        command -v supervisord >/dev/null
-        ! command -v composer >/dev/null
-        test -f /etc/nginx/nginx.conf
-        test -f /usr/local/etc/php-fpm.d/zz-production.conf
-        test -f /etc/supervisor/app.conf
-        test -f /etc/supervisor/background.conf
-        test -x /usr/local/bin/healthcheck
-        test -x /usr/local/bin/healthcheck-relay
-        test -x /usr/local/bin/run-relay
-        nginx -t
-        CAMERA_RECORDING_WORKER_PROCESSES=1 python3 -c '\''import sys; from supervisor.options import ServerOptions; [ServerOptions().realize(["-c", path]) for path in sys.argv[1:]]'\'' /etc/supervisor/app.conf /etc/supervisor/background.conf
-        php -r '\''foreach (["bcmath", "mbstring", "pcntl", "pdo_pgsql", "xml", "zip"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension: {$extension}\n"); exit(1); } }'\''
-        php artisan --version
-        /usr/local/bin/mediamtx --version
-    '
+    ./docker/verify-image.sh "$APP_IMAGE"
 }
 
 push_and_verify() {

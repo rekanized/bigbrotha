@@ -7,19 +7,51 @@ use App\Models\Camera;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraStorageService;
-use App\Services\Onvif\RtspStreamDiagnosticsService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\TestCase;
 
 class CameraFleetManagerTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_saved_credentials_are_not_sent_to_the_camera_editor(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Private credential camera',
+            'local_ip' => '192.0.2.44',
+            'username' => 'operator',
+            'password' => 'stored-camera-credential-fixture',
+            'supports_onvif' => false,
+            'supports_rtsp' => false,
+            'metadata' => [
+                'rtsp_profiles' => [[
+                    'name' => 'Legacy profile',
+                    'uri' => 'rtsp://operator:legacy-uri-credential-fixture@192.0.2.44:554/stream1',
+                    'path' => '/stream1',
+                ]],
+            ],
+        ]);
+
+        Livewire::test(Manager::class)
+            ->call('editCamera', $camera->id)
+            ->assertSet('form.password', '')
+            ->assertSet('draftMetadata', [])
+            ->assertSet('rtspProfiles.0.uri', 'rtsp://192.0.2.44:554/stream1')
+            ->assertDontSee('stored-camera-credential-fixture')
+            ->assertDontSee('legacy-uri-credential-fixture')
+            ->set('form.name', 'Renamed private camera')
+            ->call('saveCamera')
+            ->assertHasNoErrors()
+            ->assertSet('form.password', '');
+
+        $this->assertSame('stored-camera-credential-fixture', $camera->refresh()->password);
+        $this->assertSame('Renamed private camera', $camera->name);
+    }
 
     public function test_it_probes_creates_updates_toggles_and_deletes_cameras_from_the_gui(): void
     {
@@ -69,7 +101,7 @@ class CameraFleetManagerTest extends TestCase
         $component
             ->call('editCamera', $camera->id)
             ->assertSet('isEditorModalOpen', true)
-            ->assertSet('form.password', 'secret')
+            ->assertSet('form.password', '')
             ->assertSet('form.live_transcode_quality', Camera::LIVE_TRANSCODE_QUALITY_QUALITY)
             ->assertSet('form.live_transcode_rate_control', Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR)
             ->assertSet('form.live_transcode_bitrate_kbps', 3500)
@@ -86,9 +118,10 @@ class CameraFleetManagerTest extends TestCase
 
         $component
             ->call('editCamera', $camera->id)
-            ->assertSet('form.password', 'secret')
+            ->assertSet('form.password', '')
             ->set('form.password', 'updated-secret')
-            ->call('saveCamera');
+            ->call('saveCamera')
+            ->assertSet('form.password', '');
 
         $camera->refresh();
 

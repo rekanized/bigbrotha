@@ -84,6 +84,7 @@ class DockerRuntimeConfigurationTest extends TestCase
             'docker/run-relay.sh',
             'docker/run-worker.sh',
             'docker/run-scheduler.sh',
+            'docker/verify-image.sh',
             'publish.sh',
         ];
 

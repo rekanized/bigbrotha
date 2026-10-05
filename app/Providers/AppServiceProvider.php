@@ -72,9 +72,10 @@ class AppServiceProvider extends ServiceProvider
 
         // Public URLs come from deployment configuration, never forwarding headers.
         $publicUrl = (string) config('app.url');
-        if (parse_url($publicUrl, PHP_URL_SCHEME) === 'https') {
+        $publicScheme = parse_url($publicUrl, PHP_URL_SCHEME);
+        if (in_array($publicScheme, ['http', 'https'], true)) {
             URL::useOrigin($publicUrl);
-            URL::forceScheme('https');
+            URL::forceScheme($publicScheme);
         }
 
         Livewire::addPersistentMiddleware([EnsureAdminUser::class]);

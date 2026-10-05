@@ -47,7 +47,7 @@ class ProcessCameraRecordingJob implements ShouldQueue
     {
         $recording = CameraRecording::query()->with('camera')->find($this->recordingId);
 
-        if (!$recording instanceof CameraRecording || ! $recording->isPending()) {
+        if (! $recording instanceof CameraRecording || ! $recording->isPending()) {
             return;
         }
 
@@ -61,7 +61,7 @@ class ProcessCameraRecordingJob implements ShouldQueue
 
         $lock = Cache::lock('camera-recordings:camera:'.$camera->getKey(), (int) config('recording.lock_seconds', 180));
 
-        if (!$lock->get()) {
+        if (! $lock->get()) {
             if ($this->attempts() >= $this->tries) {
                 $recordings->markRecordingFailed($recording, 'The per-camera recording lock stayed busy through all retry attempts.');
 
@@ -123,7 +123,7 @@ class ProcessCameraRecordingJob implements ShouldQueue
     {
         $recording = CameraRecording::query()->find($this->recordingId);
 
-        if (!$recording instanceof CameraRecording || !$recording->isPending()) {
+        if (! $recording instanceof CameraRecording || ! $recording->isPending()) {
             return;
         }
 

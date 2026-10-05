@@ -51,7 +51,7 @@ class SetupWizard extends Component
     public function mount(AuthenticationSettingsService $settings, GoogleOAuthTestService $tester): void
     {
         if ($settings->isSetupComplete()) {
-            $this->redirectRoute(auth()->check() ? 'camera-fleet.index' : 'login', navigate: true);
+            $this->redirectRoute(auth()->check() ? 'live-wall.index' : 'login', navigate: true);
 
             return;
         }
@@ -270,7 +270,7 @@ class SetupWizard extends Component
         $this->googleClientSecret = '';
 
         if ($user !== null) {
-            auth()->login($user, true);
+            auth()->login($user);
 
             if ($request->hasSession()) {
                 $request->session()->regenerate();
@@ -279,7 +279,7 @@ class SetupWizard extends Component
                 $request->session()->flash('status', 'Setup complete. The initial administrator account is signed in.');
             }
 
-            $this->redirectRoute('camera-fleet.index', navigate: true);
+            $this->redirectRoute('live-wall.index', navigate: true);
 
             return null;
         }

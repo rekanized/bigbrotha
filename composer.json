@@ -2,8 +2,8 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "laravel/laravel",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Docker-first camera operations, live walls, and private recording review.",
+    "keywords": ["camera", "onvif", "rtsp", "recording", "laravel"],
     "license": "MIT",
     "require": {
         "php": "^8.5",

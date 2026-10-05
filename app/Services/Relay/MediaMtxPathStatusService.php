@@ -28,26 +28,26 @@ class MediaMtxPathStatusService
 
         $payload = $this->mediaMtxApiJson('/v3/paths/list');
 
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return $this->activePaths = [];
         }
 
         $items = $payload['items'] ?? null;
 
-        if (!is_array($items)) {
+        if (! is_array($items)) {
             return $this->activePaths = [];
         }
 
         $paths = [];
 
         foreach ($items as $item) {
-            if (!is_array($item)) {
+            if (! is_array($item)) {
                 continue;
             }
 
             $name = $this->stringOrNull($item['name'] ?? null);
 
-            if ($name === null || !((bool) ($item['ready'] ?? false) && (bool) ($item['online'] ?? false))) {
+            if ($name === null || ! ((bool) ($item['ready'] ?? false) && (bool) ($item['online'] ?? false))) {
                 continue;
             }
 
@@ -59,7 +59,7 @@ class MediaMtxPathStatusService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

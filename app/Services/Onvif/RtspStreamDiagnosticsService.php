@@ -10,8 +10,8 @@ use App\Services\Relay\MediaMtxPathStatusService;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use RuntimeException;
-use Throwable;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 class RtspStreamDiagnosticsService
 {
@@ -24,8 +24,7 @@ class RtspStreamDiagnosticsService
     public function __construct(
         private readonly MediaMtxConfigService $relayConfig,
         private readonly MediaMtxPathStatusService $pathStatusService,
-    ) {
-    }
+    ) {}
 
     public function testAndPreview(Camera $camera, array $profile, int $profileIndex, int $timeoutSeconds = 12): array
     {
@@ -86,7 +85,7 @@ class RtspStreamDiagnosticsService
                 $timeoutSeconds,
             );
 
-            if (!$preview['successful']) {
+            if (! $preview['successful']) {
                 foreach ($this->relaySources($camera, $profile, $profileIndex) as $relaySource) {
                     $relayPreview = $this->capturePreview(
                         $ffmpegBinary,
@@ -246,7 +245,7 @@ class RtspStreamDiagnosticsService
     }
 
     /**
-    * @param  array<string, mixed>  $profile
+     * @param  array<string, mixed>  $profile
      */
     private function buildPreviewRelativePath(Camera $camera, array $profile, int $profileIndex): string
     {
@@ -320,7 +319,7 @@ class RtspStreamDiagnosticsService
             ];
         }
 
-        if (!$probeProcess->isSuccessful()) {
+        if (! $probeProcess->isSuccessful()) {
             return [
                 'successful' => false,
                 'stream' => ['codec_name' => null, 'resolution' => null],
@@ -364,7 +363,7 @@ class RtspStreamDiagnosticsService
             ];
         }
 
-        if (!$probeProcess->isSuccessful()) {
+        if (! $probeProcess->isSuccessful()) {
             return [
                 'successful' => false,
                 'stream' => ['codec_name' => null, 'resolution' => null],
@@ -434,7 +433,7 @@ class RtspStreamDiagnosticsService
             ];
         }
 
-        if (!$previewProcess->isSuccessful() || !is_file($temporaryPreviewPath)) {
+        if (! $previewProcess->isSuccessful() || ! is_file($temporaryPreviewPath)) {
             @unlink($temporaryPreviewPath);
 
             return [
@@ -561,13 +560,13 @@ class RtspStreamDiagnosticsService
     {
         $metaPath = storage_path('app/private/motion-recorders/camera-'.(int) $camera->getKey().'.json');
 
-        if (!is_file($metaPath)) {
+        if (! is_file($metaPath)) {
             return null;
         }
 
         $decoded = json_decode((string) File::get($metaPath), true);
 
-        if (!is_array($decoded) || !array_key_exists('source_index', $decoded)) {
+        if (! is_array($decoded) || ! array_key_exists('source_index', $decoded)) {
             return null;
         }
 
@@ -580,7 +579,7 @@ class RtspStreamDiagnosticsService
         $segmentDirectory = storage_path('app/private/motion-recorders/camera-'.(int) $camera->getKey().'/segments');
         $segments = File::glob($segmentDirectory.'/*-buffer.*');
 
-        if (!is_array($segments) || $segments === []) {
+        if (! is_array($segments) || $segments === []) {
             return null;
         }
 
@@ -600,7 +599,7 @@ class RtspStreamDiagnosticsService
 
     /**
      * @param  array{mode: 'live', path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}  $definition
-    * @param  array<string, mixed>  $profile
+     * @param  array<string, mixed>  $profile
      */
     private function relayMatchesProfile(array $definition, array $profile, int $profileIndex): bool
     {
@@ -685,16 +684,16 @@ class RtspStreamDiagnosticsService
 
     private function promotePreviewCapture(string $temporaryPreviewPath, string $absolutePreviewPath): void
     {
-        if (!is_file($temporaryPreviewPath)) {
+        if (! is_file($temporaryPreviewPath)) {
             throw new RuntimeException('Connected to the stream, but snapshot capture failed.');
         }
 
-        if (!@rename($temporaryPreviewPath, $absolutePreviewPath)) {
+        if (! @rename($temporaryPreviewPath, $absolutePreviewPath)) {
             if (is_file($absolutePreviewPath)) {
                 @unlink($absolutePreviewPath);
             }
 
-            if (!@rename($temporaryPreviewPath, $absolutePreviewPath)) {
+            if (! @rename($temporaryPreviewPath, $absolutePreviewPath)) {
                 $error = error_get_last();
                 @unlink($temporaryPreviewPath);
 
@@ -712,7 +711,7 @@ class RtspStreamDiagnosticsService
     {
         $parts = parse_url($uri);
 
-        if (!is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {
+        if (! is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {
             return $uri;
         }
 
@@ -756,7 +755,7 @@ class RtspStreamDiagnosticsService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

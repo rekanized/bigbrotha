@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Cache;
 use RuntimeException;
 use Throwable;
 
-class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
+class GenerateRecordingReviewAssetsJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -47,7 +47,7 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
     {
         $recording = CameraRecording::query()->find($this->recordingId);
 
-        if (!$recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
+        if (! $recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
             $reviewAssets->clearQueued($this->recordingId);
 
             return;
@@ -55,7 +55,7 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
 
         $lock = Cache::lock('camera-recordings:review-assets:'.$recording->getKey(), $reviewAssets->lockSeconds());
 
-        if (!$lock->get()) {
+        if (! $lock->get()) {
             if ($this->attempts() >= $this->tries) {
                 $reviewAssets->recordJobFailure($recording, 'The review asset lock stayed busy through all retry attempts.');
 
@@ -113,7 +113,7 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
         $reviewAssets = app(RecordingReviewAssetService::class);
         $recording = CameraRecording::query()->find($this->recordingId);
 
-        if (!$recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
+        if (! $recording instanceof CameraRecording || $recording->status !== CameraRecording::STATUS_RECORDED || $recording->relative_path === null) {
             $reviewAssets->clearQueued($this->recordingId);
 
             return;
@@ -143,7 +143,7 @@ class GenerateRecordingReviewAssetsJob implements ShouldQueue, ShouldBeUnique
 
     private function isMissingRecordingFailure(CameraRecording $recording, Throwable $exception): bool
     {
-        if (!str_starts_with(trim($exception->getMessage()), 'The saved recording segment is not available on disk.')) {
+        if (! str_starts_with(trim($exception->getMessage()), 'The saved recording segment is not available on disk.')) {
             return false;
         }
 

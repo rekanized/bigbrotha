@@ -31,7 +31,7 @@ class MediaMtxPathStatusServiceTest extends TestCase
         config()->set('mediamtx.api.base_url', 'http://relay:9998');
         config()->set('mediamtx.api.address', ':9997');
 
-        $service = new MediaMtxPathStatusService();
+        $service = new MediaMtxPathStatusService;
 
         $this->assertSame([
             'camera-12-live' => true,

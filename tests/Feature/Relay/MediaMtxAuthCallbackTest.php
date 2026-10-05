@@ -4,8 +4,8 @@ namespace Tests\Feature\Relay;
 
 use App\Models\User;
 use App\Services\Relay\MediaMtxAccessTokenService;
-use InvalidArgumentException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use InvalidArgumentException;
 use Tests\TestCase;
 
 class MediaMtxAuthCallbackTest extends TestCase

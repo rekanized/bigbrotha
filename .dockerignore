@@ -9,12 +9,15 @@
 auth.json
 vendor
 node_modules
+tmp
 bootstrap/cache/*.php
 docs
 database/backups
 README.md
 AGENTS.md
-UI-rules.md
+.agents
+SECURITY.md
+CONTRIBUTING.md
 storage/*.key
 storage/app
 storage/framework/cache

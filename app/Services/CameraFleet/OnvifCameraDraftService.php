@@ -15,8 +15,7 @@ class OnvifCameraDraftService
     public function __construct(
         private OnvifDeviceProbeService $deviceProbeService,
         private OnvifRtspStreamService $rtspStreamService,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{
@@ -32,7 +31,7 @@ class OnvifCameraDraftService
         $probeResponse = $this->deviceProbeService->probe($serviceUrl, $username, $password, $timeoutSeconds);
         $serviceParts = parse_url($serviceUrl);
 
-        if (!is_array($serviceParts) || !isset($serviceParts['host'])) {
+        if (! is_array($serviceParts) || ! isset($serviceParts['host'])) {
             throw new RuntimeException('The ONVIF service URL could not be parsed into a reusable camera draft.');
         }
 
@@ -140,7 +139,7 @@ class OnvifCameraDraftService
         ?string $username,
         ?string $password,
     ): Camera {
-        $camera = new Camera();
+        $camera = new Camera;
         $camera->forceFill([
             'name' => 'Probe draft',
             'local_ip' => $localIp,
@@ -190,13 +189,13 @@ class OnvifCameraDraftService
 
     private function parseRtspPort(?string $uri): int
     {
-        if (!is_string($uri) || $uri === '') {
+        if (! is_string($uri) || $uri === '') {
             return 554;
         }
 
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return 554;
         }
 
@@ -205,13 +204,13 @@ class OnvifCameraDraftService
 
     private function parseRtspPath(?string $uri): ?string
     {
-        if (!is_string($uri) || $uri === '') {
+        if (! is_string($uri) || $uri === '') {
             return null;
         }
 
         $parts = parse_url($uri);
 
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return null;
         }
 
@@ -223,7 +222,7 @@ class OnvifCameraDraftService
 
     private function stringOrNull(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

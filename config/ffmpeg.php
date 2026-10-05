@@ -13,7 +13,7 @@ $defaultFfprobeBinaryCandidates = array_values(array_filter([
 $configuredFfmpegBinaryCandidates = (static function () use ($defaultFfmpegBinaryCandidates): array {
     $configured = env('FFMPEG_BINARIES');
 
-    if (!is_string($configured) || trim($configured) === '') {
+    if (! is_string($configured) || trim($configured) === '') {
         return $defaultFfmpegBinaryCandidates;
     }
 
@@ -27,7 +27,7 @@ $configuredFfmpegBinaryCandidates = (static function () use ($defaultFfmpegBinar
 $configuredFfprobeBinaryCandidates = (static function () use ($defaultFfprobeBinaryCandidates): array {
     $configured = env('FFPROBE_BINARIES');
 
-    if (!is_string($configured) || trim($configured) === '') {
+    if (! is_string($configured) || trim($configured) === '') {
         return $defaultFfprobeBinaryCandidates;
     }
 

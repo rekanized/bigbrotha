@@ -25,7 +25,7 @@ return new class extends Migration
                         $metadata = is_array($decoded) ? $decoded : [];
                     }
 
-                    if (!is_array($metadata)) {
+                    if (! is_array($metadata)) {
                         $metadata = [];
                     }
 

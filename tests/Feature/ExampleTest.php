@@ -33,7 +33,7 @@ class ExampleTest extends TestCase
 
         $this->app->instance(MediaMtxProcessService::class, $relay);
 
-        $this->actingAs($operator)->withServerVariables($server)->get('/')->assertRedirect('/camera-fleet');
+        $this->actingAs($operator)->withServerVariables($server)->get('/')->assertRedirect('/live-wall');
         $this->actingAs($operator)->withServerVariables($server)->get('/camera-fleet')->assertOk();
         $this->actingAs($operator)->withServerVariables($server)->get('/live-wall')->assertOk();
     }

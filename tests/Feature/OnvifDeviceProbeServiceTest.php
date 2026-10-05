@@ -10,6 +10,31 @@ use Tests\TestCase;
 
 class OnvifDeviceProbeServiceTest extends TestCase
 {
+    public function test_it_redacts_credentials_from_device_faults_and_excerpts(): void
+    {
+        $message = 'Rejected rtsp://operator:device-diagnostic-secret@192.0.2.44/stream?token=device-query-secret';
+
+        $payloads = ['<html>'.$message.'</html>', '<Envelope><Fault><faultstring>'.$message.'</faultstring></Fault></Envelope>'];
+        $responses = Http::fakeSequence();
+
+        foreach ($payloads as $payload) {
+            $responses->push($payload, 500);
+        }
+
+        foreach ($payloads as $index => $payload) {
+
+            try {
+                app(OnvifDeviceProbeService::class)->probe('http://192.0.2.44/onvif/device_service');
+                $this->fail('The failed camera response should be rejected.');
+            } catch (RuntimeException $exception) {
+                $this->assertStringContainsString($index === 0 ? 'Response excerpt:' : 'rejected the request:', $exception->getMessage());
+                $this->assertStringNotContainsString('device-diagnostic-secret', $exception->getMessage());
+                $this->assertStringNotContainsString('device-query-secret', $exception->getMessage());
+                $this->assertStringContainsString('rtsp://[redacted]@192.0.2.44', $exception->getMessage());
+            }
+        }
+    }
+
     public function test_it_returns_device_information_from_a_manual_probe(): void
     {
         Http::fake([
@@ -46,7 +71,7 @@ XML, 200),
                 && str_contains($request->body(), '<a:To s:mustUnderstand="1">http://192.168.1.90/onvif/device_service</a:To>')
                 && str_contains($request->body(), '<tds:GetDeviceInformation />')
                 && str_contains($request->body(), '<wsse:Username>operator</wsse:Username>')
-                && !str_contains($request->body(), 'secret');
+                && ! str_contains($request->body(), 'secret');
         });
     }
 

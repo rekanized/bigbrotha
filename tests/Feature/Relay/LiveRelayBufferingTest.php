@@ -9,7 +9,7 @@ class LiveRelayBufferingTest extends TestCase
 {
     public function test_sparse_camera_audio_does_not_hold_back_live_video_for_seconds(): void
     {
-        if (!is_executable('/usr/bin/ffmpeg')) {
+        if (! is_executable('/usr/bin/ffmpeg')) {
             $this->markTestSkipped('The Docker runtime supplies ffmpeg for this integration test.');
         }
 

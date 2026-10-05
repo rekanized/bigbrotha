@@ -9,9 +9,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureSetupIsComplete
 {
-    public function __construct(private readonly AuthenticationSettingsService $settings)
-    {
-    }
+    public function __construct(private readonly AuthenticationSettingsService $settings) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -23,7 +21,7 @@ class EnsureSetupIsComplete
 
         if ($this->settings->isSetupComplete()) {
             if ($isSetupRequest) {
-                return redirect()->route($request->user() ? 'camera-fleet.index' : 'login');
+                return redirect()->route($request->user() ? 'live-wall.index' : 'login');
             }
 
             return $next($request);

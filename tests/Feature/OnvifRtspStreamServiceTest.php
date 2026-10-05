@@ -7,11 +7,42 @@ use App\Services\Onvif\OnvifRtspStreamService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Tests\TestCase;
 
 class OnvifRtspStreamServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_it_redacts_credentials_from_media_faults_and_excerpts(): void
+    {
+        $camera = Camera::query()->create([
+            'name' => 'Diagnostic camera',
+            'local_ip' => '192.0.2.44',
+            'supports_onvif' => true,
+        ]);
+        $message = 'Rejected rtsp://operator:media-diagnostic-secret@192.0.2.44/stream?token=media-query-secret';
+
+        $payloads = ['<html>'.$message.'</html>', '<Envelope><Fault><faultstring>'.$message.'</faultstring></Fault></Envelope>'];
+        $responses = Http::fakeSequence();
+
+        foreach ($payloads as $payload) {
+            $responses->push($payload, 500);
+        }
+
+        foreach ($payloads as $index => $payload) {
+
+            try {
+                app(OnvifRtspStreamService::class)->discover($camera);
+                $this->fail('The failed camera response should be rejected.');
+            } catch (RuntimeException $exception) {
+                $this->assertStringContainsString($index === 0 ? 'Response excerpt:' : 'rejected the request:', $exception->getMessage());
+                $this->assertStringNotContainsString('media-diagnostic-secret', $exception->getMessage());
+                $this->assertStringNotContainsString('media-query-secret', $exception->getMessage());
+                $this->assertStringContainsString('rtsp://[redacted]@192.0.2.44', $exception->getMessage());
+            }
+        }
+    }
 
     public function test_it_fetches_rtsp_stream_uris_from_onvif_media_profiles(): void
     {
@@ -86,7 +117,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://192.168.1.67:554/stream1</trt:Uri>
+                <trt:Uri>rtsp://operator:camera-uri-secret@192.168.1.67:554/stream1</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>

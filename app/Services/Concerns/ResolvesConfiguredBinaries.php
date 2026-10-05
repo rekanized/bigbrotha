@@ -11,10 +11,10 @@ trait ResolvesConfiguredBinaries
      */
     protected function resolveBinary(array $candidates): ?string
     {
-        $finder = new ExecutableFinder();
+        $finder = new ExecutableFinder;
 
         foreach ($candidates as $candidate) {
-            if (!is_string($candidate)) {
+            if (! is_string($candidate)) {
                 continue;
             }
 

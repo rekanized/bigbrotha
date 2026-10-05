@@ -18,7 +18,7 @@ class MediaMtxProcessServiceTest extends TestCase
         $configService->method('buildConfig')->willReturnOnConsecutiveCalls(
             "paths: {}\n", "paths: {}\n", "paths: {camera-1-live: {}}\n",
         );
-        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+        $service = new MediaMtxProcessService(new MediaMtxInstaller, $configService);
         $this->assertTrue($service->syncConfig());
         $firstInode = fileinode($path);
         $this->assertFalse($service->syncConfig());
@@ -41,7 +41,7 @@ class MediaMtxProcessServiceTest extends TestCase
         $configService = $this->createMock(MediaMtxConfigService::class);
         $configService->expects($this->never())->method($this->anything());
 
-        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+        $service = new MediaMtxProcessService(new MediaMtxInstaller, $configService);
 
         $status = $service->status();
 
@@ -65,7 +65,7 @@ class MediaMtxProcessServiceTest extends TestCase
         $configService = $this->createMock(MediaMtxConfigService::class);
         $configService->expects($this->never())->method($this->anything());
 
-        $service = new MediaMtxProcessService(new MediaMtxInstaller(), $configService);
+        $service = new MediaMtxProcessService(new MediaMtxInstaller, $configService);
 
         $status = $service->status();
 
@@ -97,9 +97,7 @@ class MediaMtxProcessServiceTest extends TestCase
 
         $installer = new class($binaryPath) extends MediaMtxInstaller
         {
-            public function __construct(private readonly string $binaryPath)
-            {
-            }
+            public function __construct(private readonly string $binaryPath) {}
 
             public function isInstalled(): bool
             {

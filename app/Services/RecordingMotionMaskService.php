@@ -28,7 +28,7 @@ class RecordingMotionMaskService
         $width = $this->normalizedDimension(is_array($mask) ? ($mask['grid_width'] ?? null) : null, $this->defaultGridWidth());
         $height = $this->normalizedDimension(is_array($mask) ? ($mask['grid_height'] ?? null) : null, $this->defaultGridHeight());
 
-        if (!is_array($mask)) {
+        if (! is_array($mask)) {
             return $legacyArea !== null
                 ? $this->rectangleMask($legacyArea, $width, $height)
                 : $this->fullFrameMask($width, $height);
@@ -109,7 +109,7 @@ class RecordingMotionMaskService
                 continue;
             }
 
-            if (!$isSelected && $runStart !== null) {
+            if (! $isSelected && $runStart !== null) {
                 $runs[] = [$runStart, $index - 1];
                 $runStart = null;
             }
@@ -182,28 +182,24 @@ class RecordingMotionMaskService
         return $selected;
     }
 
-    /**
-     * @param  mixed  $value
-     */
     private function normalizedDimension(mixed $value, int $defaultValue): int
     {
         return max(1, min(640, is_numeric($value) ? (int) $value : $defaultValue));
     }
 
     /**
-     * @param  mixed  $runs
      * @return array<int, array{0: int, 1: int}>
      */
     private function normalizeRuns(mixed $runs, int $maxPixels): array
     {
-        if (!is_array($runs) || $maxPixels < 1) {
+        if (! is_array($runs) || $maxPixels < 1) {
             return [];
         }
 
         $normalized = [];
 
         foreach ($runs as $run) {
-            if (!is_array($run) || count($run) < 2) {
+            if (! is_array($run) || count($run) < 2) {
                 continue;
             }
 

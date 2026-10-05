@@ -16,7 +16,7 @@ class AuthenticationSettingsSeeder extends Seeder
         $manualRequested = $this->shouldSeedManualAuth();
         $googleRequested = $this->shouldSeedGoogleAuth();
 
-        if (!$manualRequested && !$googleRequested) {
+        if (! $manualRequested && ! $googleRequested) {
             return;
         }
 

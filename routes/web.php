@@ -37,7 +37,7 @@ Route::post('/logout', LogoutController::class)->middleware('auth')->name('logou
 Route::post('/relay/auth/mediamtx', MediaMtxAuthController::class)->name('relay.auth.mediamtx');
 
 Route::middleware('auth')->group(function (): void {
-    Route::redirect('/', '/camera-fleet');
+    Route::redirect('/', '/live-wall');
     Route::prefix('admin')->name('admin.')->middleware('admin')->group(function (): void {
         Route::get('/users', [AdminUsersController::class, 'index'])->name('users.index');
         Route::post('/users/allowed-emails', [AdminUsersController::class, 'storeAllowedEmail'])->name('users.allowed-emails.store');

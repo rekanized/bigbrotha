@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\CameraStorageService;
 use App\Services\RecordingMotionMaskService;
+use App\Support\CameraUrl;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -111,13 +112,13 @@ class Camera extends Model
 
     public function onvifEndpoint(): ?string
     {
-        if (!$this->supports_onvif) {
+        if (! $this->supports_onvif) {
             return null;
         }
 
         $host = $this->hostname ?: $this->local_ip;
 
-        if (!$host) {
+        if (! $host) {
             return null;
         }
 
@@ -126,13 +127,13 @@ class Camera extends Model
 
     public function rtspEndpoint(?string $path = null): ?string
     {
-        if (!$this->supports_rtsp) {
+        if (! $this->supports_rtsp) {
             return null;
         }
 
         $host = $this->hostname ?: $this->local_ip;
 
-        if (!$host) {
+        if (! $host) {
             return null;
         }
 
@@ -164,7 +165,17 @@ class Camera extends Model
     {
         $profiles = $this->metadata['rtsp_profiles'] ?? null;
 
-        return is_array($profiles) ? $profiles : [];
+        if (! is_array($profiles)) {
+            return [];
+        }
+
+        return array_map(static function (mixed $profile): mixed {
+            if (is_array($profile) && is_string($profile['uri'] ?? null)) {
+                $profile['uri'] = CameraUrl::withoutCredentials($profile['uri']);
+            }
+
+            return $profile;
+        }, $profiles);
     }
 
     /**
@@ -181,11 +192,11 @@ class Camera extends Model
         foreach ($this->rtspProfiles() as $index => $profile) {
             $previewPath = is_array($profile) ? ($profile['preview_path'] ?? null) : null;
 
-            if (!is_array($profile) || !is_string($previewPath) || $previewPath === '') {
+            if (! is_array($profile) || ! is_string($previewPath) || $previewPath === '') {
                 continue;
             }
 
-            if (!$skipRemotePreviewValidation && !$storage->hasUsablePreview($previewPath)) {
+            if (! $skipRemotePreviewValidation && ! $storage->hasUsablePreview($previewPath)) {
                 continue;
             }
 
@@ -215,7 +226,7 @@ class Camera extends Model
         }
 
         foreach ($this->rtspProfiles() as $index => $profile) {
-            if (!is_array($profile) || !is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
+            if (! is_array($profile) || ! is_string($profile['uri'] ?? null) || trim((string) $profile['uri']) === '') {
                 continue;
             }
 
@@ -288,13 +299,13 @@ class Camera extends Model
 
         $quality = strtolower(trim((string) ($settings['quality'] ?? self::LIVE_TRANSCODE_QUALITY_DEFAULT)));
 
-        if (!in_array($quality, self::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
+        if (! in_array($quality, self::LIVE_TRANSCODE_QUALITY_OPTIONS, true)) {
             $quality = self::LIVE_TRANSCODE_QUALITY_DEFAULT;
         }
 
         $rateControl = strtolower(trim((string) ($settings['rate_control'] ?? self::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT)));
 
-        if (!in_array($rateControl, self::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
+        if (! in_array($rateControl, self::LIVE_TRANSCODE_RATE_CONTROL_OPTIONS, true)) {
             $rateControl = self::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT;
         }
 
@@ -328,7 +339,7 @@ class Camera extends Model
      */
     private function legacyRecordingMotionArea(): ?array
     {
-        if (!is_array($this->recording_motion_area)) {
+        if (! is_array($this->recording_motion_area)) {
             return null;
         }
 
@@ -386,7 +397,7 @@ class Camera extends Model
 
     private function normalizedRtspPath(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

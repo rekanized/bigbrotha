@@ -15,7 +15,7 @@ class CameraFleetStreamPreviewController extends Controller
         $profile = $profiles[$profileIndex] ?? null;
         $previewPath = is_array($profile) ? ($profile['preview_path'] ?? null) : null;
 
-        if (!is_string($previewPath) || $previewPath === '') {
+        if (! is_string($previewPath) || $previewPath === '') {
             return $this->placeholderResponse();
         }
 

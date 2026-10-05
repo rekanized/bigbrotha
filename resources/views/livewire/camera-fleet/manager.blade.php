@@ -761,7 +761,7 @@
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
                             @if ($editingCameraId && $hasStoredPassword)
-                                <small class="probe-note">The saved password is loaded here. Use Show to inspect it, edit it directly, or clear it before saving.</small>
+                                <small class="probe-note">Leave blank to keep the saved password. Enter a new password to replace it.</small>
                             @endif
                         </div>
                     </div>

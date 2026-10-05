@@ -2,6 +2,7 @@
 
 namespace App\Services\Onvif;
 
+use App\Support\Logging\SensitiveDataRedactor;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -247,11 +248,13 @@ XML;
             return null;
         }
 
-        return $this->firstValue($xpath, [
+        $fault = $this->firstValue($xpath, [
             '//*[local-name()="Fault"]/*[local-name()="Reason"]/*[local-name()="Text"]',
             '//*[local-name()="Fault"]/*[local-name()="faultstring"]',
             '//*[local-name()="Reason"]/*[local-name()="Text"]',
         ]);
+
+        return $fault !== null ? SensitiveDataRedactor::message($fault) : null;
     }
 
     /**
@@ -354,7 +357,7 @@ XML;
             return null;
         }
 
-        return Str::limit($excerpt, 240);
+        return Str::limit(SensitiveDataRedactor::message($excerpt), 240);
     }
 
     private function escapeXml(string $value): string

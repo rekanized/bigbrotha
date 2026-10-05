@@ -251,7 +251,7 @@ trait Auditable
 
     protected function consumeSuppressedAuditEvent(string $event): bool
     {
-        if (!($this->suppressedAuditEvents[$event] ?? false)) {
+        if (! ($this->suppressedAuditEvents[$event] ?? false)) {
             return false;
         }
 

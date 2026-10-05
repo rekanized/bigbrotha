@@ -22,7 +22,7 @@ class MediaMtxInstaller
     {
         $binaryPath = $this->binaryPath();
 
-        if (!$this->isInstalled()) {
+        if (! $this->isInstalled()) {
             throw new RuntimeException('Configured MediaMTX binary not found or not executable at '.$binaryPath.'. Rebuild or replace the app image before starting the relay.');
         }
 

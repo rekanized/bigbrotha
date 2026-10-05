@@ -1,5 +1,5 @@
 <aside class="desktop-sidebar" aria-label="Workspace sidebar">
-    <a class="global-header__brand desktop-sidebar__brand" href="{{ route('camera-fleet.index') }}" wire:navigate aria-label="{{ config('app.name', 'Bigbrotha') }} camera fleet">
+    <a class="global-header__brand desktop-sidebar__brand" href="{{ route('live-wall.index') }}" wire:navigate aria-label="{{ config('app.name', 'Bigbrotha') }} live wall">
         <span class="global-header__mark" aria-hidden="true">
             <img src="{{ $assetBase }}/img/bigbrotha-logo.svg?v={{ filemtime(public_path('img/bigbrotha-logo.svg')) }}" width="64" height="64" alt="">
         </span>

@@ -21,14 +21,14 @@ class GoogleAuthenticationTest extends TestCase
     {
         config()->set('services.google.client_id', 'client-id');
         config()->set('services.google.client_secret', 'client-secret');
-        config()->set('services.google.redirect', 'https://monitor.schollinetz.com/auth/google/callback');
+        config()->set('services.google.redirect', 'https://cameras.example.com/auth/google/callback');
         $settings = app(AuthenticationSettingsService::class);
         $settings->saveConfiguration(true, true, [
             'client_id' => 'client-id',
             'client_secret' => 'client-secret',
-            'redirect_uri' => 'https://monitor.schollinetz.com/auth/google/callback',
+            'redirect_uri' => 'https://cameras.example.com/auth/google/callback',
         ], [
-            'fingerprint' => $settings->googleConfigurationFingerprint('client-id', 'client-secret', 'https://monitor.schollinetz.com/auth/google/callback'),
+            'fingerprint' => $settings->googleConfigurationFingerprint('client-id', 'client-secret', 'https://cameras.example.com/auth/google/callback'),
             'tested_at' => now()->toIso8601String(),
             'tested_email' => 'operator@example.com',
             'tested_google_id' => 'google-user-123',
@@ -60,7 +60,7 @@ class GoogleAuthenticationTest extends TestCase
 
         $response = $this->get(route('auth.google.callback'));
 
-        $response->assertRedirect(route('camera-fleet.index'));
+        $response->assertRedirect(route('live-wall.index'));
         $this->assertAuthenticated();
         $this->assertDatabaseHas('users', [
             'email' => 'operator@example.com',
@@ -91,7 +91,7 @@ class GoogleAuthenticationTest extends TestCase
         Socialite::shouldReceive('driver')->once()->with('google')->andReturn($provider);
 
         $this->get(route('auth.google.callback'))
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
 
         $this->assertAuthenticatedAs($user->fresh());
         $this->assertSame('google-user-123', $user->fresh()->google_id);

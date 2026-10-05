@@ -128,6 +128,6 @@ class GoogleCallbackController extends Controller
         $request->session()->put('auth_method', 'google');
         $request->session()->put('password_hash_web', $user->getAuthPassword());
 
-        return redirect()->intended(route('camera-fleet.index'));
+        return redirect()->intended(route('live-wall.index'));
     }
 }

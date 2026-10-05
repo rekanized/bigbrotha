@@ -65,7 +65,7 @@ trait InteractsWithMediaMtxApi
     {
         $apiAddress = trim((string) config('mediamtx.api.address', ''));
 
-        if (!preg_match('/:(\d+)$/', $apiAddress, $matches)) {
+        if (! preg_match('/:(\d+)$/', $apiAddress, $matches)) {
             return null;
         }
 
@@ -131,7 +131,7 @@ trait InteractsWithMediaMtxApi
 
     private function mediaMtxStreamResponse(string $url): ?string
     {
-        if (!function_exists('stream_context_create')) {
+        if (! function_exists('stream_context_create')) {
             return null;
         }
 
@@ -144,7 +144,7 @@ trait InteractsWithMediaMtxApi
 
         $response = @file_get_contents($url, false, $context);
 
-        if (!is_string($response) || !$this->mediaMtxResponseHeadersAreSuccessful($http_response_header ?? [])) {
+        if (! is_string($response) || ! $this->mediaMtxResponseHeadersAreSuccessful($http_response_header ?? [])) {
             return null;
         }
 
@@ -152,12 +152,12 @@ trait InteractsWithMediaMtxApi
     }
 
     /**
-     * @param array<int, mixed> $headers
+     * @param  array<int, mixed>  $headers
      */
     private function mediaMtxResponseHeadersAreSuccessful(array $headers): bool
     {
         foreach ($headers as $header) {
-            if (!is_string($header)) {
+            if (! is_string($header)) {
                 continue;
             }
 

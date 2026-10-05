@@ -26,7 +26,7 @@ class ManualAuthenticationTest extends TestCase
             ->set('email', 'operator@example.com')
             ->set('password', 'password')
             ->call('login')
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
 
         $this->assertAuthenticatedAs($operator->fresh());
     }

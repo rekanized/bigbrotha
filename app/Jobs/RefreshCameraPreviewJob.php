@@ -18,15 +18,13 @@ class RefreshCameraPreviewJob implements ShouldQueue
 
     public int $timeout = 45;
 
-    public function __construct(public int $cameraId)
-    {
-    }
+    public function __construct(public int $cameraId) {}
 
     public function handle(RtspStreamDiagnosticsService $diagnostics): void
     {
         $camera = Camera::query()->find($this->cameraId);
 
-        if (!$camera instanceof Camera || !$camera->supports_rtsp) {
+        if (! $camera instanceof Camera || ! $camera->supports_rtsp) {
             return;
         }
 
@@ -40,7 +38,7 @@ class RefreshCameraPreviewJob implements ShouldQueue
         $profileIndex = $target['index'];
         $profile = $profiles[$profileIndex] ?? null;
 
-        if (!is_array($profile)) {
+        if (! is_array($profile)) {
             return;
         }
 

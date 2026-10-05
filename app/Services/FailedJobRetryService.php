@@ -47,9 +47,9 @@ class FailedJobRetryService
     public function pruneTerminalFailures(?int $retentionHours = null): array
     {
         if (
-            !$this->terminalPruningEnabled()
+            ! $this->terminalPruningEnabled()
             || $this->maxAutoRetries() === 0
-            || !Schema::hasTable('failed_jobs')
+            || ! Schema::hasTable('failed_jobs')
         ) {
             return [
                 'enabled' => false,
@@ -127,7 +127,7 @@ class FailedJobRetryService
      */
     public function retryBatch(?int $limit = null): array
     {
-        if (!$this->autoRetryEnabled() || $this->maxAutoRetries() === 0 || !Schema::hasTable('failed_jobs')) {
+        if (! $this->autoRetryEnabled() || $this->maxAutoRetries() === 0 || ! Schema::hasTable('failed_jobs')) {
             return [
                 'enabled' => false,
                 'scanned' => 0,
@@ -210,7 +210,7 @@ class FailedJobRetryService
 
                 $metadata = $this->retryMetadataFromPayload((string) $failedJob->payload);
 
-                if ($automatic && !$force && $metadata['total_retries'] >= $this->maxAutoRetries()) {
+                if ($automatic && ! $force && $metadata['total_retries'] >= $this->maxAutoRetries()) {
                     return [
                         'status' => 'limit-reached',
                         'metadata' => $metadata,
@@ -247,7 +247,7 @@ class FailedJobRetryService
     {
         $decoded = json_decode($payload, true);
 
-        if (!is_array($decoded)) {
+        if (! is_array($decoded)) {
             return $payload;
         }
 

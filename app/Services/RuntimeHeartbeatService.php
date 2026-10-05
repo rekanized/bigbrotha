@@ -49,7 +49,7 @@ class RuntimeHeartbeatService
 
     public function workerPath(): string
     {
-        if (!$this->workerContainerMode()) {
+        if (! $this->workerContainerMode()) {
             return (string) config('recording.health.worker_heartbeat_path', storage_path('app/private/bootstrap/recordings-worker.heartbeat'));
         }
 
@@ -71,7 +71,7 @@ class RuntimeHeartbeatService
      */
     public function workerStatuses(): array
     {
-        if (!$this->workerContainerMode()) {
+        if (! $this->workerContainerMode()) {
             return [$this->status($this->workerPath())];
         }
 
@@ -93,7 +93,7 @@ class RuntimeHeartbeatService
     {
         clearstatcache(true, $path);
 
-        if (!is_file($path)) {
+        if (! is_file($path)) {
             return [
                 'path' => $path,
                 'exists' => false,
@@ -135,7 +135,7 @@ class RuntimeHeartbeatService
     {
         $contents = @file_get_contents($path);
 
-        if (!is_string($contents) || trim($contents) === '') {
+        if (! is_string($contents) || trim($contents) === '') {
             return null;
         }
 
@@ -145,7 +145,7 @@ class RuntimeHeartbeatService
             ? ($decoded['updated_at'] ?? null)
             : $contents;
 
-        if (!is_string($value) || trim($value) === '') {
+        if (! is_string($value) || trim($value) === '') {
             return null;
         }
 

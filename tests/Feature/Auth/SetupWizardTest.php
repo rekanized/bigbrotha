@@ -9,6 +9,8 @@ use App\Services\AuthenticationSettingsService;
 use App\Services\GoogleOAuthTestService;
 use App\Services\SetupAccessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -41,13 +43,14 @@ class SetupWizardTest extends TestCase
             ->set('adminPassword', 'super-secret-password')
             ->set('adminPasswordConfirmation', 'super-secret-password')
             ->call('save')
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
 
         $user = User::query()->where('email', 'admin@example.com')->firstOrFail();
 
         $this->assertAuthenticatedAs($user);
         $this->assertTrue($user->is_admin);
         $this->assertTrue($user->local_auth_enabled);
+        $this->assertFalse(Cookie::hasQueued(Auth::guard('web')->getRecallerName()));
         $this->assertDatabaseHas('app_settings', [
             'key' => 'auth_setup_complete',
             'value' => '1',
@@ -60,7 +63,7 @@ class SetupWizardTest extends TestCase
             ->set('email', 'admin@example.com')
             ->set('password', 'super-secret-password')
             ->call('login')
-            ->assertRedirect(route('camera-fleet.index'));
+            ->assertRedirect(route('live-wall.index'));
 
         $this->assertAuthenticatedAs($user);
     }
@@ -148,7 +151,7 @@ class SetupWizardTest extends TestCase
         $this->assertGuest();
         $this->assertDatabaseMissing('users', ['email' => 'another@example.com']);
 
-        $this->get(route('auth.google.callback'))->assertRedirect(route('camera-fleet.index'));
+        $this->get(route('auth.google.callback'))->assertRedirect(route('live-wall.index'));
 
         $admin = User::query()->where('email', 'google-admin@example.com')->firstOrFail();
         $this->assertAuthenticatedAs($admin);

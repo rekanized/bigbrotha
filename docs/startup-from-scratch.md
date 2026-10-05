@@ -4,7 +4,7 @@ Use this when you are bringing up a new BigBrotha deployment from nothing.
 
 ## Supported Runtime
 
-BigBrotha now targets a single supported runtime: Docker Compose.
+The supported runtime is Docker Compose.
 
 The default stack in [docker-compose.yml](../docker-compose.yml) runs from published Docker Hub images. Local production image builds use [docker-compose.build.yml](../docker-compose.build.yml) as an override. Development uses [docker-compose.dev.yml](../docker-compose.dev.yml) to bind mount source code.
 
@@ -48,7 +48,7 @@ The small template shows optional stack, port, and image overrides. Advanced val
 
 Application settings such as authentication and SMB storage belong in the setup/admin screens. Advanced runtime overrides can still be added to `.env.docker`; their defaults are defined in `config/*.php` and the application image. Database and relay API/RTSP ports stay private, so they need no host configuration.
 
-For this deployment, the bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and the later Google OAuth setup flow use.
+The bundled Docker defaults publish Nginx on `WEB_PORT=8082`, publish MediaMTX ICE on the configured `MEDIAMTX_ICE_PORT`, and expect `APP_URL` to stay set to the public origin that browsers and the later Google OAuth setup flow use.
 
 For multiple deployments on one host, give each stack a unique `COMPOSE_PROJECT_NAME`, `APP_URL`, `WEB_PORT`, and `MEDIAMTX_ICE_PORT`. MediaMTX signaling and API traffic stay internal to the Compose network, so they do not need separate host ports per stack.
 
@@ -95,7 +95,7 @@ For development from a checkout, build the development image and start the same 
 
 The development image includes Composer. The `app` and `background` containers mount the checkout at `/app` and share a `dev-vendor` volume for dependencies. The app runs `composer install` from the lock file at startup; after editing application code, reload the page without rebuilding or restarting. Development clears Laravel route, event, and view caches and enables PHP timestamp checks. Its Nginx file cache is disabled. The host `.env` is masked inside those containers; `.env.docker` supplies runtime settings through Compose. Use `./docker/compose.sh --dev up -d` after a normal stop, and `./docker/compose.sh --dev ps` to inspect this stack. The older `compose-dev.sh` shortcut still works.
 
-For a production release, `./publish.sh` builds and tests the image, checks that the production image contains the app and excludes local secrets, pushes a tagged copy to Docker Hub, and verifies its manifest. Run `PUSH_IMAGES=false ./publish.sh` first to exercise the local publish path without pushing. On a second server, set `BIGBROTHA_APP_IMAGE` in `.env.docker` to the published tag, then use `./docker/compose.sh pull` and `./docker/compose.sh up -d`. Transfer the server's application key and persistent volumes only when moving an existing deployment, never as image contents.
+For a production release, `./publish.sh` refreshes base images and package layers by default (`--pull --no-cache`), builds and tests the image, checks that the production image contains the app and excludes local secrets, pushes a tagged copy to Docker Hub, and verifies its manifest. Run `PUSH_IMAGES=false ./publish.sh` first to exercise the local publish path without pushing. On a second server, set `BIGBROTHA_APP_IMAGE` in `.env.docker` to the published tag, then use `./docker/compose.sh pull` and `./docker/compose.sh up -d`. Transfer the server's application key and persistent volumes only when moving an existing deployment, never as image contents.
 
 The `app` container will:
 
@@ -162,3 +162,7 @@ What you should see:
 - The bundled PostgreSQL service stays internal to the Compose network by default.
 - The relay, database, background, and Laravel services communicate through Docker DNS names such as `app`, `relay`, and `database`.
 - PostgreSQL 18's named volume is mounted at `/var/lib/postgresql`, above its version-specific `PGDATA`. Deployments that previously mounted `/var/lib/postgresql/data` must run `docker/migrate-postgres-18-volume.sh` before the database container is recreated.
+
+## Backup and recovery
+
+Follow [backup and restore](backup-and-restore.md) to capture a matching database, private storage, and encryption key, and to verify recovery in an isolated stack. Keep backups and `.env.docker` outside the public repository.

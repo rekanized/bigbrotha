@@ -8,6 +8,7 @@ use App\Services\RecordingTimelineReviewService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Livewire\Component;
 
 class TimelineReview extends Component
@@ -92,7 +93,7 @@ class TimelineReview extends Component
     /**
      * @param  array<string, int>  $summary
      * @param  array<int, array<string, mixed>>  $timelineCameraOptions
-        * @param  array<int, array<string, mixed>>  $timelineTicks
+     * @param  array<int, array<string, mixed>>  $timelineTicks
      * @param  array<int, array<string, mixed>>  $reviewTiles
      * @param  array<string, mixed>  $timelinePayload
      * @param  array<int, int>  $selectedCameraIds
@@ -189,7 +190,7 @@ class TimelineReview extends Component
      */
     private function currentSegment(?array $tile): ?array
     {
-        if (!is_array($tile) || !$this->cameraExists((int) ($tile['cameraId'] ?? 0))) {
+        if (! is_array($tile) || ! $this->cameraExists((int) ($tile['cameraId'] ?? 0))) {
             return null;
         }
 
@@ -219,7 +220,7 @@ class TimelineReview extends Component
      */
     private function providedCurrentSegment(?array $tile): ?array
     {
-        if (!$this->hasInitialCurrentSegment || !is_array($this->initialCurrentSegment) || !is_array($tile)) {
+        if (! $this->hasInitialCurrentSegment || ! is_array($this->initialCurrentSegment) || ! is_array($tile)) {
             return null;
         }
 
@@ -275,7 +276,7 @@ class TimelineReview extends Component
                 'cameraPreviewAlt' => $cameraPreviewAlt,
                 'cameraPreviewAvailable' => $cameraPreviewUrl !== null,
                 'cameraPreviewUrl' => $cameraPreviewUrl,
-                'hasFocusSegment' => !empty($tile['hasFocusSegment']),
+                'hasFocusSegment' => ! empty($tile['hasFocusSegment']),
                 'latestRecordingLabel' => $tile['latestRecordingLabel'] ?? null,
                 'previewThumbnailUrl' => $cameraPreviewUrl,
                 'previewTimeLabel' => $tile['previewTimeLabel'] ?? null,
@@ -286,7 +287,7 @@ class TimelineReview extends Component
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -335,7 +336,7 @@ class TimelineReview extends Component
      */
     private function resolvedInitialRailWindow(): array
     {
-        if (!$this->hasInitialRailWindow) {
+        if (! $this->hasInitialRailWindow) {
             return $this->initialRailWindow();
         }
 
@@ -350,7 +351,7 @@ class TimelineReview extends Component
     {
         $cameraId = is_array($tile) ? (int) ($tile['cameraId'] ?? 0) : 0;
 
-        if (!$this->cameraExists($cameraId)) {
+        if (! $this->cameraExists($cameraId)) {
             return [];
         }
 
@@ -365,14 +366,14 @@ class TimelineReview extends Component
     {
         $cameraId = is_array($tile) ? (int) ($tile['cameraId'] ?? 0) : 0;
 
-        if (!$this->hasInitialRailSegments || !$this->cameraExists($cameraId)) {
+        if (! $this->hasInitialRailSegments || ! $this->cameraExists($cameraId)) {
             return [];
         }
 
         [$normalizedStartMs, $normalizedEndMs] = $this->normalizeRailWindow($windowStartMs, $windowEndMs);
 
         return array_values(array_filter($this->initialRailSegments, static function (mixed $segment) use ($cameraId, $normalizedStartMs, $normalizedEndMs): bool {
-            if (!is_array($segment)) {
+            if (! is_array($segment)) {
                 return false;
             }
 
@@ -415,9 +416,9 @@ class TimelineReview extends Component
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, CameraRecording>
+     * @return Collection<int, CameraRecording>
      */
-    private function recordingsForCameraWindow(int $cameraId, Carbon $windowStart, Carbon $windowEnd): \Illuminate\Support\Collection
+    private function recordingsForCameraWindow(int $cameraId, Carbon $windowStart, Carbon $windowEnd): Collection
     {
         return CameraRecording::query()
             ->select($this->timelineRecordingColumns())

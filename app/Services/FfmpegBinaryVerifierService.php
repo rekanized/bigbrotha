@@ -11,7 +11,7 @@ class FfmpegBinaryVerifierService
     use ResolvesConfiguredBinaries;
 
     /**
-    * @return array{ffmpeg: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}, ffprobe: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}}
+     * @return array{ffmpeg: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}, ffprobe: array{configured: ?string, resolved: ?string, executable: bool, successful: bool, output: ?string}}
      */
     public function verify(): array
     {
@@ -84,5 +84,4 @@ class FfmpegBinaryVerifierService
 
         return null;
     }
-
 }

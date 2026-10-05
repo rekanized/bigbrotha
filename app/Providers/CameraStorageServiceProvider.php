@@ -18,7 +18,7 @@ class CameraStorageServiceProvider extends ServiceProvider
         $parseUsername = fn (string $username): array => $this->parseUsername($username);
 
         Storage::extend('smb', function ($app, array $config) use ($parseUsername): LaravelFilesystemAdapter {
-            $factory = new ServerFactory();
+            $factory = new ServerFactory;
             [$workgroup, $username] = $parseUsername((string) ($config['username'] ?? ''));
             $server = $factory->createServer(
                 (string) $config['host'],

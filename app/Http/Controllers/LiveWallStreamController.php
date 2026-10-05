@@ -31,7 +31,7 @@ class LiveWallStreamController extends Controller
 
     private function requestedProfileIndex(Request $request): ?int
     {
-        if (!$request->has('profileIndex')) {
+        if (! $request->has('profileIndex')) {
             return null;
         }
 

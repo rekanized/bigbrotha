@@ -9,7 +9,7 @@ class CameraFleetSeeder extends Seeder
 {
     public function run(): void
     {
-        if (!$this->shouldSeedFleet()) {
+        if (! $this->shouldSeedFleet()) {
             return;
         }
 

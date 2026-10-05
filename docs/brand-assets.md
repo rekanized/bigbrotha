@@ -17,5 +17,3 @@ All SVGs are self-contained geometry with accessible titles, no embedded bitmaps
 The application, login, and setup layouts include `layouts.partials.app-icons` for versioned favicon, Apple touch icon, and manifest links. Application logo images are also versioned and have explicit square dimensions. Continue using an empty image `alt` when adjacent text already names the application.
 
 `public/site.webmanifest` provides home-screen metadata and standalone display where supported. Relative start, scope, and icon URLs preserve deployments below a URL prefix. This adds no service worker or offline operation; camera access and authentication still require the running platform. The static manifest uses the BigBrotha product name.
-
-Validation: inspected SVG renderings at 16, 24, 32, 38, 48, 64, and 72 px on light and dark surfaces, plus a circular mobile mask. PNG exports and the ICO directory are checked against their declared dimensions.

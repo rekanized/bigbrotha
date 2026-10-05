@@ -11,8 +11,7 @@ class RecordingWorkerService
 {
     public function __construct(
         private readonly RuntimeHeartbeatService $heartbeats,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{
@@ -84,27 +83,27 @@ class RecordingWorkerService
         $process->setTimeout(2);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return [];
         }
 
         foreach (preg_split('/\R/', trim($process->getOutput())) as $line) {
-            if (!is_string($line) || trim($line) === '') {
+            if (! is_string($line) || trim($line) === '') {
                 continue;
             }
 
             [$pid, $args] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
             $resolvedPid = (int) ($pid ?? 0);
 
-            if ($resolvedPid < 1 || !is_string($args)) {
+            if ($resolvedPid < 1 || ! is_string($args)) {
                 continue;
             }
 
-            if (!$this->argsMatchWorker($args)) {
+            if (! $this->argsMatchWorker($args)) {
                 continue;
             }
 
-            if (!$this->cwdMatchesBasePath($resolvedPid)) {
+            if (! $this->cwdMatchesBasePath($resolvedPid)) {
                 continue;
             }
 
@@ -120,7 +119,7 @@ class RecordingWorkerService
 
     private function argsMatchWorker(string $args): bool
     {
-        if (!str_contains($args, 'artisan queue:work')) {
+        if (! str_contains($args, 'artisan queue:work')) {
             return false;
         }
 
@@ -132,13 +131,13 @@ class RecordingWorkerService
     {
         $cwdPath = '/proc/'.$pid.'/cwd';
 
-        if (!is_link($cwdPath)) {
+        if (! is_link($cwdPath)) {
             return true;
         }
 
         $cwd = @readlink($cwdPath);
 
-        if (!is_string($cwd) || $cwd === '') {
+        if (! is_string($cwd) || $cwd === '') {
             return true;
         }
 
@@ -166,7 +165,7 @@ class RecordingWorkerService
     {
         $minimumWorkers = max(1, (int) config('recording.worker.processes', 1));
 
-        if (!(bool) config('recording.worker.dynamic_enabled', false)) {
+        if (! (bool) config('recording.worker.dynamic_enabled', false)) {
             return $minimumWorkers;
         }
 
@@ -179,7 +178,7 @@ class RecordingWorkerService
 
     private function enabledRecordingCameraCount(): int
     {
-        if (!Schema::hasTable('cameras')) {
+        if (! Schema::hasTable('cameras')) {
             return 0;
         }
 
@@ -192,7 +191,7 @@ class RecordingWorkerService
 
     private function queuedWorkerJobsCount(): int
     {
-        if (!Schema::hasTable('jobs')) {
+        if (! Schema::hasTable('jobs')) {
             return 0;
         }
 

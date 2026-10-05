@@ -20,8 +20,7 @@ class RecordingContainerHealthService
         private readonly RuntimeHeartbeatService $heartbeats,
         private readonly ContinuousRecordingSegmenterService $continuousRecorders,
         private readonly MotionRecordingSegmenterService $motionRecorders,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{
@@ -34,7 +33,7 @@ class RecordingContainerHealthService
     {
         $role = strtolower(trim($role));
 
-        if (!in_array($role, ['app', 'worker', 'scheduler'], true)) {
+        if (! in_array($role, ['app', 'worker', 'scheduler'], true)) {
             throw new InvalidArgumentException('Role must be one of: app, worker, scheduler.');
         }
 
@@ -56,7 +55,7 @@ class RecordingContainerHealthService
             $checks[] = $this->checkManagedRecorderProcesses();
         }
 
-        $failed = array_values(array_filter($checks, static fn (array $check): bool => !$check['ok']));
+        $failed = array_values(array_filter($checks, static fn (array $check): bool => ! $check['ok']));
 
         return [
             'ok' => $failed === [],
@@ -191,7 +190,7 @@ class RecordingContainerHealthService
             'age_seconds' => null,
         ];
 
-        if (!($firstStatus['exists'] ?? false)) {
+        if (! ($firstStatus['exists'] ?? false)) {
             return $this->fail('worker_heartbeat', 'No shared worker heartbeat files were found under '.dirname((string) $firstStatus['path']).'.');
         }
 
@@ -232,7 +231,7 @@ class RecordingContainerHealthService
      */
     private function checkManagedRecorderProcesses(): array
     {
-        if (!Schema::hasTable('cameras')) {
+        if (! Schema::hasTable('cameras')) {
             return $this->ok('managed_recorders', 'Cameras table is not available yet; skipping managed recorder process checks.');
         }
 
@@ -245,14 +244,14 @@ class RecordingContainerHealthService
             ->orderBy('id')
             ->each(function (Camera $camera) use (&$missingCameraIds): void {
                 $running = match ($camera->recording_mode) {
-                    Camera::RECORDING_MODE_CONTINUOUS => !$this->continuousRecorders->enabled()
+                    Camera::RECORDING_MODE_CONTINUOUS => ! $this->continuousRecorders->enabled()
                         || $this->continuousRecorders->isRunning($camera),
-                    Camera::RECORDING_MODE_MOTION => !$this->motionRecorders->enabled()
+                    Camera::RECORDING_MODE_MOTION => ! $this->motionRecorders->enabled()
                         || $this->motionRecorders->isRunning($camera),
                     default => true,
                 };
 
-                if (!$running) {
+                if (! $running) {
                     $missingCameraIds[] = (int) $camera->getKey();
                 }
             });
@@ -273,11 +272,11 @@ class RecordingContainerHealthService
      */
     private function checkHeartbeat(string $name, string $label, array $status, int $maxAgeSeconds): array
     {
-        if (!$status['exists']) {
+        if (! $status['exists']) {
             return $this->fail($name, $label.' file is missing at '.$status['path'].'.');
         }
 
-        if (!is_int($status['age_seconds'])) {
+        if (! is_int($status['age_seconds'])) {
             return $this->fail($name, $label.' at '.$status['path'].' does not have a readable modification time.');
         }
 
@@ -303,7 +302,7 @@ class RecordingContainerHealthService
      */
     private function checkQueuedRecordingAge(): array
     {
-        if (!Schema::hasTable('jobs')) {
+        if (! Schema::hasTable('jobs')) {
             return $this->ok('recordings_queue_age', 'Jobs table is not available yet; skipping queued recordings age check.');
         }
 
@@ -372,7 +371,7 @@ class RecordingContainerHealthService
     {
         $rootCheck = $this->checkWritableDirectory($name, $path);
 
-        if (!$rootCheck['ok']) {
+        if (! $rootCheck['ok']) {
             return $rootCheck;
         }
 
@@ -383,14 +382,14 @@ class RecordingContainerHealthService
             );
 
             foreach ($iterator as $entry) {
-                if (!$entry->isDir() || $entry->isLink()) {
+                if (! $entry->isDir() || $entry->isLink()) {
                     continue;
                 }
 
                 $directory = $entry->getPathname();
                 clearstatcache(true, $directory);
 
-                if (!is_writable($directory)) {
+                if (! is_writable($directory)) {
                     return $this->fail($name, 'Nested recording runtime directory is not writable: '.$directory.'.');
                 }
             }

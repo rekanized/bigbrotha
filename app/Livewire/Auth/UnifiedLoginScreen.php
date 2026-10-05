@@ -74,7 +74,7 @@ class UnifiedLoginScreen extends Component
 
         RateLimiter::clear($accountKey);
 
-        return redirect()->intended(route('camera-fleet.index'));
+        return redirect()->intended(route('live-wall.index'));
     }
 
     public function render()

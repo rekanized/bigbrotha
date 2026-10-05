@@ -3,6 +3,8 @@
 namespace App\Services\Onvif;
 
 use App\Models\Camera;
+use App\Support\CameraUrl;
+use App\Support\Logging\SensitiveDataRedactor;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -81,6 +83,8 @@ class OnvifRtspStreamService
             if ($streamUri === null) {
                 continue;
             }
+
+            $streamUri = CameraUrl::withoutCredentials($streamUri);
 
             $profiles[] = array_merge($profile, [
                 'uri' => $streamUri,
@@ -316,7 +320,7 @@ XML;
             $value = trim((string) $xpath->evaluate('string('.$query.')'));
 
             if ($value !== '') {
-                return $value;
+                return SensitiveDataRedactor::message($value);
             }
         }
 
@@ -362,7 +366,7 @@ XML;
             return null;
         }
 
-        return Str::limit($excerpt, 240);
+        return Str::limit(SensitiveDataRedactor::message($excerpt), 240);
     }
 
     private function escapeXml(string $value): string

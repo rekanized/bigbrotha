@@ -14,8 +14,7 @@ class MediaMtxProcessService
     public function __construct(
         private readonly MediaMtxInstaller $installer,
         private readonly MediaMtxConfigService $configService,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{installed: bool, running: bool, api_reachable: bool, config_changed: bool, binary_path: string, config_path: string, log_path: string, pid: int|null}
@@ -33,13 +32,13 @@ class MediaMtxProcessService
         $apiReachable = $running && $this->apiReachable();
 
         if ($installed && (bool) config('mediamtx.auto_start', true)) {
-            if (($configChanged || ($running && !$apiReachable)) && $running) {
+            if (($configChanged || ($running && ! $apiReachable)) && $running) {
                 $this->stop();
                 $running = false;
                 $apiReachable = false;
             }
 
-            if (!$running) {
+            if (! $running) {
                 $this->start(syncConfig: false);
                 $running = $this->isRunning();
                 $apiReachable = $running && $this->apiReachable();
@@ -100,7 +99,7 @@ class MediaMtxProcessService
         $process->setTimeout(15);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             throw new RuntimeException('Unable to start MediaMTX: '.trim($process->getErrorOutput() ?: $process->getOutput()));
         }
 
@@ -114,7 +113,7 @@ class MediaMtxProcessService
 
         $status = $this->status(false);
 
-        if (!$status['running'] || !$status['api_reachable']) {
+        if (! $status['running'] || ! $status['api_reachable']) {
             throw new RuntimeException('MediaMTX failed to become ready. Check '.$status['log_path'].' for details.');
         }
 
@@ -218,7 +217,7 @@ class MediaMtxProcessService
 
     private function apiReachable(): bool
     {
-        if (!$this->managedExternally() && !$this->installer->isInstalled()) {
+        if (! $this->managedExternally() && ! $this->installer->isInstalled()) {
             return false;
         }
 
@@ -234,7 +233,7 @@ class MediaMtxProcessService
     {
         $pidPath = (string) config('mediamtx.pid_path');
 
-        if (!is_file($pidPath)) {
+        if (! is_file($pidPath)) {
             return null;
         }
 
@@ -273,7 +272,7 @@ class MediaMtxProcessService
 
     private function discoverRunningPid(): ?int
     {
-        if (!$this->installer->isInstalled()) {
+        if (! $this->installer->isInstalled()) {
             return null;
         }
 
@@ -283,7 +282,7 @@ class MediaMtxProcessService
         $process->setTimeout(2);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return null;
         }
 
@@ -295,7 +294,7 @@ class MediaMtxProcessService
             [$pid, $args] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
             $resolvedPid = (int) ($pid ?? 0);
 
-            if ($resolvedPid < 1 || !is_string($args)) {
+            if ($resolvedPid < 1 || ! is_string($args)) {
                 continue;
             }
 
@@ -339,7 +338,7 @@ class MediaMtxProcessService
         $process->setTimeout(2);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             return null;
         }
 
