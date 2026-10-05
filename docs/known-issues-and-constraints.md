@@ -80,13 +80,13 @@ recording tree separately when SMB is enabled. See [backup and restore](backup-a
 ## Diagnosing application health
 
 ```sh
-./docker/compose.sh ps
-./docker/compose.sh logs --tail=100 app background relay
-./docker/compose.sh exec app php artisan relay:status
-./docker/compose.sh exec app php artisan migrate:status
+docker compose ps
+docker compose logs --tail=100 app background relay
+docker compose exec app php artisan relay:status
+docker compose exec app php artisan migrate:status
 ```
 
-Use the same image mode as the running installation. Inspect the administrator job
+Use the same Compose files as the running installation. Inspect the administrator job
 queue and audit log to narrow capture, publication, and permission failures. Healthy
 services do not prove camera reachability, remote storage access, or browser ICE
 connectivity. Do not run destructive migration, seeding, pruning, or purge commands

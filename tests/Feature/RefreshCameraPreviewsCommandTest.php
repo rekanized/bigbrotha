@@ -17,7 +17,7 @@ class RefreshCameraPreviewsCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -32,7 +32,7 @@ class RefreshCameraPreviewsCommandTest extends TestCase
                     [
                         'name' => 'MainStream',
                         'token' => 'profile_main',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                         'path' => '/stream1',
                     ],
                 ],

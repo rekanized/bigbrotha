@@ -62,12 +62,12 @@ class CameraFleetManagerTest extends TestCase
             ->call('saveCamera')
             ->assertHasErrors(['probeEndpointUrl'])
             ->assertSet('isEditorModalOpen', true)
-            ->set('probeEndpointUrl', 'http://192.168.1.67:2020/onvif/device_service')
+            ->set('probeEndpointUrl', 'http://192.0.2.67:2020/onvif/device_service')
             ->set('form.username', 'operator')
             ->set('form.password', 'secret')
             ->call('probeEndpoint')
             ->assertSet('form.name', 'Tapo C200')
-            ->assertSet('form.local_ip', '192.168.1.67')
+            ->assertSet('form.local_ip', '192.0.2.67')
             ->assertSet('form.model', 'Tapo C200')
             ->assertSet('form.mac_address', 'AA:BB:CC:DD:EE:FF')
             ->assertSet('form.rtsp_path', '/stream1')
@@ -88,7 +88,7 @@ class CameraFleetManagerTest extends TestCase
         $this->assertTrue($camera->supports_rtsp);
         $this->assertSame('/stream1', $camera->rtsp_path);
         $this->assertSame('/stream1', $camera->recording_rtsp_path);
-        $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
+        $this->assertSame('http://192.0.2.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
         $this->assertSame('AA:BB:CC:DD:EE:FF', $camera->metadata['onvif']['mac_address']);
         $this->assertSame(Camera::LIVE_TRANSCODE_QUALITY_QUALITY, $camera->metadata['live_transcode']['quality']);
         $this->assertSame(Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR, $camera->metadata['live_transcode']['rate_control']);
@@ -143,7 +143,7 @@ class CameraFleetManagerTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -168,7 +168,7 @@ class CameraFleetManagerTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -191,7 +191,7 @@ class CameraFleetManagerTest extends TestCase
         <tds:GetCapabilitiesResponse>
             <tds:Capabilities>
                 <tds:Media>
-                    <tds:XAddr>http://192.168.1.67:2020/onvif/media_service</tds:XAddr>
+                    <tds:XAddr>http://192.0.2.67:2020/onvif/media_service</tds:XAddr>
                 </tds:Media>
             </tds:Capabilities>
         </tds:GetCapabilitiesResponse>
@@ -223,7 +223,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://192.168.1.67:554/stream1</trt:Uri>
+                <trt:Uri>rtsp://192.0.2.67:554/stream1</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>
@@ -243,8 +243,8 @@ XML, 200),
         $this->assertSame('/stream1', $camera->rtsp_path);
         $this->assertSame('/stream1', $camera->recording_rtsp_path);
         $this->assertCount(1, $camera->rtspProfiles());
-        $this->assertSame('rtsp://192.168.1.67:554/stream1', $camera->rtspProfiles()[0]['uri']);
-        $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
+        $this->assertSame('rtsp://192.0.2.67:554/stream1', $camera->rtspProfiles()[0]['uri']);
+        $this->assertSame('http://192.0.2.67:2020/onvif/media_service', $camera->metadata['onvif']['media_service_url']);
 
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
@@ -279,13 +279,13 @@ BASH);
         $this->assertSame(0, $camera->latestRtspPreview()['index']);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]))
             ->assertOk()
             ->assertHeader('content-type', 'image/png');
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
@@ -295,7 +295,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Back Door',
-            'local_ip' => '192.168.1.88',
+            'local_ip' => '192.0.2.88',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -311,7 +311,7 @@ BASH);
                     [
                         'name' => 'MainStream',
                         'token' => 'profile_main',
-                        'uri' => 'rtsp://192.168.1.88:554/stream1',
+                        'uri' => 'rtsp://192.0.2.88:554/stream1',
                         'path' => '/stream1',
                     ],
                 ],
@@ -334,7 +334,7 @@ for arg in "$@"; do
 done
 
 if [[ "$transport" == "udp" ]]; then
-    echo 'rtsp://operator:secret@192.168.1.88:554/stream1: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.88:554/stream1: Operation not permitted' >&2
     exit 1
 fi
 
@@ -370,7 +370,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Hallway',
-            'local_ip' => '192.168.1.71',
+            'local_ip' => '192.0.2.71',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -387,7 +387,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.71:554/stream2',
+                        'uri' => 'rtsp://192.0.2.71:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -407,7 +407,7 @@ if [[ "$joined" == *"camera-1-live"* ]]; then
     exit 0
 fi
 
-echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+echo 'rtsp://operator:secret@192.0.2.71:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -418,7 +418,7 @@ BASH);
 joined="$*"
 
 if [[ "$joined" != *"camera-1-live"* ]]; then
-    echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.71:554/stream2: Operation not permitted' >&2
     exit 1
 fi
 
@@ -461,13 +461,13 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Patio',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
             'onvif_path' => '/onvif/device_service',
-            'username' => 'rekanized',
-            'password' => 'master17',
+            'username' => 'test-operator',
+            'password' => 'test-camera-password',
             'rtsp_path' => '/stream2',
             'rtsp_transport' => 'tcp',
             'supports_onvif' => true,
@@ -478,7 +478,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'uri' => 'rtsp://192.0.2.69:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -498,7 +498,7 @@ if [[ "$joined" == *"camera-1-live"* ]] || [[ "$joined" == *"camera-1-source-pro
     exit 1
 fi
 
-echo 'rtsp://rekanized:master17@192.168.1.69:554/stream2: Operation not permitted' >&2
+echo 'rtsp://test-operator:test-camera-password@192.0.2.69:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -530,10 +530,10 @@ BASH);
 
         $this->assertSame('Failed', $camera->rtspProfiles()[0]['probe_status']);
         $this->assertSame(
-            'TCP transport failed: rtsp://192.168.1.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
+            'TCP transport failed: rtsp://192.0.2.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
             $camera->rtspProfiles()[0]['probe_message'],
         );
-        $this->assertStringNotContainsString('master17', $camera->rtspProfiles()[0]['probe_message']);
+        $this->assertStringNotContainsString('test-camera-password', $camera->rtspProfiles()[0]['probe_message']);
         $this->assertStringNotContainsString('signal "11"', $camera->rtspProfiles()[0]['probe_message']);
     }
 
@@ -545,7 +545,7 @@ BASH);
             ->assertSet('form.supports_onvif', false)
             ->assertSet('form.supports_rtsp', true)
             ->set('form.name', 'RTSP Only Camera')
-            ->set('form.local_ip', '192.168.1.88')
+            ->set('form.local_ip', '192.0.2.88')
             ->set('form.rtsp_port', 554)
             ->set('form.rtsp_path', '/manual-stream')
             ->set('form.username', 'operator')
@@ -558,7 +558,7 @@ BASH);
         $this->assertSame('RTSP Only Camera', $camera->name);
         $this->assertFalse($camera->supports_onvif);
         $this->assertTrue($camera->supports_rtsp);
-        $this->assertSame('rtsp://192.168.1.88:554/manual-stream', $camera->rtspEndpoint());
+        $this->assertSame('rtsp://192.0.2.88:554/manual-stream', $camera->rtspEndpoint());
         $this->assertSame('/manual-stream', $camera->recording_rtsp_path);
         $this->assertSame('operator', $camera->username);
     }
@@ -567,7 +567,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'RTSP Only Camera',
-            'local_ip' => '192.168.1.88',
+            'local_ip' => '192.0.2.88',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -582,7 +582,7 @@ BASH);
 
         $this->assertFalse($camera->supports_onvif);
         $this->assertTrue($camera->supports_rtsp);
-        $this->assertSame('rtsp://192.168.1.88:554/manual-stream', $camera->rtspEndpoint());
+        $this->assertSame('rtsp://192.0.2.88:554/manual-stream', $camera->rtspEndpoint());
 
         $binaryDirectory = storage_path('app/private/test-binaries');
         File::ensureDirectoryExists($binaryDirectory);
@@ -617,7 +617,7 @@ BASH);
 
         $this->assertCount(1, $camera->rtspProfiles());
         $this->assertSame('Saved endpoint', $camera->rtspProfiles()[0]['name']);
-        $this->assertSame('rtsp://192.168.1.88:554/manual-stream', $camera->rtspProfiles()[0]['uri']);
+        $this->assertSame('rtsp://192.0.2.88:554/manual-stream', $camera->rtspProfiles()[0]['uri']);
         $this->assertSame('/manual-stream', $camera->rtspProfiles()[0]['path']);
         $this->assertSame('Healthy', $camera->rtspProfiles()[0]['probe_status']);
     }
@@ -626,7 +626,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Warehouse Entrance',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -665,7 +665,7 @@ BASH);
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Entrance',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -718,7 +718,7 @@ BASH);
 
         $camera = Camera::query()->create([
             'name' => 'Parking Lot',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -790,7 +790,7 @@ XML, 200),
                     <tt:Enabled>true</tt:Enabled>
                     <tt:Config>
                         <tt:Manual>
-                            <tt:Address>192.168.1.67</tt:Address>
+                            <tt:Address>192.0.2.67</tt:Address>
                             <tt:PrefixLength>24</tt:PrefixLength>
                         </tt:Manual>
                     </tt:Config>
@@ -807,7 +807,7 @@ XML, 200),
         <tds:GetCapabilitiesResponse>
             <tds:Capabilities>
                 <tds:Media>
-                    <tds:XAddr>http://192.168.1.67:2020/onvif/media_service</tds:XAddr>
+                    <tds:XAddr>http://192.0.2.67:2020/onvif/media_service</tds:XAddr>
                 </tds:Media>
             </tds:Capabilities>
         </tds:GetCapabilitiesResponse>
@@ -839,7 +839,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://192.168.1.67:554/stream1</trt:Uri>
+                <trt:Uri>rtsp://192.0.2.67:554/stream1</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>
@@ -856,7 +856,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Entrance',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'rtsp_port' => 554,
             'rtsp_path' => '/record-stream',
             'supports_onvif' => false,
@@ -866,7 +866,7 @@ XML, 200),
                 'rtsp_profiles' => [
                     [
                         'name' => 'Main stream',
-                        'uri' => 'rtsp://192.168.1.90:554/record-stream',
+                        'uri' => 'rtsp://192.0.2.90:554/record-stream',
                     ],
                 ],
             ],
@@ -896,7 +896,7 @@ XML, 200),
         });
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id, 'profileIndex' => 0]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
@@ -920,7 +920,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Kids Bedroom',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -938,7 +938,7 @@ XML, 200),
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                         'path' => '/stream1',
                     ],
                     [
@@ -946,7 +946,7 @@ XML, 200),
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -969,7 +969,7 @@ XML, 200),
         });
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
@@ -987,7 +987,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1006,7 +1006,7 @@ XML, 200),
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.66:554/stream1',
+                        'uri' => 'rtsp://192.0.2.66:554/stream1',
                         'path' => '/stream1',
                     ],
                     [
@@ -1014,7 +1014,7 @@ XML, 200),
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -1054,7 +1054,7 @@ XML, 200),
         });
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
@@ -1071,7 +1071,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1090,7 +1090,7 @@ XML, 200),
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.66:554/stream1',
+                        'uri' => 'rtsp://192.0.2.66:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Failed',
                     ],
@@ -1099,7 +1099,7 @@ XML, 200),
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Healthy',
                         'probe_source' => 'motion-buffer',
@@ -1125,7 +1125,7 @@ XML, 200),
         });
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
@@ -1149,7 +1149,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Tapo C200',
-            'local_ip' => '192.168.1.72',
+            'local_ip' => '192.0.2.72',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1168,7 +1168,7 @@ XML, 200),
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.72:554/stream1',
+                        'uri' => 'rtsp://192.0.2.72:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Failed',
                     ],
@@ -1177,7 +1177,7 @@ XML, 200),
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.72:554/stream2',
+                        'uri' => 'rtsp://192.0.2.72:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Healthy',
                         'probe_source' => 'relay',
@@ -1203,7 +1203,7 @@ XML, 200),
         });
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('camera-fleet.motion-editor-session', ['camera' => $camera->id]))
             ->assertOk()
             ->assertJsonPath('camera.id', $camera->id)
@@ -1224,7 +1224,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1249,7 +1249,7 @@ XML, 200),
         File::put($previewPath, 'preview');
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1262,7 +1262,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1295,7 +1295,7 @@ XML, 200),
         app()->instance(CameraStorageService::class, $storage);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1308,7 +1308,7 @@ XML, 200),
 
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1342,7 +1342,7 @@ XML, 200),
         app()->instance(CameraStorageService::class, $storage);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertSee(route('camera-fleet.preview', ['camera' => $camera->id, 'profileIndex' => 0]), false);
@@ -1352,7 +1352,7 @@ XML, 200),
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 80,
             'onvif_port' => 80,
             'rtsp_port' => 554,
@@ -1378,7 +1378,7 @@ XML, 200),
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -1393,7 +1393,7 @@ XML, 200),
                     [
                         'name' => 'MainStream',
                         'token' => 'profile_main',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                         'path' => '/stream1',
                         'preview_path' => null,
                         'preview_generated_at' => '2026-04-03 08:20:00 UTC',
@@ -1418,7 +1418,7 @@ XML, 200),
         <tds:GetCapabilitiesResponse>
             <tds:Capabilities>
                 <tds:Media>
-                    <tds:XAddr>http://192.168.1.67:2020/onvif/media_service</tds:XAddr>
+                    <tds:XAddr>http://192.0.2.67:2020/onvif/media_service</tds:XAddr>
                 </tds:Media>
             </tds:Capabilities>
         </tds:GetCapabilitiesResponse>
@@ -1450,7 +1450,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://192.168.1.67:554/stream1</trt:Uri>
+                <trt:Uri>rtsp://192.0.2.67:554/stream1</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>

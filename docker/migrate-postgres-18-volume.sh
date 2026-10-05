@@ -3,7 +3,11 @@
 set -eu
 
 DEPLOY_DIR="${BIGBROTHA_DEPLOY_DIR:-$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)}"
-ENV_FILE="${BIGBROTHA_DOCKER_ENV_FILE:-$DEPLOY_DIR/.env.docker}"
+DEFAULT_ENV_FILE="$DEPLOY_DIR/.env"
+if [ ! -f "$DEFAULT_ENV_FILE" ] && [ -f "$DEPLOY_DIR/.env.docker" ]; then
+    DEFAULT_ENV_FILE="$DEPLOY_DIR/.env.docker"
+fi
+ENV_FILE="${BIGBROTHA_DOCKER_ENV_FILE:-$DEFAULT_ENV_FILE}"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 STATE_DIR="$DEPLOY_DIR/.docker-state"
 
@@ -24,9 +28,6 @@ if ! grep -Eq '^[[:space:]]*-[[:space:]]+db-data:/var/lib/postgresql[[:space:]]*
     fail "The deployment Compose file must mount db-data at /var/lib/postgresql before migration."
 fi
 
-mkdir -p "$STATE_DIR"
-chmod 700 "$STATE_DIR"
-
 export BIGBROTHA_DOCKER_ENV_FILE="$ENV_FILE"
 
 compose() {
@@ -43,13 +44,16 @@ database_container="$(compose ps -q database)"
 source_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}' "$database_container")"
 target_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' "$database_container")"
 
-if [ -z "$source_volume" ]; then
+if [ -z "$source_volume" ] || [ -z "$target_volume" ]; then
     echo "The database container is not using the affected PostgreSQL 18 anonymous parent volume; no migration is needed."
     exit 0
 fi
 
 [ -n "$target_volume" ] || fail "Unable to identify the existing db-data volume from the running database container."
 [ "$source_volume" != "$target_volume" ] || fail "Source and target database volumes unexpectedly resolve to the same volume."
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
 
 docker run --rm \
     -v "$source_volume:/source:ro" \

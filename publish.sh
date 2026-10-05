@@ -72,14 +72,10 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 docker compose version >/dev/null
-APP_URL=https://validation.invalid \
-DB_PASSWORD=validation-only-not-for-runtime \
-BIGBROTHA_DOCKER_ENV_FILE=.env.docker.example \
-    docker compose \
-        --env-file .env.docker.example \
-        -f docker-compose.yml \
-        -f docker-compose.build.yml \
-        config --quiet
+for script in publish.sh docker/*.sh tests/Docker/*.sh; do
+    sh -n "$script"
+done
+sh tests/Docker/compose.test.sh
 
 echo "Building and running the release test image..."
 # BUILD_FLAGS intentionally supports multiple Docker CLI flags.
@@ -88,7 +84,8 @@ docker build $BUILD_FLAGS \
     --target test \
     -t "$TEST_IMAGE" \
     .
-timeout --foreground "$TEST_TIMEOUT_SECONDS" docker run --rm --stop-timeout 10 "$TEST_IMAGE"
+timeout --foreground "$TEST_TIMEOUT_SECONDS" docker run --rm --network none --stop-timeout 10 "$TEST_IMAGE"
+docker run --rm --network none "$TEST_IMAGE" vendor/bin/pint --test
 
 echo "Building the BigBrotha release image for $USERNAME with immutable tag $IMAGE_TAG..."
 

@@ -48,7 +48,7 @@ class OnvifRtspStreamServiceTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Tapo C200',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -71,7 +71,7 @@ class OnvifRtspStreamServiceTest extends TestCase
         <tds:GetCapabilitiesResponse>
             <tds:Capabilities>
                 <tds:Media>
-                    <tds:XAddr>http://192.168.1.67:2020/onvif/media_service</tds:XAddr>
+                    <tds:XAddr>http://192.0.2.67:2020/onvif/media_service</tds:XAddr>
                 </tds:Media>
             </tds:Capabilities>
         </tds:GetCapabilitiesResponse>
@@ -117,7 +117,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://operator:camera-uri-secret@192.168.1.67:554/stream1</trt:Uri>
+                <trt:Uri>rtsp://operator:camera-uri-secret@192.0.2.67:554/stream1</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>
@@ -129,7 +129,7 @@ XML, 200),
     <s:Body>
         <trt:GetStreamUriResponse>
             <trt:MediaUri>
-                <trt:Uri>rtsp://192.168.1.67:554/stream2</trt:Uri>
+                <trt:Uri>rtsp://192.0.2.67:554/stream2</trt:Uri>
             </trt:MediaUri>
         </trt:GetStreamUriResponse>
     </s:Body>
@@ -141,12 +141,12 @@ XML, 200),
 
         $result = app(OnvifRtspStreamService::class)->discover($camera);
 
-        $this->assertSame('http://192.168.1.67:2020/onvif/media_service', $result['media_service_url']);
+        $this->assertSame('http://192.0.2.67:2020/onvif/media_service', $result['media_service_url']);
         $this->assertCount(2, $result['profiles']);
         $this->assertSame('MainStream', $result['profiles'][0]['name']);
         $this->assertSame('H264', $result['profiles'][0]['encoding']);
         $this->assertSame('1920x1080', $result['profiles'][0]['resolution']);
-        $this->assertSame('rtsp://192.168.1.67:554/stream1', $result['profiles'][0]['uri']);
+        $this->assertSame('rtsp://192.0.2.67:554/stream1', $result['profiles'][0]['uri']);
         $this->assertSame('/stream1', $result['profiles'][0]['path']);
 
         Http::assertSentCount(4);

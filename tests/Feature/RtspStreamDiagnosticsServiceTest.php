@@ -17,7 +17,7 @@ class RtspStreamDiagnosticsServiceTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -53,7 +53,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MainStream',
             'token' => 'profile_main',
-            'uri' => 'rtsp://192.168.1.67:554/stream1',
+            'uri' => 'rtsp://192.0.2.67:554/stream1',
         ], 0);
 
         $this->assertSame('Healthy', $profile['probe_status']);
@@ -69,7 +69,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Side Gate',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -111,7 +111,7 @@ BASH);
 
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'Saved endpoint',
-            'uri' => 'rtsp://192.168.1.68:554/stream1',
+            'uri' => 'rtsp://192.0.2.68:554/stream1',
             'preview_path' => $previewPath,
         ], 0);
 
@@ -127,7 +127,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Warehouse',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -156,7 +156,7 @@ for arg in "$@"; do
 done
 
 if [[ "$transport" == "udp" ]]; then
-    echo 'rtsp://operator:secret@192.168.1.69:554/stream1: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.69:554/stream1: Operation not permitted' >&2
     exit 1
 fi
 
@@ -178,7 +178,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MainStream',
             'token' => 'profile_main',
-            'uri' => 'rtsp://192.168.1.69:554/stream1',
+            'uri' => 'rtsp://192.0.2.69:554/stream1',
         ], 0);
 
         $this->assertSame('Healthy', $profile['probe_status']);
@@ -194,7 +194,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Hallway',
-            'local_ip' => '192.168.1.71',
+            'local_ip' => '192.0.2.71',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -211,7 +211,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.71:554/stream2',
+                        'uri' => 'rtsp://192.0.2.71:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H265',
@@ -234,7 +234,7 @@ if [[ "$joined" == *"camera-1-live"* ]]; then
     exit 0
 fi
 
-echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+echo 'rtsp://operator:secret@192.0.2.71:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -245,7 +245,7 @@ BASH);
 joined="$*"
 
 if [[ "$joined" != *"camera-1-live"* ]]; then
-    echo 'rtsp://operator:secret@192.168.1.71:554/stream2: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.71:554/stream2: Operation not permitted' >&2
     exit 1
 fi
 
@@ -274,7 +274,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MinorStream',
             'token' => 'profile_minor',
-            'uri' => 'rtsp://192.168.1.71:554/stream2',
+            'uri' => 'rtsp://192.0.2.71:554/stream2',
             'resolution' => '1280x720',
             'encoding' => 'H265',
             'video_has_b_frames' => 2,
@@ -297,7 +297,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Kids Room',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -315,7 +315,7 @@ BASH);
                     [
                         'name' => 'MainStream',
                         'token' => 'profile_main',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                         'path' => '/stream1',
                         'resolution' => '1920x1080',
                         'encoding' => 'H264',
@@ -323,7 +323,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
@@ -345,7 +345,7 @@ if [[ "$joined" == *"camera-1-source-profile-1"* ]]; then
     exit 0
 fi
 
-echo 'rtsp://operator:secret@192.168.1.67:554/stream2: Operation not permitted' >&2
+echo 'rtsp://operator:secret@192.0.2.67:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -356,7 +356,7 @@ BASH);
 joined="$*"
 
 if [[ "$joined" != *"camera-1-source-profile-1"* ]]; then
-    echo 'rtsp://operator:secret@192.168.1.67:554/stream2: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.67:554/stream2: Operation not permitted' >&2
     exit 1
 fi
 
@@ -390,7 +390,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MinorStream',
             'token' => 'profile_minor',
-            'uri' => 'rtsp://192.168.1.67:554/stream2',
+            'uri' => 'rtsp://192.0.2.67:554/stream2',
             'resolution' => '1280x720',
             'encoding' => 'H264',
         ], 1);
@@ -410,7 +410,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -426,7 +426,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
@@ -448,7 +448,7 @@ if [[ "$joined" == *"motion-recorders/camera-1/segments"* ]]; then
     exit 0
 fi
 
-echo 'rtsp://operator:secret@192.168.1.66:554/stream2: Operation not permitted' >&2
+echo 'rtsp://operator:secret@192.0.2.66:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -459,7 +459,7 @@ BASH);
 joined="$*"
 
 if [[ "$joined" != *"motion-recorders/camera-1/segments"* ]]; then
-    echo 'rtsp://operator:secret@192.168.1.66:554/stream2: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.66:554/stream2: Operation not permitted' >&2
     exit 1
 fi
 
@@ -486,7 +486,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MinorStream',
             'token' => 'profile_minor',
-            'uri' => 'rtsp://192.168.1.66:554/stream2',
+            'uri' => 'rtsp://192.0.2.66:554/stream2',
             'path' => '/stream2',
             'resolution' => '1280x720',
             'encoding' => 'H264',
@@ -507,7 +507,7 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Nursery',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -524,7 +524,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
@@ -546,7 +546,7 @@ if [[ "$joined" == *"camera-1-live"* ]]; then
     exit 0
 fi
 
-echo 'rtsp://operator:secret@192.168.1.67:554/stream2: Operation not permitted' >&2
+echo 'rtsp://operator:secret@192.0.2.67:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -557,7 +557,7 @@ BASH);
 joined="$*"
 
 if [[ "$joined" != *"camera-1-live"* ]]; then
-    echo 'rtsp://operator:secret@192.168.1.67:554/stream2: Operation not permitted' >&2
+    echo 'rtsp://operator:secret@192.0.2.67:554/stream2: Operation not permitted' >&2
     exit 1
 fi
 
@@ -573,7 +573,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MinorStream',
             'token' => 'profile_minor',
-            'uri' => 'rtsp://192.168.1.67:554/stream2',
+            'uri' => 'rtsp://192.0.2.67:554/stream2',
             'resolution' => '1280x720',
             'encoding' => 'H264',
         ], 0);
@@ -588,13 +588,13 @@ BASH);
     {
         $camera = Camera::query()->create([
             'name' => 'Patio',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
             'onvif_path' => '/onvif/device_service',
-            'username' => 'rekanized',
-            'password' => 'master17',
+            'username' => 'test-operator',
+            'password' => 'test-camera-password',
             'rtsp_path' => '/stream2',
             'rtsp_transport' => 'tcp',
             'supports_onvif' => true,
@@ -605,7 +605,7 @@ BASH);
                     [
                         'name' => 'MinorStream',
                         'token' => 'profile_minor',
-                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'uri' => 'rtsp://192.0.2.69:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'encoding' => 'H264',
@@ -627,7 +627,7 @@ if [[ "$joined" == *"camera-1-live"* ]] || [[ "$joined" == *"camera-1-source-pro
     exit 1
 fi
 
-echo 'rtsp://rekanized:master17@192.168.1.69:554/stream2: Operation not permitted' >&2
+echo 'rtsp://test-operator:test-camera-password@192.0.2.69:554/stream2: Operation not permitted' >&2
 exit 1
 BASH);
         chmod($ffprobeBinary, 0755);
@@ -653,7 +653,7 @@ BASH);
         $profile = app(RtspStreamDiagnosticsService::class)->testAndPreview($camera, [
             'name' => 'MinorStream',
             'token' => 'profile_minor',
-            'uri' => 'rtsp://192.168.1.69:554/stream2',
+            'uri' => 'rtsp://192.0.2.69:554/stream2',
             'path' => '/stream2',
             'resolution' => '1280x720',
             'encoding' => 'H264',
@@ -661,10 +661,10 @@ BASH);
 
         $this->assertSame('Failed', $profile['probe_status']);
         $this->assertSame(
-            'TCP transport failed: rtsp://192.168.1.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
+            'TCP transport failed: rtsp://192.0.2.69:554/stream2: Operation not permitted No alternate internal fallback path was available either. The camera refused playback after RTSP setup. Check stream permissions and active session limits.',
             $profile['probe_message'],
         );
-        $this->assertStringNotContainsString('master17', $profile['probe_message']);
+        $this->assertStringNotContainsString('test-camera-password', $profile['probe_message']);
         $this->assertStringNotContainsString('signal "11"', $profile['probe_message']);
     }
 }

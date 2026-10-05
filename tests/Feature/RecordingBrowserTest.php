@@ -35,7 +35,7 @@ class RecordingBrowserTest extends TestCase
 
         $frontDoor = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -47,7 +47,7 @@ class RecordingBrowserTest extends TestCase
 
         $garage = Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -82,7 +82,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.index', [
                 'search' => 'Garage',
                 'status' => 'failed',
@@ -103,7 +103,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -126,7 +126,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.index'))
             ->assertOk()
             ->assertSee('Filter by camera, status, capture mode, or recording date in Europe/Amsterdam')
@@ -139,7 +139,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'South Lot',
-            'local_ip' => '192.168.1.181',
+            'local_ip' => '192.0.2.181',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,
@@ -164,14 +164,14 @@ class RecordingBrowserTest extends TestCase
         Artisan::call('camera-recordings:prune');
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.index'))
             ->assertOk()
             ->assertSee('No recording segments matched the current filters.')
             ->assertDontSee(route('recordings.show', ['recording' => $recording]), false);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.index', ['status' => CameraRecording::STATUS_FAILED]))
             ->assertOk()
             ->assertSee('South Lot')
@@ -186,7 +186,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard',
-            'local_ip' => '192.168.1.173',
+            'local_ip' => '192.0.2.173',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -211,7 +211,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($recording);
 
         $response = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -240,7 +240,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard',
-            'local_ip' => '192.168.1.173',
+            'local_ip' => '192.0.2.173',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -283,7 +283,7 @@ class RecordingBrowserTest extends TestCase
         $windowEndMs = now()->utc()->setDate(2026, 4, 4)->setTime(19, 0, 0)->valueOf();
 
         $response = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('recordings.timeline.rail-data', [
                 'camera' => $camera,
                 'day_start_ms' => $dayStartMs,
@@ -310,7 +310,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard',
-            'local_ip' => '192.168.1.173',
+            'local_ip' => '192.0.2.173',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -335,7 +335,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($recording);
 
         $response = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -365,7 +365,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Yard',
-            'local_ip' => '192.168.1.174',
+            'local_ip' => '192.0.2.174',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -390,7 +390,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment(CameraRecording::query()->latest('id')->firstOrFail());
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]))
             ->assertOk()
             ->assertSee('data-tick-kind="secondary"', false)
@@ -404,7 +404,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Missing File Camera',
-            'local_ip' => '192.168.1.190',
+            'local_ip' => '192.0.2.190',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -427,7 +427,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]))
             ->assertOk()
             ->assertSee('No recorded segment at the selected time.')
@@ -443,7 +443,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Yard',
-            'local_ip' => '192.168.1.174',
+            'local_ip' => '192.0.2.174',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -482,7 +482,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($latestRecording);
 
         $defaultResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', ['camera_ids' => [$camera->id]]));
 
         $defaultResponse
@@ -493,7 +493,7 @@ class RecordingBrowserTest extends TestCase
             ->assertDontSee('data-recording-id="'.$olderRecording->id.'"', false);
 
         $customSpanResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-03',
@@ -516,7 +516,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Entrance',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -547,14 +547,14 @@ class RecordingBrowserTest extends TestCase
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakePlaybackFfmpegBinary()]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.show', ['recording' => $recording]))
             ->assertOk()
             ->assertSee(route('recordings.stream', ['recording' => $recording]), false)
             ->assertSee('Recorded successfully.');
 
         $streamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.stream', ['recording' => $recording]));
 
         $streamResponse
@@ -564,7 +564,7 @@ class RecordingBrowserTest extends TestCase
         $this->assertSame('playback-stream', $streamResponse->streamedContent());
 
         $reviewStreamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.review-stream', ['recording' => $recording]));
 
         $reviewStreamResponse
@@ -584,7 +584,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Bay',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -624,14 +624,14 @@ class RecordingBrowserTest extends TestCase
         $this->assertFileDoesNotExist(storage_path('app/private/cameras/'.$camera->id.'/recordings/2026/04/03/warehouse-bay.mkv'));
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.show', ['recording' => $recording]))
             ->assertOk()
             ->assertSee(route('recordings.stream', ['recording' => $recording]), false)
             ->assertDontSee('ffmpeg is not available for playback remuxing.');
 
         $streamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.stream', ['recording' => $recording]));
 
         $streamResponse
@@ -642,7 +642,7 @@ class RecordingBrowserTest extends TestCase
         $this->assertSame('playback-stream', file_get_contents($streamResponse->baseResponse->getFile()->getPathname()));
 
         $reviewStreamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.review-stream', ['recording' => $recording]));
 
         $reviewStreamResponse
@@ -657,7 +657,7 @@ class RecordingBrowserTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Warehouse Bay',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -717,7 +717,7 @@ class RecordingBrowserTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Timestamp Audit Camera',
-            'local_ip' => '192.168.1.92',
+            'local_ip' => '192.0.2.92',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,
@@ -801,7 +801,7 @@ class RecordingBrowserTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -816,7 +816,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -857,7 +857,7 @@ class RecordingBrowserTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -872,7 +872,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -928,7 +928,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Gate',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -960,7 +960,7 @@ class RecordingBrowserTest extends TestCase
 
         try {
             $reviewStreamResponse = $this->actingAs($operator)
-                ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+                ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
                 ->get(route('recordings.review-stream', ['recording' => $recording]));
 
             $reviewStreamResponse
@@ -984,7 +984,7 @@ class RecordingBrowserTest extends TestCase
 
         $frontDoor = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -996,7 +996,7 @@ class RecordingBrowserTest extends TestCase
 
         $garage = Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1063,7 +1063,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($garageRecording);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$frontDoor->id, $garage->id],
                 'date_from' => '2026-04-03',
@@ -1099,7 +1099,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Loading Dock',
-            'local_ip' => '192.168.1.99',
+            'local_ip' => '192.0.2.99',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1124,7 +1124,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($recording);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1141,7 +1141,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
+            'local_ip' => '192.0.2.100',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1179,7 +1179,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1193,7 +1193,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
+            'local_ip' => '192.0.2.100',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1248,7 +1248,7 @@ class RecordingBrowserTest extends TestCase
         app()->instance(CameraStorageService::class, $networkStorage);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1265,7 +1265,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
+            'local_ip' => '192.0.2.100',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1299,7 +1299,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-thumbnail', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1316,7 +1316,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
+            'local_ip' => '192.0.2.100',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1352,7 +1352,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-sprite', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/jpeg');
@@ -1366,7 +1366,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.100',
+            'local_ip' => '192.0.2.100',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1431,7 +1431,7 @@ class RecordingBrowserTest extends TestCase
         app()->instance(CameraStorageService::class, $networkStorage);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.preview-sprite', ['recording' => $recording]))
             ->assertOk()
             ->assertHeader('content-type', 'image/svg+xml; charset=UTF-8')
@@ -1448,7 +1448,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Hallway 2nd floor',
-            'local_ip' => '192.168.1.72',
+            'local_ip' => '192.0.2.72',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1473,7 +1473,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($recording);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-03',
@@ -1492,7 +1492,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.122',
+            'local_ip' => '192.0.2.122',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1531,7 +1531,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($secondRecording);
 
         $response = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -1554,7 +1554,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Warehouse Aisle',
-            'local_ip' => '192.168.1.175',
+            'local_ip' => '192.0.2.175',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1592,7 +1592,7 @@ class RecordingBrowserTest extends TestCase
         $this->writeRecordedSegment($laterRecording);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -1611,7 +1611,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Receiving Bay',
-            'local_ip' => '192.168.1.176',
+            'local_ip' => '192.0.2.176',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1653,7 +1653,7 @@ class RecordingBrowserTest extends TestCase
         $focusMs = Carbon::create(2026, 4, 5, 8, 1, 0, 'UTC')->valueOf();
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->getJson(route('recordings.timeline.stage-data', ['camera' => $camera]).'?'.http_build_query([
                 'day_start_ms' => $dayStartMs,
                 'day_end_ms' => $dayEndMs,
@@ -1673,7 +1673,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard',
-            'local_ip' => '192.168.1.173',
+            'local_ip' => '192.0.2.173',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1711,7 +1711,7 @@ class RecordingBrowserTest extends TestCase
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -1731,7 +1731,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Loading Dock',
-            'local_ip' => '192.168.1.174',
+            'local_ip' => '192.0.2.174',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1761,7 +1761,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.timeline', [
                 'camera_ids' => [$camera->id],
                 'date_from' => '2026-04-04',
@@ -1778,7 +1778,7 @@ class RecordingBrowserTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Audit Lane',
-            'local_ip' => '192.168.1.181',
+            'local_ip' => '192.0.2.181',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream11',
             'supports_onvif' => false,
@@ -1826,7 +1826,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Lot',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1855,7 +1855,7 @@ class RecordingBrowserTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.download', ['recording' => $recording]))
             ->assertOk()
             ->assertDownload('back-lot-'.$recording->scheduled_for->format('Ymd_His').'.mkv');
@@ -1865,7 +1865,7 @@ class RecordingBrowserTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1883,7 +1883,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Lot',
-            'local_ip' => '192.168.1.191',
+            'local_ip' => '192.0.2.191',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1912,7 +1912,7 @@ class RecordingBrowserTest extends TestCase
         $storage->finalizeStagedWrite($recording->relative_path, $stagedPath);
 
         $streamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.stream', ['recording' => $recording]));
 
         $streamResponse
@@ -1922,7 +1922,7 @@ class RecordingBrowserTest extends TestCase
         $this->assertSame('playback-stream', $streamResponse->streamedContent());
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.download', ['recording' => $recording]))
             ->assertOk()
             ->assertDownload('back-lot-'.$recording->scheduled_for->format('Ymd_His').'.mkv');
@@ -1932,7 +1932,7 @@ class RecordingBrowserTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1949,7 +1949,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1977,7 +1977,7 @@ class RecordingBrowserTest extends TestCase
         File::put($stagedPath, 'download-segment');
 
         $reviewStreamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.review-stream', ['recording' => $recording]));
 
         $reviewStreamResponse
@@ -1997,7 +1997,7 @@ class RecordingBrowserTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -2028,7 +2028,7 @@ class RecordingBrowserTest extends TestCase
         config()->set('ffmpeg.ffprobe.binaries', [$this->fakePlaybackFfprobeBinary('hevc')]);
 
         $streamResponse = $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.stream', ['recording' => $recording]));
 
         $streamResponse
@@ -2049,7 +2049,7 @@ class RecordingBrowserTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -2101,7 +2101,7 @@ class RecordingBrowserTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'IPC-C26E-V2',
-            'local_ip' => '192.168.1.65',
+            'local_ip' => '192.0.2.65',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,

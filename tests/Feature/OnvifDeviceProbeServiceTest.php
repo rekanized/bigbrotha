@@ -55,7 +55,7 @@ class OnvifDeviceProbeServiceTest extends TestCase
 XML, 200),
         ]);
 
-        $result = app(OnvifDeviceProbeService::class)->probe('http://192.168.1.90/onvif/device_service', 'operator', 'secret');
+        $result = app(OnvifDeviceProbeService::class)->probe('http://192.0.2.90/onvif/device_service', 'operator', 'secret');
 
         $this->assertSame('Axis', $result['manufacturer']);
         $this->assertSame('P3265-LVE', $result['model']);
@@ -66,9 +66,9 @@ XML, 200),
         $this->assertTrue($result['authenticated']);
 
         Http::assertSent(function (Request $request): bool {
-            return $request->url() === 'http://192.168.1.90/onvif/device_service'
+            return $request->url() === 'http://192.0.2.90/onvif/device_service'
                 && str_contains($request->body(), 'http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation')
-                && str_contains($request->body(), '<a:To s:mustUnderstand="1">http://192.168.1.90/onvif/device_service</a:To>')
+                && str_contains($request->body(), '<a:To s:mustUnderstand="1">http://192.0.2.90/onvif/device_service</a:To>')
                 && str_contains($request->body(), '<tds:GetDeviceInformation />')
                 && str_contains($request->body(), '<wsse:Username>operator</wsse:Username>')
                 && ! str_contains($request->body(), 'secret');
@@ -98,7 +98,7 @@ XML, 500),
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Authentication failed or the ONVIF service rejected the request: NotAuthorized');
 
-        app(OnvifDeviceProbeService::class)->probe('http://192.168.1.90/onvif/device_service', 'operator', 'wrong-password');
+        app(OnvifDeviceProbeService::class)->probe('http://192.0.2.90/onvif/device_service', 'operator', 'wrong-password');
     }
 
     public function test_it_reads_primary_network_details_from_onvif_interfaces(): void
@@ -118,7 +118,7 @@ XML, 500),
                 <tt:IPv4>
                     <tt:Config>
                         <tt:Manual>
-                            <tt:Address>192.168.1.90</tt:Address>
+                            <tt:Address>192.0.2.90</tt:Address>
                         </tt:Manual>
                     </tt:Config>
                 </tt:IPv4>
@@ -129,13 +129,13 @@ XML, 500),
 XML, 200),
         ]);
 
-        $result = app(OnvifDeviceProbeService::class)->fetchPrimaryNetworkDetails('http://192.168.1.90/onvif/device_service', 'operator', 'secret');
+        $result = app(OnvifDeviceProbeService::class)->fetchPrimaryNetworkDetails('http://192.0.2.90/onvif/device_service', 'operator', 'secret');
 
-        $this->assertSame('192.168.1.90', $result['ipv4_address']);
+        $this->assertSame('192.0.2.90', $result['ipv4_address']);
         $this->assertSame('AA:BB:CC:DD:EE:FF', $result['mac_address']);
 
         Http::assertSent(function (Request $request): bool {
-            return $request->url() === 'http://192.168.1.90/onvif/device_service'
+            return $request->url() === 'http://192.0.2.90/onvif/device_service'
                 && str_contains($request->body(), 'http://www.onvif.org/ver10/device/wsdl/GetNetworkInterfaces')
                 && str_contains($request->body(), '<tds:GetNetworkInterfaces />');
         });

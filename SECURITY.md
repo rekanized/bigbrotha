@@ -23,7 +23,7 @@ database dumps, or unredacted logs in public issues or pull requests.
 - Complete initial setup using the private server-side setup token.
 - Use HTTPS, a strong administrator password, and narrowly scoped trusted proxies.
 - Expose only the intended web and ICE ports; keep PostgreSQL and relay management internal.
-- Protect and back up `.env.docker`, `.docker-state/app.key`, the database, and private storage together.
+- Protect and back up `.env`, `.docker-state/app.key`, the database, and private storage together.
 - Do not use development mode, seed example accounts, or enable debug output on a public server.
 - Treat camera/network reachability and access to private storage as trusted deployment privileges.
 

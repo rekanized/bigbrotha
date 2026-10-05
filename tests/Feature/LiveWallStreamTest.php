@@ -22,7 +22,7 @@ class LiveWallStreamTest extends TestCase
     {
         $this->mockRelayProcess(running: true);
         $camera = Camera::query()->create([
-            'name' => 'Unconfigured entrance', 'local_ip' => '192.168.1.91',
+            'name' => 'Unconfigured entrance', 'local_ip' => '192.0.2.91',
             'supports_rtsp' => false, 'is_enabled' => true,
         ]);
         LiveWall::query()->firstOrFail()->tiles()->create([
@@ -43,10 +43,10 @@ class LiveWallStreamTest extends TestCase
     {
         $this->mockRelayProcess(running: false, apiReachable: false);
         $camera = Camera::query()->create([
-            'name' => 'Recovering camera', 'local_ip' => '192.168.1.90',
+            'name' => 'Recovering camera', 'local_ip' => '192.0.2.90',
             'rtsp_port' => 554, 'rtsp_path' => '/main', 'supports_rtsp' => true, 'is_enabled' => true,
             'metadata' => ['rtsp_profiles' => [[
-                'name' => 'Main', 'encoding' => 'H264', 'uri' => 'rtsp://192.168.1.90:554/main',
+                'name' => 'Main', 'encoding' => 'H264', 'uri' => 'rtsp://192.0.2.90:554/main',
             ]]],
         ]);
         LiveWall::query()->firstOrFail()->tiles()->create([
@@ -73,7 +73,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Tapo C200',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -88,7 +88,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Healthy',
                         'transport_persistable' => true,
@@ -98,7 +98,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -158,7 +158,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Lot',
-            'local_ip' => '192.168.1.75',
+            'local_ip' => '192.0.2.75',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -173,7 +173,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.75:554/stream1',
+                        'uri' => 'rtsp://192.0.2.75:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Healthy',
                         'transport_persistable' => true,
@@ -183,7 +183,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.75:554/stream2',
+                        'uri' => 'rtsp://192.0.2.75:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Failed',
                         'transport_persistable' => false,
@@ -226,7 +226,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Lot',
-            'local_ip' => '192.168.1.75',
+            'local_ip' => '192.0.2.75',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -241,7 +241,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'mainStream',
                         'encoding' => 'H264',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.75:554/stream1',
+                        'uri' => 'rtsp://192.0.2.75:554/stream1',
                         'path' => '/stream1',
                         'probe_status' => 'Healthy',
                         'transport_persistable' => true,
@@ -251,7 +251,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.75:554/stream2',
+                        'uri' => 'rtsp://192.0.2.75:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Failed',
                         'transport_persistable' => false,
@@ -289,7 +289,7 @@ class LiveWallStreamTest extends TestCase
 
         $frontDoor = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -303,7 +303,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'FrontDoorMinor',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.70:554/front-door-sub',
+                        'uri' => 'rtsp://192.0.2.70:554/front-door-sub',
                     ],
                 ],
             ],
@@ -311,7 +311,7 @@ class LiveWallStreamTest extends TestCase
 
         $warehouse = Camera::query()->create([
             'name' => 'Warehouse',
-            'local_ip' => '192.168.1.71',
+            'local_ip' => '192.0.2.71',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -325,7 +325,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'WarehousePortrait',
                         'encoding' => 'H264',
                         'resolution' => '720x1280',
-                        'uri' => 'rtsp://192.168.1.71:554/warehouse-portrait',
+                        'uri' => 'rtsp://192.0.2.71:554/warehouse-portrait',
                     ],
                 ],
             ],
@@ -386,7 +386,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Loop Camera',
-            'local_ip' => '192.168.1.80',
+            'local_ip' => '192.0.2.80',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -400,7 +400,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'LoopMinor',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.80:554/loop-minor',
+                        'uri' => 'rtsp://192.0.2.80:554/loop-minor',
                     ],
                 ],
             ],
@@ -455,7 +455,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Loading Dock',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -470,7 +470,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.68:554/stream2',
+                        'uri' => 'rtsp://192.0.2.68:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -499,7 +499,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Restricted Camera',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -513,7 +513,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'MinorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                     ],
                 ],
             ],
@@ -540,7 +540,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Tapo C200',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -555,7 +555,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -612,7 +612,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Session Health Camera',
-            'local_ip' => '192.168.1.99',
+            'local_ip' => '192.0.2.99',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,
@@ -623,7 +623,7 @@ class LiveWallStreamTest extends TestCase
                     'name' => 'Sub stream',
                     'encoding' => 'H264',
                     'resolution' => '1280x720',
-                    'uri' => 'rtsp://192.168.1.99:554/stream2',
+                    'uri' => 'rtsp://192.0.2.99:554/stream2',
                 ]],
             ],
         ]);
@@ -642,7 +642,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -657,7 +657,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Healthy',
                         'probe_source' => 'motion-buffer',
@@ -700,7 +700,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -715,7 +715,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Failed',
                         'transport_persistable' => false,
@@ -753,7 +753,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -768,7 +768,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Healthy',
                         'probe_source' => 'motion-buffer',
@@ -802,7 +802,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.66',
+            'local_ip' => '192.0.2.66',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -817,7 +817,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.66:554/stream2',
+                        'uri' => 'rtsp://192.0.2.66:554/stream2',
                         'path' => '/stream2',
                         'probe_status' => 'Healthy',
                         'probe_source' => 'relay',
@@ -860,7 +860,7 @@ class LiveWallStreamTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Entrance',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -874,7 +874,7 @@ class LiveWallStreamTest extends TestCase
                         'name' => 'minorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.90:554/stream2',
+                        'uri' => 'rtsp://192.0.2.90:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -891,7 +891,7 @@ class LiveWallStreamTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -906,7 +906,7 @@ class LiveWallStreamTest extends TestCase
                     [
                         'name' => 'minorStream',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.67:554/stream2',
+                        'uri' => 'rtsp://192.0.2.67:554/stream2',
                     ],
                 ],
             ],
@@ -935,14 +935,14 @@ class LiveWallStreamTest extends TestCase
             ->assertHeader('content-type', 'multipart/x-mixed-replace;boundary=bigbrotha-live');
 
         $this->assertStringContainsString('frame-one', $response->streamedContent());
-        $this->assertStringContainsString('rtsp://operator:secret@192.168.1.67:554/stream2', File::get($argumentsPath));
+        $this->assertStringContainsString('rtsp://operator:secret@192.0.2.67:554/stream2', File::get($argumentsPath));
     }
 
     public function test_it_streams_a_copy_relay_without_reencoding_video(): void
     {
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'http_port' => 2020,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -957,7 +957,7 @@ class LiveWallStreamTest extends TestCase
                     [
                         'name' => 'mainStream',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.67:554/stream1',
+                        'uri' => 'rtsp://192.0.2.67:554/stream1',
                     ],
                 ],
             ],
@@ -991,7 +991,7 @@ class LiveWallStreamTest extends TestCase
 
         $this->assertStringContainsString('ftypisomrelay-data', $response->streamedContent());
         $this->assertStringContainsString('rtsp://internal-reader:relay-pass@relay:8554/'.$sourcePath, File::get($argumentsPath));
-        $this->assertStringNotContainsString('192.168.1.67', File::get($argumentsPath));
+        $this->assertStringNotContainsString('192.0.2.67', File::get($argumentsPath));
     }
 
     private function mockRelayProcess(bool $running, ?bool $apiReachable = null): void

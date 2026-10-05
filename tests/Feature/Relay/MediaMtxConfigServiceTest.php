@@ -29,7 +29,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Audio Camera',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -43,7 +43,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'name' => 'MinorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.91:554/minor',
+                        'uri' => 'rtsp://192.0.2.91:554/minor',
                     ],
                 ],
             ],
@@ -56,14 +56,14 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('camera-'.$camera->id.'-live:', $config);
         $this->assertStringContainsString('camera-'.$camera->id.'-source-profile-0:', $config);
         $this->assertStringContainsString("webrtcLocalTCPAddress: ''", $config);
-        $this->assertStringContainsString("-i 'rtsp://192.168.1.91:554/minor'", $sourceBlock);
+        $this->assertStringContainsString("-i 'rtsp://192.0.2.91:554/minor'", $sourceBlock);
         $this->assertStringContainsString('-c copy', $sourceBlock);
         $this->assertStringContainsString('-map 0:v:0', $liveBlock);
         $this->assertStringContainsString('-map 0:a:0?', $liveBlock);
         $this->assertStringContainsString('-sn', $liveBlock);
         $this->assertStringContainsString('-dn', $liveBlock);
         $this->assertStringContainsString("-i 'rtsp://internal-reader:reader-pass@relay:8554/camera-{$camera->id}-source-profile-0'", $liveBlock);
-        $this->assertStringNotContainsString('rtsp://192.168.1.91:554/minor', $liveBlock);
+        $this->assertStringNotContainsString('rtsp://192.0.2.91:554/minor', $liveBlock);
         $this->assertStringContainsString('-c:v copy', $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
         $this->assertStringContainsString("-max_interleave_delta '100000'", $liveBlock);
@@ -102,7 +102,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Recording Relay Camera',
-            'local_ip' => '192.168.1.93',
+            'local_ip' => '192.0.2.93',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -117,7 +117,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'video_codec' => 'h264',
                         'audio_codec' => 'pcm_alaw',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.93:554/main',
+                        'uri' => 'rtsp://192.0.2.93:554/main',
                     ],
                 ],
             ],
@@ -150,10 +150,10 @@ class MediaMtxConfigServiceTest extends TestCase
     {
         config()->set('ffmpeg.ffmpeg.binaries', ['/bin/true']);
         $camera = Camera::query()->create([
-            'name' => 'Reordered H264', 'local_ip' => '192.168.1.93',
+            'name' => 'Reordered H264', 'local_ip' => '192.0.2.93',
             'rtsp_port' => 554, 'rtsp_path' => '/main', 'supports_rtsp' => true, 'is_enabled' => true,
             'metadata' => ['rtsp_profiles' => [[
-                'uri' => 'rtsp://192.168.1.93:554/main', 'video_codec' => 'h264', 'video_has_b_frames' => 2,
+                'uri' => 'rtsp://192.0.2.93:554/main', 'video_codec' => 'h264', 'video_has_b_frames' => 2,
             ]]],
         ]);
         $config = app(MediaMtxConfigService::class)->buildConfig();
@@ -178,7 +178,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'H265 Camera',
-            'local_ip' => '192.168.1.92',
+            'local_ip' => '192.0.2.92',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -193,7 +193,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'encoding' => 'H265',
                         'video_codec' => 'h265',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.92:554/main',
+                        'uri' => 'rtsp://192.0.2.92:554/main',
                     ],
                 ],
             ],
@@ -225,7 +225,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Unstable H264 Camera',
-            'local_ip' => '192.168.1.98',
+            'local_ip' => '192.0.2.98',
             'rtsp_port' => 554,
             'rtsp_path' => '/main',
             'supports_rtsp' => true,
@@ -235,7 +235,7 @@ class MediaMtxConfigServiceTest extends TestCase
                 'rtsp_profiles' => [[
                     'name' => 'MainStream',
                     'video_codec' => 'h264',
-                    'uri' => 'rtsp://192.168.1.98:554/main',
+                    'uri' => 'rtsp://192.0.2.98:554/main',
                 ]],
             ],
         ]);
@@ -271,7 +271,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'NVIDIA HEVC Camera',
-            'local_ip' => '192.168.1.95',
+            'local_ip' => '192.0.2.95',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -286,7 +286,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'encoding' => 'H265',
                         'video_codec' => 'hevc',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.95:554/main',
+                        'uri' => 'rtsp://192.0.2.95:554/main',
                     ],
                 ],
             ],
@@ -317,7 +317,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'QuickSync HEVC Camera',
-            'local_ip' => '192.168.1.96',
+            'local_ip' => '192.0.2.96',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -332,7 +332,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'encoding' => 'H265',
                         'video_codec' => 'hevc',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.96:554/main',
+                        'uri' => 'rtsp://192.0.2.96:554/main',
                     ],
                 ],
             ],
@@ -362,7 +362,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Tuned HEVC Camera',
-            'local_ip' => '192.168.1.97',
+            'local_ip' => '192.0.2.97',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -382,7 +382,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'encoding' => 'H265',
                         'video_codec' => 'hevc',
                         'resolution' => '1920x1080',
-                        'uri' => 'rtsp://192.168.1.97:554/main',
+                        'uri' => 'rtsp://192.0.2.97:554/main',
                     ],
                 ],
             ],
@@ -418,7 +418,7 @@ class MediaMtxConfigServiceTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Docker Relay Camera',
-            'local_ip' => '192.168.1.94',
+            'local_ip' => '192.0.2.94',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -432,7 +432,7 @@ class MediaMtxConfigServiceTest extends TestCase
                         'name' => 'MinorStream',
                         'encoding' => 'H264',
                         'resolution' => '1280x720',
-                        'uri' => 'rtsp://192.168.1.94:554/minor',
+                        'uri' => 'rtsp://192.0.2.94:554/minor',
                     ],
                 ],
             ],
@@ -442,7 +442,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $liveBlock = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
 
         $this->assertStringContainsString("-i 'rtsp://internal-reader:reader-pass@app:8554/camera-{$camera->id}-source-profile-0'", $liveBlock);
-        $this->assertStringNotContainsString('rtsp://192.168.1.94:554/minor', $liveBlock);
+        $this->assertStringNotContainsString('rtsp://192.0.2.94:554/minor', $liveBlock);
     }
 
     private function pathBlock(string $config, string $path): string

@@ -1,4 +1,4 @@
-# Shared operational defaults; deployment values belong in .env.docker.
+# Shared operational defaults; deployment values belong in .env.
 x-service: &service
   init: true
   logging:
@@ -11,13 +11,13 @@ x-service: &service
 x-app: &app
   <<: *service
   image: &app-image ${BIGBROTHA_APP_IMAGE:-rekanized/bigbrotha-app:latest}
-  env_file: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env.docker}
+  env_file: ${BIGBROTHA_DOCKER_ENV_FILE:-./.env}
   environment:
     APP_ENV: production
     APP_DEBUG: "false"
-    APP_URL: ${APP_URL:?Set APP_URL in .env.docker}
+    APP_URL: ${APP_URL:?Set APP_URL in .env}
     DB_DATABASE: ${DB_DATABASE:-bigbrotha}
-    DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
+    DB_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env}
     DB_USERNAME: ${DB_USERNAME:-bigbrotha}
     MEDIAMTX_ICE_PORT: ${MEDIAMTX_ICE_PORT:-8190}
   volumes:
@@ -59,7 +59,7 @@ services:
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${DB_DATABASE:-bigbrotha}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env.docker}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a strong DB_PASSWORD in .env}
       POSTGRES_USER: ${DB_USERNAME:-bigbrotha}
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]

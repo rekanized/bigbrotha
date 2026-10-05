@@ -35,11 +35,12 @@ class CameraFleetSeeder extends Seeder
      */
     private function cameraSeedData(): array
     {
+        // Fictional examples use documentation addresses and reserved test hostnames.
         return [
             [
                 'name' => 'Front Gate',
-                'local_ip' => '192.168.1.210',
-                'hostname' => 'front-gate.local',
+                'local_ip' => '192.0.2.210',
+                'hostname' => 'front-gate.example.test',
                 'manufacturer' => 'Axis',
                 'model' => 'P3245-LVE',
                 'serial_number' => 'BG-AXIS-210',
@@ -65,15 +66,15 @@ class CameraFleetSeeder extends Seeder
                         [
                             'name' => 'Primary stream',
                             'path' => '/axis-media/media.amp',
-                            'uri' => 'rtsp://front-gate.local:554/axis-media/media.amp',
+                            'uri' => 'rtsp://front-gate.example.test:554/axis-media/media.amp',
                         ],
                     ],
                 ],
             ],
             [
                 'name' => 'Warehouse Bay',
-                'local_ip' => '192.168.1.211',
-                'hostname' => 'warehouse-bay.local',
+                'local_ip' => '192.0.2.211',
+                'hostname' => 'warehouse-bay.example.test',
                 'manufacturer' => 'Reolink',
                 'model' => 'RLC-810A',
                 'serial_number' => 'BG-REOLINK-211',
@@ -99,7 +100,7 @@ class CameraFleetSeeder extends Seeder
                         [
                             'name' => 'Main stream',
                             'path' => '/h264Preview_01_main',
-                            'uri' => 'rtsp://warehouse-bay.local:554/h264Preview_01_main',
+                            'uri' => 'rtsp://warehouse-bay.example.test:554/h264Preview_01_main',
                         ],
                     ],
                 ],

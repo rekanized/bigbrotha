@@ -71,9 +71,6 @@ class DockerRuntimeConfigurationTest extends TestCase
     public function test_docker_shell_entrypoints_are_syntactically_valid(): void
     {
         $scripts = [
-            'docker/compose.sh',
-            'docker/compose-dev.sh',
-            'docker/compose-up.sh',
             'docker/entrypoint.sh',
             'docker/healthcheck.sh',
             'docker/healthcheck-app.sh',
@@ -85,6 +82,8 @@ class DockerRuntimeConfigurationTest extends TestCase
             'docker/run-worker.sh',
             'docker/run-scheduler.sh',
             'docker/verify-image.sh',
+            'docker/migrate-postgres-18-volume.sh',
+            'docker/rotate-db-password.sh',
             'publish.sh',
         ];
 

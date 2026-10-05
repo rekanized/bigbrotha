@@ -295,7 +295,7 @@ class SecurityHardeningTest extends TestCase
 
     public function test_login_security_headers_and_cookie_settings(): void
     {
-        $response = $this->get('https://localhost/login');
+        $response = $this->get(str_replace('http://', 'https://', route('login')));
         $response->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertHeader('Strict-Transport-Security', 'max-age=31536000');
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));

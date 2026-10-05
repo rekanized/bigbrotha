@@ -167,7 +167,7 @@ class RecordingContainerHealthCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -218,6 +218,8 @@ BASH);
         chmod($psBinary, 0755);
 
         config()->set('recording.worker.container_mode', false);
+        config()->set('recording.worker.processes', 1);
+        config()->set('recording.worker.max_processes', 1);
         config()->set('recording.worker.ps_binary', $psBinary);
     }
 }

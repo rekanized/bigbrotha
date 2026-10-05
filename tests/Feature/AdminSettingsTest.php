@@ -91,7 +91,7 @@ class AdminSettingsTest extends TestCase
         $operator = User::factory()->create();
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertDontSee(route('admin.users.index'), false)
@@ -107,7 +107,7 @@ class AdminSettingsTest extends TestCase
         $operator = User::factory()->create();
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('camera-fleet.index'))
             ->assertOk()
             ->assertDontSee(route('admin.users.index'), false)
@@ -119,7 +119,7 @@ class AdminSettingsTest extends TestCase
         $operator = User::factory()->create();
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get('/')
             ->assertRedirect(route('live-wall.index'));
     }
@@ -129,7 +129,7 @@ class AdminSettingsTest extends TestCase
         $admin = User::factory()->admin()->create();
 
         $this->actingAs($admin)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('admin.settings.index'))
             ->assertOk()
             ->assertSee('Job queue monitor')
@@ -517,7 +517,7 @@ class AdminSettingsTest extends TestCase
         foreach (range(1, 8) as $index) {
             Camera::query()->create([
                 'name' => 'Queue Warning Cam '.$index,
-                'local_ip' => '192.168.1.'.(40 + $index),
+                'local_ip' => '192.0.2.'.(40 + $index),
                 'rtsp_port' => 554,
                 'rtsp_path' => '/stream'.$index,
                 'supports_onvif' => false,
@@ -646,7 +646,7 @@ class AdminSettingsTest extends TestCase
         $operator = User::factory()->create();
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.122',
+            'local_ip' => '192.0.2.122',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -669,13 +669,13 @@ class AdminSettingsTest extends TestCase
         ]);
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.index'))
             ->assertOk()
             ->assertSee('2026-04-04 14:00');
 
         $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get(route('recordings.show', ['recording' => $recording]))
             ->assertOk()
             ->assertSee('2026-04-04 14:00:00');
@@ -687,7 +687,7 @@ class AdminSettingsTest extends TestCase
 
         Livewire::test(NetworkStorageSettingsPanel::class)
             ->set('networkStorageEnabled', '1')
-            ->set('networkStoragePath', '//192.168.1.199/fileshare/Applications/bigbrotha')
+            ->set('networkStoragePath', '//192.0.2.199/recordings/examples/bigbrotha')
             ->set('networkStorageUsername', 'administrator')
             ->set('networkStoragePassword', 'secret-pass')
             ->call('save')
@@ -697,7 +697,7 @@ class AdminSettingsTest extends TestCase
         $this->assertDatabaseHas('app_settings', [
             'key' => ApplicationSettingsService::SETTING_NETWORK_STORAGE,
             'network_storage_enabled' => 1,
-            'network_storage_path' => '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'network_storage_path' => '//192.0.2.199/recordings/examples/bigbrotha',
             'network_storage_username' => 'administrator',
         ]);
     }
@@ -710,7 +710,7 @@ class AdminSettingsTest extends TestCase
             'key' => ApplicationSettingsService::SETTING_NETWORK_STORAGE,
             'value' => null,
             'network_storage_enabled' => 1,
-            'network_storage_path' => '//192.168.1.199/fileshare/Applications/bigbrotha',
+            'network_storage_path' => '//192.0.2.199/recordings/examples/bigbrotha',
             'network_storage_username' => 'administrator',
             'network_storage_password' => 'legacy-plain-password',
             'created_at' => now(),
@@ -719,7 +719,7 @@ class AdminSettingsTest extends TestCase
 
         Livewire::test(NetworkStorageSettingsPanel::class)
             ->assertSet('networkStorageEnabled', '1')
-            ->assertSet('networkStoragePath', '//192.168.1.199/fileshare/Applications/bigbrotha')
+            ->assertSet('networkStoragePath', '//192.0.2.199/recordings/examples/bigbrotha')
             ->assertSet('networkStorageUsername', 'administrator')
             ->assertSet('hasStoredPassword', true)
             ->set('networkStoragePassword', 'fresh-secret')
@@ -744,7 +744,7 @@ class AdminSettingsTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha/cameras',
+            '//192.0.2.199/recordings/examples/bigbrotha/cameras',
             'administrator',
             'secret-pass',
         );
@@ -752,14 +752,14 @@ class AdminSettingsTest extends TestCase
         $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
 
         $this->assertNotNull($diskConfig);
-        $this->assertSame('Applications/bigbrotha/cameras', $diskConfig['root']);
+        $this->assertSame('examples/bigbrotha/cameras', $diskConfig['root']);
     }
 
     public function test_network_storage_disk_config_appends_cameras_for_legacy_parent_paths(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -767,14 +767,14 @@ class AdminSettingsTest extends TestCase
         $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
 
         $this->assertNotNull($diskConfig);
-        $this->assertSame('Applications/bigbrotha/cameras', $diskConfig['root']);
+        $this->assertSame('examples/bigbrotha/cameras', $diskConfig['root']);
     }
 
     public function test_network_storage_disk_config_keeps_share_root_when_the_share_itself_is_cameras(): void
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/cameras',
+            '//192.0.2.199/cameras',
             'administrator',
             'secret-pass',
         );
@@ -782,7 +782,7 @@ class AdminSettingsTest extends TestCase
         $diskConfig = app(ApplicationSettingsService::class)->networkStorageDiskConfig();
 
         $this->assertNotNull($diskConfig);
-        $this->assertSame('192.168.1.199', $diskConfig['host']);
+        $this->assertSame('192.0.2.199', $diskConfig['host']);
         $this->assertSame('cameras', $diskConfig['share']);
         $this->assertSame('', $diskConfig['root']);
     }
@@ -888,7 +888,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha/cameras',
+            '//192.0.2.199/recordings/examples/bigbrotha/cameras',
             'administrator',
             'secret-pass',
         );
@@ -900,8 +900,8 @@ BASH
         $targets = $method->invoke($storage, '8/recordings/2026/05/09/20260509_151144-motion.mp4');
 
         $this->assertSame([
-            'Applications/bigbrotha/cameras/8/recordings/2026/05/09/20260509_151144-motion.mp4',
-            'Applications/bigbrotha/8/recordings/2026/05/09/20260509_151144-motion.mp4',
+            'examples/bigbrotha/cameras/8/recordings/2026/05/09/20260509_151144-motion.mp4',
+            'examples/bigbrotha/8/recordings/2026/05/09/20260509_151144-motion.mp4',
         ], $targets);
     }
 
@@ -909,7 +909,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -921,14 +921,14 @@ BASH
         $targets = $method->invoke($storage, '3/recordings/2026/05/10');
 
         $this->assertSame([
-            'Applications',
-            'Applications/bigbrotha',
-            'Applications/bigbrotha/cameras',
-            'Applications/bigbrotha/cameras/3',
-            'Applications/bigbrotha/cameras/3/recordings',
-            'Applications/bigbrotha/cameras/3/recordings/2026',
-            'Applications/bigbrotha/cameras/3/recordings/2026/05',
-            'Applications/bigbrotha/cameras/3/recordings/2026/05/10',
+            'examples',
+            'examples/bigbrotha',
+            'examples/bigbrotha/cameras',
+            'examples/bigbrotha/cameras/3',
+            'examples/bigbrotha/cameras/3/recordings',
+            'examples/bigbrotha/cameras/3/recordings/2026',
+            'examples/bigbrotha/cameras/3/recordings/2026/05',
+            'examples/bigbrotha/cameras/3/recordings/2026/05/10',
         ], $targets);
     }
 
@@ -936,14 +936,14 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
 
         $camera = Camera::query()->create([
             'name' => 'Network Staging Lane',
-            'local_ip' => '192.168.1.213',
+            'local_ip' => '192.0.2.213',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream4',
             'supports_onvif' => false,
@@ -1015,7 +1015,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1032,7 +1032,7 @@ BASH
         $settings = app(ApplicationSettingsService::class)->networkStorageSettings();
 
         $this->assertTrue($settings['enabled']);
-        $this->assertSame('//192.168.1.199/fileshare/Applications/bigbrotha', $settings['path']);
+        $this->assertSame('//192.0.2.199/recordings/examples/bigbrotha', $settings['path']);
         $this->assertSame('administrator', $settings['username']);
         $this->assertTrue($settings['has_password']);
     }
@@ -1041,7 +1041,7 @@ BASH
     {
         $camera = Camera::query()->create([
             'name' => 'Existing Front Gate',
-            'local_ip' => '192.168.1.210',
+            'local_ip' => '192.0.2.210',
             'hostname' => 'existing-front-gate.local',
             'rtsp_port' => 554,
             'rtsp_path' => '/existing-stream',
@@ -1128,7 +1128,7 @@ BASH
     {
         $camera = Camera::query()->create([
             'name' => 'Storage Lane',
-            'local_ip' => '192.168.1.210',
+            'local_ip' => '192.0.2.210',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -1155,7 +1155,7 @@ BASH
     {
         $camera = Camera::query()->create([
             'name' => 'Storage Lane',
-            'local_ip' => '192.168.1.212',
+            'local_ip' => '192.0.2.212',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream3',
             'supports_onvif' => false,
@@ -1185,7 +1185,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1199,7 +1199,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Storage Lane',
-            'local_ip' => '192.168.1.214',
+            'local_ip' => '192.0.2.214',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream5',
             'supports_onvif' => false,
@@ -1230,7 +1230,7 @@ BASH
     {
         $camera = Camera::query()->create([
             'name' => 'Storage Lane',
-            'local_ip' => '192.168.1.213',
+            'local_ip' => '192.0.2.213',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream4',
             'supports_onvif' => false,
@@ -1272,7 +1272,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1286,7 +1286,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Finalize Lane',
-            'local_ip' => '192.168.1.211',
+            'local_ip' => '192.0.2.211',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,
@@ -1319,7 +1319,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1333,7 +1333,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Preview Lane',
-            'local_ip' => '192.168.1.215',
+            'local_ip' => '192.0.2.215',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream6',
             'supports_onvif' => false,
@@ -1365,7 +1365,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1379,7 +1379,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Review Lane',
-            'local_ip' => '192.168.1.216',
+            'local_ip' => '192.0.2.216',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream7',
             'supports_onvif' => false,
@@ -1412,7 +1412,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1426,7 +1426,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Finalize Lane',
-            'local_ip' => '192.168.1.212',
+            'local_ip' => '192.0.2.212',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream3',
             'supports_onvif' => false,
@@ -1464,7 +1464,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1496,7 +1496,7 @@ BASH
             $this->assertStringContainsString('The uploaded file is not visible on the active camera storage disk yet.', $message);
             $this->assertStringContainsString('relative_path=cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
             $this->assertStringContainsString('disk_path=7/recordings/2026/04/10/retry-check.mkv', $message);
-            $this->assertStringContainsString('smb_target_path=Applications/bigbrotha/cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
+            $this->assertStringContainsString('smb_target_path=examples/bigbrotha/cameras/7/recordings/2026/04/10/retry-check.mkv', $message);
             $this->assertStringContainsString('local_path='.str_replace('\\', '/', $localPath), $message);
             $this->assertStringContainsString('availability=missing', $message);
         }
@@ -1506,7 +1506,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1540,7 +1540,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1677,7 +1677,7 @@ BASH
 
         $camera = Camera::query()->create([
             'name' => 'Deletion failure lane',
-            'local_ip' => '192.168.1.214',
+            'local_ip' => '192.0.2.214',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream',
             'supports_onvif' => false,
@@ -1711,7 +1711,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1737,7 +1737,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1775,7 +1775,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1801,7 +1801,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
@@ -1835,7 +1835,7 @@ BASH
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );

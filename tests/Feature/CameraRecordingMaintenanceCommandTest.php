@@ -40,7 +40,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Gate',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -118,7 +118,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Quiet Lane',
-            'local_ip' => '192.168.1.77',
+            'local_ip' => '192.0.2.77',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream7',
             'supports_onvif' => false,
@@ -150,7 +150,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
     public function test_it_recovers_a_stale_source_path_when_the_normalized_mp4_exists(): void
     {
-        $camera = Camera::query()->create(['name' => 'Recovery', 'local_ip' => '192.168.1.80', 'recording_retention_days' => 7]);
+        $camera = Camera::query()->create(['name' => 'Recovery', 'local_ip' => '192.0.2.80', 'recording_retention_days' => 7]);
         $source = 'cameras/'.$camera->id.'/recordings/2026/09/11/recover.mkv';
         $target = str_replace('.mkv', '.mp4', $source);
         File::ensureDirectoryExists(dirname(storage_path('app/private/'.$target)));
@@ -171,7 +171,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
     public function test_maintenance_skips_a_recording_while_review_publication_holds_its_lock(): void
     {
-        $camera = Camera::query()->create(['name' => 'Publishing', 'local_ip' => '192.168.1.81', 'recording_retention_days' => 1]);
+        $camera = Camera::query()->create(['name' => 'Publishing', 'local_ip' => '192.0.2.81', 'recording_retention_days' => 1]);
         $recording = CameraRecording::query()->create([
             'camera_id' => $camera->id, 'capture_mode' => 'motion', 'status' => 'recorded',
             'scheduled_for' => now()->subDays(2), 'ended_at' => now()->subDays(2),
@@ -191,7 +191,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Archive Gate',
-            'local_ip' => '192.168.1.78',
+            'local_ip' => '192.0.2.78',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream8',
             'supports_onvif' => false,
@@ -234,7 +234,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Archive Gate',
-            'local_ip' => '192.168.1.178',
+            'local_ip' => '192.0.2.178',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream8',
             'supports_onvif' => false,
@@ -284,7 +284,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Archive Gate',
-            'local_ip' => '192.168.1.179',
+            'local_ip' => '192.0.2.179',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream8',
             'supports_onvif' => false,
@@ -328,7 +328,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Dock Door',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -393,7 +393,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Warehouse',
-            'local_ip' => '192.168.1.74',
+            'local_ip' => '192.0.2.74',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream5',
             'supports_onvif' => false,
@@ -447,7 +447,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Archive Lane',
-            'local_ip' => '192.168.1.79',
+            'local_ip' => '192.0.2.79',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream8',
             'supports_onvif' => false,
@@ -488,7 +488,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Missing Segment',
-            'local_ip' => '192.168.1.80',
+            'local_ip' => '192.0.2.80',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream9',
             'supports_onvif' => false,
@@ -529,7 +529,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Receiving',
-            'local_ip' => '192.168.1.75',
+            'local_ip' => '192.0.2.75',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream6',
             'supports_onvif' => false,
@@ -660,7 +660,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
     {
         $cameraOne = Camera::query()->create([
             'name' => 'Scoped Recovery One',
-            'local_ip' => '192.168.1.181',
+            'local_ip' => '192.0.2.181',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -672,7 +672,7 @@ class CameraRecordingMaintenanceCommandTest extends TestCase
 
         $cameraTwo = Camera::query()->create([
             'name' => 'Scoped Recovery Two',
-            'local_ip' => '192.168.1.182',
+            'local_ip' => '192.0.2.182',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,

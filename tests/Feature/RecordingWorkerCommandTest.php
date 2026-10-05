@@ -53,7 +53,7 @@ BASH);
         foreach (range(1, 5) as $index) {
             Camera::query()->create([
                 'name' => 'Snapshot Cam '.$index,
-                'local_ip' => '192.168.1.'.(150 + $index),
+                'local_ip' => '192.0.2.'.(150 + $index),
                 'rtsp_port' => 554,
                 'rtsp_path' => '/stream'.$index,
                 'supports_onvif' => false,

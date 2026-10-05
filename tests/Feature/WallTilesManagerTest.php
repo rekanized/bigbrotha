@@ -17,7 +17,7 @@ class WallTilesManagerTest extends TestCase
     {
         $cameraOne = Camera::query()->create([
             'name' => 'Front Gate',
-            'local_ip' => '192.168.1.21',
+            'local_ip' => '192.0.2.21',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -28,7 +28,7 @@ class WallTilesManagerTest extends TestCase
 
         $cameraTwo = Camera::query()->create([
             'name' => 'Loading Bay',
-            'local_ip' => '192.168.1.22',
+            'local_ip' => '192.0.2.22',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -89,7 +89,7 @@ class WallTilesManagerTest extends TestCase
     {
         $cameraOne = Camera::query()->create([
             'name' => 'Front Gate',
-            'local_ip' => '192.168.1.31',
+            'local_ip' => '192.0.2.31',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,
@@ -100,7 +100,7 @@ class WallTilesManagerTest extends TestCase
 
         $cameraTwo = Camera::query()->create([
             'name' => 'Driveway',
-            'local_ip' => '192.168.1.32',
+            'local_ip' => '192.0.2.32',
             'http_port' => 80,
             'onvif_port' => 2020,
             'rtsp_port' => 554,

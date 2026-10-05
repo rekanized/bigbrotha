@@ -16,7 +16,7 @@ class CameraFleetMotionEditorAnalysisTest extends TestCase
     private function camera(): Camera
     {
         return Camera::query()->create([
-            'name' => 'Live motion', 'local_ip' => '192.168.1.80', 'supports_rtsp' => true,
+            'name' => 'Live motion', 'local_ip' => '192.0.2.80', 'supports_rtsp' => true,
             'is_enabled' => true, 'recording_mode' => Camera::RECORDING_MODE_MOTION,
             'recording_motion_trigger_pixels' => 10,
             'recording_motion_mask' => ['grid_width' => 4, 'grid_height' => 4, 'runs' => [[0, 15]]],

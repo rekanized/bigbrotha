@@ -35,7 +35,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
     public function test_motion_sync_skips_another_process_that_is_still_finalizing(): void
     {
-        $camera = Camera::query()->create(['name' => 'Locked', 'local_ip' => '192.168.1.82', 'recording_mode' => 'motion']);
+        $camera = Camera::query()->create(['name' => 'Locked', 'local_ip' => '192.0.2.82', 'recording_mode' => 'motion']);
         $directory = storage_path('app/private/motion-recorders');
         File::ensureDirectoryExists($directory);
         $handle = fopen($directory.'/camera-'.$camera->id.'.sync.lock', 'c');
@@ -53,7 +53,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     public function test_motion_segmenter_preserves_buffers_when_the_same_source_restarts(): void
     {
         $camera = Camera::query()->create([
-            'name' => 'Restart recovery', 'local_ip' => '192.168.1.89',
+            'name' => 'Restart recovery', 'local_ip' => '192.0.2.89',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -81,7 +81,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     public function test_motion_segmenter_clears_incompatible_buffers_when_the_source_changes(): void
     {
         $camera = Camera::query()->create([
-            'name' => 'Changed source', 'local_ip' => '192.168.1.90',
+            'name' => 'Changed source', 'local_ip' => '192.0.2.90',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -108,7 +108,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         config()->set('recording.motion.sync_max_segments', 1);
         $camera = Camera::query()->create([
-            'name' => 'Backlogged camera', 'local_ip' => '192.168.1.85',
+            'name' => 'Backlogged camera', 'local_ip' => '192.0.2.85',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -151,7 +151,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         config()->set('recording.motion.sync_max_segments', 1);
         $camera = Camera::query()->create([
-            'name' => 'Active backlog', 'local_ip' => '192.168.1.87',
+            'name' => 'Active backlog', 'local_ip' => '192.0.2.87',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -191,7 +191,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         config()->set('recording.motion.sync_budget_seconds', 1);
         $camera = Camera::query()->create([
-            'name' => 'Slow camera', 'local_ip' => '192.168.1.86',
+            'name' => 'Slow camera', 'local_ip' => '192.0.2.86',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -218,7 +218,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     public function test_motion_sync_recovers_when_an_old_restart_lost_the_active_event_buffer(): void
     {
         $camera = Camera::query()->create([
-            'name' => 'Lost buffer', 'local_ip' => '192.168.1.91',
+            'name' => 'Lost buffer', 'local_ip' => '192.0.2.91',
             'rtsp_path' => '/stream', 'supports_rtsp' => true, 'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_MOTION,
         ]);
@@ -257,7 +257,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Recovered camera',
-            'local_ip' => '192.168.1.84',
+            'local_ip' => '192.0.2.84',
             'rtsp_path' => '/stream',
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -297,7 +297,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Stale event camera',
-            'local_ip' => '192.168.1.85',
+            'local_ip' => '192.0.2.85',
             'rtsp_path' => '/stream',
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -418,7 +418,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.68',
+            'local_ip' => '192.0.2.68',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -448,7 +448,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Live motion preview',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -481,7 +481,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'HEVC Yard',
-            'local_ip' => '192.168.1.88',
+            'local_ip' => '192.0.2.88',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream17',
             'supports_onvif' => false,
@@ -521,7 +521,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Exposure Switching Yard',
-            'local_ip' => '192.168.1.93',
+            'local_ip' => '192.0.2.93',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream22',
             'supports_onvif' => false,
@@ -548,7 +548,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Block Refresh Yard',
-            'local_ip' => '192.168.1.94',
+            'local_ip' => '192.0.2.94',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream23',
             'supports_onvif' => false,
@@ -576,7 +576,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Front Walkway',
-            'local_ip' => '192.168.1.89',
+            'local_ip' => '192.0.2.89',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream18',
             'supports_onvif' => false,
@@ -613,7 +613,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard',
-            'local_ip' => '192.168.1.89',
+            'local_ip' => '192.0.2.89',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream18',
             'supports_onvif' => false,
@@ -654,7 +654,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard live preview',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream19',
             'supports_onvif' => false,
@@ -697,7 +697,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Backyard confirmed preview',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream20',
             'supports_onvif' => false,
@@ -767,7 +767,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Incomplete live preview',
-            'local_ip' => '192.168.1.92',
+            'local_ip' => '192.0.2.92',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream21',
             'supports_onvif' => false,
@@ -810,7 +810,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Office Door',
-            'local_ip' => '192.168.1.90',
+            'local_ip' => '192.0.2.90',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream19',
             'supports_onvif' => false,
@@ -849,7 +849,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Loading Bay Pair Noise',
-            'local_ip' => '192.168.1.92',
+            'local_ip' => '192.0.2.92',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream21',
             'supports_onvif' => false,
@@ -888,7 +888,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Clustered Motion Yard',
-            'local_ip' => '192.168.1.91',
+            'local_ip' => '192.0.2.91',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream20',
             'supports_onvif' => false,
@@ -928,7 +928,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Bounded Motion Score Yard',
-            'local_ip' => '192.168.1.95',
+            'local_ip' => '192.0.2.95',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream24',
             'supports_onvif' => false,
@@ -965,7 +965,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'South Gate',
-            'local_ip' => '192.168.1.78',
+            'local_ip' => '192.0.2.78',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream8',
             'supports_onvif' => false,
@@ -1004,7 +1004,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Loading Bay',
-            'local_ip' => '192.168.1.81',
+            'local_ip' => '192.0.2.81',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream10',
             'supports_onvif' => false,
@@ -1049,7 +1049,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Override Bay',
-            'local_ip' => '192.168.1.85',
+            'local_ip' => '192.0.2.85',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream14',
             'supports_onvif' => false,
@@ -1101,18 +1101,18 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Gaming Room',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'recording_rtsp_path' => '/stream1',
             'rtsp_profiles' => [
                 [
                     'name' => 'mainStream',
-                    'uri' => 'rtsp://192.168.1.69:554/stream1',
+                    'uri' => 'rtsp://192.0.2.69:554/stream1',
                 ],
                 [
                     'name' => 'subStream',
-                    'uri' => 'rtsp://192.168.1.69:554/stream2',
+                    'uri' => 'rtsp://192.0.2.69:554/stream2',
                 ],
             ],
             'supports_onvif' => false,
@@ -1164,18 +1164,18 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Gaming Room',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'recording_rtsp_path' => '/stream1',
             'rtsp_profiles' => [
                 [
                     'name' => 'mainStream',
-                    'uri' => 'rtsp://192.168.1.69:554/stream1',
+                    'uri' => 'rtsp://192.0.2.69:554/stream1',
                 ],
                 [
                     'name' => 'subStream',
-                    'uri' => 'rtsp://192.168.1.69:554/stream2',
+                    'uri' => 'rtsp://192.0.2.69:554/stream2',
                 ],
             ],
             'supports_onvif' => false,
@@ -1221,7 +1221,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Late Motion Bay',
-            'local_ip' => '192.168.1.83',
+            'local_ip' => '192.0.2.83',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream12',
             'supports_onvif' => false,
@@ -1265,7 +1265,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Pre-roll Only Bay',
-            'local_ip' => '192.168.1.84',
+            'local_ip' => '192.0.2.84',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream13',
             'supports_onvif' => false,
@@ -1303,7 +1303,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'West Gate',
-            'local_ip' => '192.168.1.82',
+            'local_ip' => '192.0.2.82',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream11',
             'supports_onvif' => false,
@@ -1329,7 +1329,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.87',
+            'local_ip' => '192.0.2.87',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream16',
             'supports_onvif' => false,
@@ -1363,7 +1363,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Retry Bay',
-            'local_ip' => '192.168.1.86',
+            'local_ip' => '192.0.2.86',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream15',
             'supports_onvif' => false,
@@ -1460,7 +1460,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Quiet Retry Bay',
-            'local_ip' => '192.168.1.86',
+            'local_ip' => '192.0.2.86',
             'rtsp_path' => '/stream15',
             'supports_rtsp' => true,
             'is_enabled' => true,
@@ -1494,7 +1494,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Driveway',
-            'local_ip' => '192.168.1.72',
+            'local_ip' => '192.0.2.72',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream3',
             'supports_onvif' => false,
@@ -1530,7 +1530,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Lobby',
-            'local_ip' => '192.168.1.73',
+            'local_ip' => '192.0.2.73',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream4',
             'supports_onvif' => false,
@@ -1577,7 +1577,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Yard',
-            'local_ip' => '192.168.1.74',
+            'local_ip' => '192.0.2.74',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream5',
             'supports_onvif' => false,
@@ -1674,7 +1674,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
             $camera = Camera::query()->create([
                 'name' => 'Loading Dock',
-                'local_ip' => '192.168.1.84',
+                'local_ip' => '192.0.2.84',
                 'rtsp_port' => 554,
                 'rtsp_path' => '/stream12',
                 'supports_onvif' => false,
@@ -1789,7 +1789,7 @@ class CameraRecordingMotionCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'recording_rtsp_path' => '/stream2',
@@ -1797,12 +1797,12 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'rtsp_profiles' => [
                     [
                         'name' => 'mainStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'uri' => 'rtsp://192.0.2.69:554/stream1',
                         'path' => '/stream1',
                     ],
                     [
                         'name' => 'subStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'uri' => 'rtsp://192.0.2.69:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -1829,7 +1829,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $this->assertNotNull($source);
         $this->assertSame(1, $source['index']);
-        $this->assertSame('rtsp://192.168.1.69:554/stream2', $source['authenticated_uri']);
+        $this->assertSame('rtsp://192.0.2.69:554/stream2', $source['authenticated_uri']);
     }
 
     public function test_it_uses_the_resolved_source_index_for_motion_source_paths_when_selection_is_automatic(): void
@@ -1840,7 +1840,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'recording_rtsp_path' => '/stream2',
@@ -1848,12 +1848,12 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'rtsp_profiles' => [
                     [
                         'name' => 'mainStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'uri' => 'rtsp://192.0.2.69:554/stream1',
                         'path' => '/stream1',
                     ],
                     [
                         'name' => 'subStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'uri' => 'rtsp://192.0.2.69:554/stream2',
                         'path' => '/stream2',
                     ],
                 ],
@@ -1921,7 +1921,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.69',
+            'local_ip' => '192.0.2.69',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'recording_rtsp_path' => '/stream2',
@@ -1929,13 +1929,13 @@ class CameraRecordingMotionCommandTest extends TestCase
                 'rtsp_profiles' => [
                     [
                         'name' => 'mainStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream1',
+                        'uri' => 'rtsp://192.0.2.69:554/stream1',
                         'path' => '/stream1',
                         'resolution' => '1920x1080',
                     ],
                     [
                         'name' => 'subStream',
-                        'uri' => 'rtsp://192.168.1.69:554/stream2',
+                        'uri' => 'rtsp://192.0.2.69:554/stream2',
                         'path' => '/stream2',
                         'resolution' => '1280x720',
                         'probe_status' => 'Healthy',
@@ -2006,7 +2006,7 @@ class CameraRecordingMotionCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Kitchen',
-            'local_ip' => '192.168.1.75',
+            'local_ip' => '192.0.2.75',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream6',
             'supports_onvif' => false,

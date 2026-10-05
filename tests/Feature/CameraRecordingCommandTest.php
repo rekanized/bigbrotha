@@ -27,7 +27,7 @@ class CameraRecordingCommandTest extends TestCase
     {
         config()->set('ffmpeg.ffmpeg.threads', 2);
         config()->set('ffmpeg.ffmpeg.binaries', [$this->fakeFfmpegBinary('continuous-log-args')]);
-        $camera = Camera::query()->create(['name' => 'Review cost', 'local_ip' => '192.168.1.88']);
+        $camera = Camera::query()->create(['name' => 'Review cost', 'local_ip' => '192.0.2.88']);
         $recording = CameraRecording::query()->create([
             'camera_id' => $camera->id, 'capture_mode' => Camera::RECORDING_MODE_MOTION,
             'status' => CameraRecording::STATUS_RECORDED,
@@ -66,7 +66,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Front Door',
-            'local_ip' => '192.168.1.67',
+            'local_ip' => '192.0.2.67',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -106,7 +106,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'South Gate',
-            'local_ip' => '192.168.1.76',
+            'local_ip' => '192.0.2.76',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream7',
             'supports_onvif' => false,
@@ -154,7 +154,7 @@ class CameraRecordingCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Hallway 2nd floor',
-            'local_ip' => '192.168.1.71',
+            'local_ip' => '192.0.2.71',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream2',
             'supports_onvif' => false,
@@ -191,7 +191,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $selectedCamera = Camera::query()->create([
             'name' => 'Loading Dock',
-            'local_ip' => '192.168.1.44',
+            'local_ip' => '192.0.2.44',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -203,7 +203,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $otherCamera = Camera::query()->create([
             'name' => 'Garage',
-            'local_ip' => '192.168.1.45',
+            'local_ip' => '192.0.2.45',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -257,7 +257,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Entrance',
-            'local_ip' => '192.168.1.81',
+            'local_ip' => '192.0.2.81',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -309,7 +309,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Back Entrance',
-            'local_ip' => '192.168.1.81',
+            'local_ip' => '192.0.2.81',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -344,7 +344,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.170',
+            'local_ip' => '192.0.2.170',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream170',
             'supports_onvif' => false,
@@ -395,7 +395,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.170',
+            'local_ip' => '192.0.2.170',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream170',
             'supports_onvif' => false,
@@ -457,7 +457,7 @@ class CameraRecordingCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.171',
+            'local_ip' => '192.0.2.171',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream171',
             'supports_onvif' => false,
@@ -494,7 +494,7 @@ class CameraRecordingCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.171',
+            'local_ip' => '192.0.2.171',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream171',
             'supports_onvif' => false,
@@ -534,7 +534,7 @@ class CameraRecordingCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.173',
+            'local_ip' => '192.0.2.173',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream173',
             'supports_onvif' => false,
@@ -589,7 +589,7 @@ class CameraRecordingCommandTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.172',
+            'local_ip' => '192.0.2.172',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream172',
             'supports_onvif' => false,
@@ -634,7 +634,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.170',
+            'local_ip' => '192.0.2.170',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream170',
             'supports_onvif' => false,
@@ -697,7 +697,7 @@ class CameraRecordingCommandTest extends TestCase
 
         Camera::query()->create([
             'name' => 'Atrium',
-            'local_ip' => '192.168.1.170',
+            'local_ip' => '192.0.2.170',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream170',
             'supports_onvif' => false,
@@ -738,7 +738,7 @@ class CameraRecordingCommandTest extends TestCase
 
         $camera = Camera::query()->create([
             'name' => 'HEVC Warehouse',
-            'local_ip' => '192.168.1.171',
+            'local_ip' => '192.0.2.171',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream171',
             'recording_rtsp_path' => '/stream171',
@@ -756,7 +756,7 @@ class CameraRecordingCommandTest extends TestCase
                 'rtsp_profiles' => [
                     [
                         'name' => 'mainStream',
-                        'uri' => 'rtsp://192.168.1.171:554/stream171',
+                        'uri' => 'rtsp://192.0.2.171:554/stream171',
                         'encoding' => 'H265',
                         'video_codec' => 'hevc',
                     ],

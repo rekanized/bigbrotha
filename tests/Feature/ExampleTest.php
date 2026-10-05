@@ -15,9 +15,9 @@ class ExampleTest extends TestCase
     public function test_authenticated_requests_from_the_allowed_ip_are_served(): void
     {
         $operator = User::factory()->create();
-        $server = ['REMOTE_ADDR' => '192.168.1.1'];
+        $server = ['REMOTE_ADDR' => '192.0.2.1'];
 
-        config()->set('network.website_allowed_ips', ['192.168.1.1']);
+        config()->set('network.website_allowed_ips', ['192.0.2.1']);
 
         $relay = Mockery::mock(MediaMtxProcessService::class);
         $relay->shouldReceive('ensureRunning')->andReturn([
@@ -42,7 +42,7 @@ class ExampleTest extends TestCase
     {
         $operator = User::factory()->create();
 
-        config()->set('network.website_allowed_ips', ['192.168.1.1']);
+        config()->set('network.website_allowed_ips', ['192.0.2.1']);
 
         $response = $this
             ->actingAs($operator)
@@ -54,7 +54,7 @@ class ExampleTest extends TestCase
 
     public function test_container_health_endpoint_bypasses_the_operator_ip_allowlist(): void
     {
-        config()->set('network.website_allowed_ips', ['192.168.1.1']);
+        config()->set('network.website_allowed_ips', ['192.0.2.1']);
 
         $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
             ->get('/up')

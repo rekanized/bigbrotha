@@ -16,6 +16,10 @@ docker run --rm --entrypoint sh "$1" -lc '
         test -s /app/THIRD_PARTY_NOTICES.md
         test -s /app/public/js/vendor/sortable.LICENSE.txt
         test -s /usr/share/doc/mediamtx/LICENSE
+        test -s /usr/share/bigbrotha/docker-compose.yml
+        test -s /usr/share/bigbrotha/.env.example
+        grep -q "^APP_URL=$" /usr/share/bigbrotha/.env.example
+        grep -q "^DB_PASSWORD=$" /usr/share/bigbrotha/.env.example
         test "$APP_ENV" = production
         test "$APP_DEBUG" = false
         test -f /app/app/Providers/AppServiceProvider.php

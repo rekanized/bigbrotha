@@ -93,7 +93,7 @@ class AuditLoggingTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->withHeader('User-Agent', 'Audit Test Agent')
             ->post('/_test/audit/recordings/'.$recording->getKey().'/processing')
             ->assertNoContent();
@@ -109,7 +109,7 @@ class AuditLoggingTest extends TestCase
         $this->assertSame(AuditLog::ACTOR_TYPE_USER, $audit->actor_type);
         $this->assertSame('Audit Operator', $audit->actor_label);
         $this->assertSame(AuditLog::SOURCE_HTTP, $audit->source);
-        $this->assertSame('192.168.1.1', $audit->ip_address);
+        $this->assertSame('192.0.2.1', $audit->ip_address);
         $this->assertSame('Audit Test Agent', $audit->user_agent);
         $this->assertSame(['status' => CameraRecording::STATUS_QUEUED, 'message' => 'Queued by scheduler.'], $audit->old_values);
         $this->assertSame(['status' => CameraRecording::STATUS_PROCESSING, 'message' => 'Worker claimed the queued segment.'], $audit->new_values);
@@ -174,7 +174,7 @@ class AuditLoggingTest extends TestCase
     {
         return Camera::query()->create([
             'name' => 'Audit Camera',
-            'local_ip' => '192.168.1.210',
+            'local_ip' => '192.0.2.210',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,

@@ -97,13 +97,13 @@ class TimelineReviewTest extends TestCase
     {
         Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
-                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.0.2.70'],
             ],
             'reviewTiles' => [
                 [
                     'cameraId' => 7,
                     'cameraName' => 'North Gate',
-                    'cameraIp' => '192.168.1.70',
+                    'cameraIp' => '192.0.2.70',
                     'hasFocusSegment' => true,
                     'segmentCount' => 1,
                     'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
@@ -124,13 +124,13 @@ class TimelineReviewTest extends TestCase
     {
         $component = Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
-                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.0.2.70'],
             ],
             'reviewTiles' => [
                 [
                     'cameraId' => 7,
                     'cameraName' => 'North Gate',
-                    'cameraIp' => '192.168.1.70',
+                    'cameraIp' => '192.0.2.70',
                     'hasFocusSegment' => true,
                     'segmentCount' => 1,
                     'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
@@ -163,13 +163,13 @@ class TimelineReviewTest extends TestCase
     {
         Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
-                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+                ['id' => 7, 'name' => 'North Gate', 'local_ip' => '192.0.2.70'],
             ],
             'reviewTiles' => [
                 [
                     'cameraId' => 7,
                     'cameraName' => 'North Gate',
-                    'cameraIp' => '192.168.1.70',
+                    'cameraIp' => '192.0.2.70',
                     'hasFocusSegment' => true,
                     'segmentCount' => 1,
                     'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
@@ -220,7 +220,7 @@ class TimelineReviewTest extends TestCase
         $user = User::factory()->create();
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -261,7 +261,7 @@ class TimelineReviewTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -287,13 +287,13 @@ class TimelineReviewTest extends TestCase
 
         Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
-                ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+                ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.0.2.70'],
             ],
             'reviewTiles' => [
                 [
                     'cameraId' => $camera->id,
                     'cameraName' => 'North Gate',
-                    'cameraIp' => '192.168.1.70',
+                    'cameraIp' => '192.0.2.70',
                     'hasFocusSegment' => true,
                     'segmentCount' => 2,
                     'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
@@ -315,7 +315,7 @@ class TimelineReviewTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -374,7 +374,7 @@ class TimelineReviewTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -426,14 +426,14 @@ class TimelineReviewTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
 
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -477,14 +477,14 @@ class TimelineReviewTest extends TestCase
     {
         app(ApplicationSettingsService::class)->saveNetworkStorageSettings(
             true,
-            '//192.168.1.199/fileshare/Applications/bigbrotha',
+            '//192.0.2.199/recordings/examples/bigbrotha',
             'administrator',
             'secret-pass',
         );
 
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -544,7 +544,7 @@ class TimelineReviewTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,
@@ -570,13 +570,13 @@ class TimelineReviewTest extends TestCase
 
         Livewire::test(TimelineReview::class, [
             'timelineCameraOptions' => [
-                ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.168.1.70'],
+                ['id' => $camera->id, 'name' => 'North Gate', 'local_ip' => '192.0.2.70'],
             ],
             'reviewTiles' => [
                 [
                     'cameraId' => $camera->id,
                     'cameraName' => 'North Gate',
-                    'cameraIp' => '192.168.1.70',
+                    'cameraIp' => '192.0.2.70',
                     'hasFocusSegment' => false,
                     'segmentCount' => 1,
                     'previewTimeLabel' => '2026-04-03 12:00:00 UTC',
@@ -596,7 +596,7 @@ class TimelineReviewTest extends TestCase
     {
         $camera = Camera::query()->create([
             'name' => 'North Gate',
-            'local_ip' => '192.168.1.70',
+            'local_ip' => '192.0.2.70',
             'rtsp_port' => 554,
             'rtsp_path' => '/stream1',
             'supports_onvif' => false,

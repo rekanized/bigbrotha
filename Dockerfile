@@ -128,6 +128,9 @@ LABEL org.opencontainers.image.title="BigBrotha Laravel application" \
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.created="$BUILD_DATE"
 
+# Ship deployment files with the image so installation needs only Docker Hub.
+COPY docker-compose.yml .env.example /usr/share/bigbrotha/
+
 COPY app ./app
 COPY artisan composer.json composer.lock ./
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
@@ -192,6 +195,7 @@ RUN apt-get update \
 COPY . .
 
 RUN cp .env.example .env \
+    && sed -i 's|^APP_URL=$|APP_URL=http://localhost:8080|' .env \
     && mkdir -p \
         bootstrap/cache \
         storage/framework/cache/data \

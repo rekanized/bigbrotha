@@ -24,7 +24,7 @@ class AdminAuditLogTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get('/admin/settings')
             ->assertOk()
             ->assertSee('Audit log');
@@ -39,7 +39,7 @@ class AdminAuditLogTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->withHeader('User-Agent', 'Admin Audit Test')
             ->post('/admin/users/allowed-emails', [
                 'email' => 'operator@example.com',
@@ -49,7 +49,7 @@ class AdminAuditLogTest extends TestCase
         $this->assertTrue(AllowedLoginEmail::isAllowed('operator@example.com'));
 
         $this->actingAs($admin)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get('/admin/audit-log')
             ->assertOk()
             ->assertSee('operator@example.com')
@@ -77,14 +77,14 @@ class AdminAuditLogTest extends TestCase
                 'old_values' => ['index' => $index - 1],
                 'new_values' => ['index' => $index],
                 'metadata' => ['batch' => 'pagination'],
-                'ip_address' => '192.168.1.1',
+                'ip_address' => '192.0.2.1',
                 'user_agent' => 'Pagination Test Agent',
                 'created_at' => Carbon::create(2026, 5, 14, 12, 0, 0, 'UTC')->subMinutes($index),
             ]);
         }
 
         $this->actingAs($admin)
-            ->withServerVariables(['REMOTE_ADDR' => '192.168.1.1'])
+            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
             ->get('/admin/audit-log')
             ->assertOk()
             ->assertSee('Page 1 of 2')
@@ -105,7 +105,7 @@ class AdminAuditLogTest extends TestCase
     public function test_recording_failure_view_displays_camera_status_and_reason(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
-        $camera = Camera::query()->create(['name' => 'Loading Bay', 'local_ip' => '192.168.1.10']);
+        $camera = Camera::query()->create(['name' => 'Loading Bay', 'local_ip' => '192.0.2.10']);
         $this->createEntry([
             'auditable_type' => CameraRecording::class,
             'event' => 'recording.state_transition',
@@ -226,7 +226,7 @@ class AdminAuditLogTest extends TestCase
             'old_values' => ['enabled' => false],
             'new_values' => ['enabled' => true],
             'metadata' => ['batch' => 'expired'],
-            'ip_address' => '192.168.1.1',
+            'ip_address' => '192.0.2.1',
             'user_agent' => 'Prune Test Agent',
             'created_at' => now()->utc()->subDays(31),
         ]);
@@ -242,7 +242,7 @@ class AdminAuditLogTest extends TestCase
             'old_values' => ['enabled' => true],
             'new_values' => ['enabled' => false],
             'metadata' => ['batch' => 'retained'],
-            'ip_address' => '192.168.1.1',
+            'ip_address' => '192.0.2.1',
             'user_agent' => 'Prune Test Agent',
             'created_at' => now()->utc()->subDays(29),
         ]);

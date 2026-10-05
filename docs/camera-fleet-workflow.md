@@ -89,12 +89,12 @@ camera. See [deployment constraints](known-issues-and-constraints.md).
 ## Routine troubleshooting
 
 ```sh
-./docker/compose.sh ps
-./docker/compose.sh logs --tail=100 app background relay
-./docker/compose.sh exec app php artisan relay:status
+docker compose ps
+docker compose logs --tail=100 app background relay
+docker compose exec app php artisan relay:status
 ```
 
-Keep the same `--local` or `--dev` mode used to start the installation. Check camera
+Include the same Compose override files used to start the installation. Check camera
 credentials, routing, source availability, and codec compatibility before changing
 application settings. Do not include credentials, private footage, or unredacted
 logs in support requests.

@@ -3,7 +3,6 @@
 .env
 .env.*
 !.env.example
-!.env.docker.example
 .docker-state/
 .phpactor.json
 .phpunit.result.cache
@@ -20,6 +19,16 @@
 /vendor
 /tmp/
 /database/backups/
+/backups/
+/deployment-backup*/
+/database/seeders/data/
+/docker-compose.override.yml
+*.dump
+*.sql.gz
+*.pem
+*.key
+*.p12
+*.pfx
 _ide_helper.php
 Homestead.json
 Homestead.yaml
@@ -30,6 +39,7 @@ Thumbs.db
 /CLAUDE.md
 /UI-rules.md
 /.agents/
+/.codex/
 /.github/copilot-instructions.md
 /.github/instructions/
 /docs/*-audit.md
