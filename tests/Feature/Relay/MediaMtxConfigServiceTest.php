@@ -65,12 +65,14 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString("-i 'rtsp://internal-reader:reader-pass@relay:8554/camera-{$camera->id}-source-profile-0'", $liveBlock);
         $this->assertStringNotContainsString('rtsp://192.0.2.91:554/minor', $liveBlock);
         $this->assertStringContainsString('-c:v copy', $liveBlock);
+        $this->assertStringNotContainsString('-threads:v', $liveBlock);
+        $this->assertStringContainsString("-filter_threads '2'", $liveBlock);
         $this->assertStringContainsString("-timeout '10000000'", $liveBlock);
         $this->assertStringContainsString("-max_interleave_delta '100000'", $liveBlock);
         $this->assertStringContainsString('-flush_packets 1', $liveBlock);
         $this->assertStringContainsString("-rtbufsize '64M'", $liveBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $liveBlock);
-        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $liveBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $liveBlock);
         $this->assertStringContainsString("-analyzeduration '1000000'", $liveBlock);
         $this->assertStringContainsString("-probesize '131072'", $liveBlock);
         $this->assertStringContainsString("-fps_mode 'passthrough'", $liveBlock);
@@ -87,6 +89,14 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('libx264', $liveBlock);
         $this->assertStringNotContainsString('-rw_timeout', $liveBlock);
         $this->assertStringNotContainsString(' -an ', $liveBlock);
+
+        // Explicit repair remains available for sources with malformed clocks.
+        config()->set('ffmpeg.live.use_wallclock_timestamps', true);
+        config()->set('ffmpeg.relay_source.use_wallclock_timestamps', true);
+        $repairedConfig = app(MediaMtxConfigService::class)->buildConfig();
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $this->pathBlock($repairedConfig, 'camera-'.$camera->id.'-live'));
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $this->pathBlock($repairedConfig, 'camera-'.$camera->id.'-source-profile-0'));
+
     }
 
     public function test_build_config_uses_copy_pipeline_for_source_run_on_demand_commands(): void
@@ -132,7 +142,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString('-flush_packets 1', $sourceBlock);
         $this->assertStringContainsString("-rtbufsize '128M'", $sourceBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $sourceBlock);
-        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $sourceBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $sourceBlock);
         $this->assertStringContainsString("-analyzeduration '1000000'", $sourceBlock);
         $this->assertStringContainsString("-probesize '262144'", $sourceBlock);
         $this->assertStringContainsString("-fps_mode 'passthrough'", $sourceBlock);
@@ -148,6 +158,8 @@ class MediaMtxConfigServiceTest extends TestCase
 
     public function test_h264_with_detected_b_frames_is_transcoded_for_webrtc(): void
     {
+        config()->set('ffmpeg.live.use_wallclock_timestamps', true);
+        config()->set('ffmpeg.relay_source.use_wallclock_timestamps', true);
         config()->set('ffmpeg.ffmpeg.binaries', ['/bin/true']);
         $camera = Camera::query()->create([
             'name' => 'Reordered H264', 'local_ip' => '192.0.2.93',
@@ -160,6 +172,9 @@ class MediaMtxConfigServiceTest extends TestCase
         $live = $this->pathBlock($config, 'camera-'.$camera->id.'-live');
         $this->assertStringContainsString('-c:v libx264', $live);
         $this->assertStringContainsString("-threads:v '2'", $live);
+        [$input, $output] = explode(' -i ', $live, 2);
+        $this->assertStringContainsString("-threads:v '2'", $input, 'Decoder concurrency must be bounded before the input.');
+        $this->assertStringContainsString("-threads:v '2'", $output, 'Encoder concurrency must remain bounded after the input.');
         $this->assertStringContainsString('-bf 0', $live);
         $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $live);
         $this->assertStringContainsString('-c copy', $this->pathBlock($config, 'camera-'.$camera->id.'-source-profile-0'));
@@ -254,7 +269,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('slice-max-size', $liveBlock);
         $this->assertStringContainsString("-af 'aresample=48000:async=1000:min_hard_comp=0.100:first_pts=0,asetpts=N/SR/TB'", $liveBlock);
         $this->assertStringNotContainsString('-c:v copy', $liveBlock);
-        $this->assertStringContainsString("-use_wallclock_as_timestamps '1'", $liveBlock);
+        $this->assertStringContainsString("-use_wallclock_as_timestamps '0'", $liveBlock);
     }
 
     public function test_build_config_can_use_nvidia_hardware_acceleration_for_hevc_live_transcoding(): void

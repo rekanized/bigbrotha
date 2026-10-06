@@ -47,6 +47,15 @@ transcoding. This increases CPU demand. Camera firmware and upstream network
 interruptions can still cause gaps; application buffering cannot guarantee smooth
 playback when the source stops delivering packets.
 
+Live relay hops preserve the media clock by default. If a source has malformed
+timestamps, `FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS=true` explicitly enables
+arrival-time repair at the shared source, and
+`FFMPEG_LIVE_USE_WALLCLOCK_TIMESTAMPS=true` enables it at the live output. These
+are compatibility overrides: bursty packet delivery can become uneven frame
+timing when arrival times replace media timestamps. Detected B-frame streams
+always preserve their decode/presentation ordering. Recording workers still use
+the separate `FFMPEG_RECORDING_USE_WALLCLOCK_TIMESTAMPS` policy.
+
 ## WebRTC and reverse proxies
 
 The web reverse proxy handles HTTP and WHEP signaling through `/__webrtc/`.

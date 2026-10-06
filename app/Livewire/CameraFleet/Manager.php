@@ -15,6 +15,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Throwable;
 
@@ -34,6 +35,7 @@ class Manager extends Component
     /**
      * @var array<int, array<string, string|null>>
      */
+    #[Locked]
     public array $rtspProfiles = [];
 
     public string $probeEndpointUrl = '';
@@ -41,11 +43,13 @@ class Manager extends Component
     /**
      * @var array<string, mixed>
      */
+    #[Locked]
     public array $probeResponse = [];
 
     /**
      * @var array<string, mixed>
      */
+    #[Locked]
     public array $draftMetadata = [];
 
     public ?string $statusMessage = null;

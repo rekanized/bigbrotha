@@ -3,6 +3,8 @@
 namespace App\Services\Onvif;
 
 use App\Models\Camera;
+use App\Support\CameraUrl;
+use App\Support\OnvifXml;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Http\Client\ConnectionException;
@@ -15,6 +17,7 @@ class OnvifPtzSoapClient
 {
     public function request(Camera $camera, string $url, string $namespace, string $operation, string $body): DOMXPath
     {
+        CameraUrl::assertSameHost($url, (string) $camera->onvifEndpoint());
         $action = $namespace.'/'.$operation;
         $security = '';
         if (filled($camera->username)) {
@@ -63,6 +66,7 @@ XML;
         if (! $response->successful()) {
             throw new RuntimeException('The camera rejected the PTZ request. Check its ONVIF credentials and permissions.');
         }
+        OnvifXml::assertSafe($response->body());
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
         try {

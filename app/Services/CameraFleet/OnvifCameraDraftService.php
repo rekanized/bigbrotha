@@ -66,6 +66,7 @@ class OnvifCameraDraftService
                 $onvifPath,
                 $username,
                 $password,
+                $serviceUrl,
             ), $timeoutSeconds);
 
             $mediaServiceUrl = $this->stringOrNull($streamDiscovery['media_service_url'] ?? null);
@@ -138,6 +139,7 @@ class OnvifCameraDraftService
         string $onvifPath,
         ?string $username,
         ?string $password,
+        string $serviceUrl,
     ): Camera {
         $camera = new Camera;
         $camera->forceFill([
@@ -154,6 +156,7 @@ class OnvifCameraDraftService
             'supports_onvif' => true,
             'supports_rtsp' => false,
             'is_enabled' => true,
+            'metadata' => ['onvif' => ['service_url' => $serviceUrl]],
         ]);
 
         return $camera;
@@ -180,6 +183,10 @@ class OnvifCameraDraftService
 
     private function resolveLocalIp(string $host, ?string $networkIpv4): string
     {
+        if (filter_var(trim($host, '[]'), FILTER_VALIDATE_IP) !== false) {
+            return $host;
+        }
+
         if (is_string($networkIpv4) && filter_var($networkIpv4, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
             return $networkIpv4;
         }

@@ -495,10 +495,10 @@ class MediaMtxConfigService
         $fpsMode = trim((string) config('ffmpeg.live.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.live.avoid_negative_ts', 'make_zero'));
         $transcodeVideo = $this->shouldTranscodeVideo($profile, $transcodeOverrides);
-        // Keep the established camera clock repair. B-frame inputs are the
-        // exception: their presentation/decode timestamp ordering must survive.
+        // Preserve the media clock across relay hops. Optional clock repair
+        // must never destroy B-frame presentation/decode timestamp ordering.
         $useWallclockTimestamps = (int) ($profile['video_has_b_frames'] ?? 0) === 0
-            && (bool) config('ffmpeg.live.use_wallclock_timestamps', true);
+            && (bool) config('ffmpeg.live.use_wallclock_timestamps', false);
         $transcodeFpsMode = trim((string) config('mediamtx.transcode.video_fps_mode', 'cfr'));
         $transcodeFps = max(1, (int) config('mediamtx.transcode.video_fps', 15));
         $transcodeOptions = $this->resolvedLiveTranscodeOptions($transcodeOverrides);
@@ -512,6 +512,8 @@ class MediaMtxConfigService
             '-hide_banner',
             '-loglevel',
             'error',
+            '-filter_threads',
+            escapeshellarg((string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2))),
             '-rtsp_transport',
             escapeshellarg($transport),
             '-thread_queue_size',
@@ -528,6 +530,13 @@ class MediaMtxConfigService
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
             escapeshellarg((string) $inputProbeSize),
+            // Decoder options belong before -i. The encoder's -threads:v
+            // setting alone leaves each software decoder using every CPU and
+            // buffering extra frames for frame-level parallelism.
+            ...($transcodeVideo && $this->hardwareAccelerationEngine() === '' ? [
+                '-threads:v',
+                escapeshellarg((string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2))),
+            ] : []),
             ...$this->hardwareAccelerationInputArguments($profile, $transcodeVideo),
             '-i',
             escapeshellarg($authenticatedUri),
@@ -613,7 +622,7 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(config('ffmpeg.recording.use_wallclock_timestamps', true) && ! $preserveMediaTimestamps ? '1' : '0'),
+            escapeshellarg(config('ffmpeg.relay_source.use_wallclock_timestamps', false) && ! $preserveMediaTimestamps ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',

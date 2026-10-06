@@ -93,7 +93,9 @@ return [
         'input_probe_size' => max(1024, (int) env('FFMPEG_LIVE_PROBE_SIZE', 131072)),
         'input_analyze_duration' => max(0, (int) env('FFMPEG_LIVE_ANALYZE_DURATION', 1000000)),
         'input_fflags' => trim((string) env('FFMPEG_LIVE_INPUT_FFLAGS', '+genpts+discardcorrupt')),
-        'use_wallclock_timestamps' => filter_var(env('FFMPEG_LIVE_USE_WALLCLOCK_TIMESTAMPS', true), FILTER_VALIDATE_BOOL),
+        // Preserve RTP timing; local packet arrival can be bursty even for a
+        // perfectly paced source. Wall-clock repair is an explicit override.
+        'use_wallclock_timestamps' => filter_var(env('FFMPEG_LIVE_USE_WALLCLOCK_TIMESTAMPS', false), FILTER_VALIDATE_BOOL),
         'fps_mode' => trim((string) env('FFMPEG_LIVE_FPS_MODE', 'passthrough')),
         'avoid_negative_ts' => trim((string) env('FFMPEG_LIVE_AVOID_NEGATIVE_TS', 'make_zero')),
         'max_muxing_queue_size' => max(32, (int) env('FFMPEG_LIVE_MAX_MUXING_QUEUE_SIZE', 1024)),
@@ -107,6 +109,7 @@ return [
 
     'relay_source' => [
         'max_interleave_delta' => max(1, (int) env('FFMPEG_RELAY_SOURCE_MAX_INTERLEAVE_DELTA', 100000)),
+        'use_wallclock_timestamps' => filter_var(env('FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS', false), FILTER_VALIDATE_BOOL),
     ],
 
     'playback' => [

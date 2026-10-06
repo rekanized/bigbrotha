@@ -6,6 +6,7 @@ use App\Models\Camera;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxPathNamer;
 use App\Services\Relay\MediaMtxPathStatusService;
+use App\Support\CameraUrl;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -532,6 +533,7 @@ class CameraLiveStreamService
             throw new RuntimeException('The selected RTSP profile does not contain a usable URI.');
         }
 
+        CameraUrl::assertRtsp($uri);
         $parts = parse_url($uri);
 
         if (! is_array($parts) || isset($parts['user']) || $camera->username === null || $camera->username === '' || $camera->password === null || $camera->password === '') {

@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+umask 0007
 
 APP_ROOT="${APP_ROOT:-/app}"
 APP_KEY_FILE="${APP_KEY_FILE:-$APP_ROOT/storage/app/private/app.key}"
@@ -25,6 +26,9 @@ mkdir -p \
     storage/framework/views \
     storage/logs
 
+# Camera credentials, relay configuration, cached media and sessions are private.
+chmod 2770 storage/app/private storage/framework storage/logs
+
 if [ "${BIGBROTHA_DEV_MODE:-false}" = "true" ] && [ "$(basename "$start_command")" = "run-app" ]; then
     composer install --prefer-dist --no-interaction --no-progress --no-scripts
 fi
@@ -35,7 +39,7 @@ normalize_recording_runtime_permissions() {
         storage/app/private/motion-recorders
     do
         chown -R www-data:www-data "$runtime_path"
-        find "$runtime_path" -type d -exec chmod 2775 {} +
+        find "$runtime_path" -type d -exec chmod 2770 {} +
     done
 }
 

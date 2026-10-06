@@ -7,6 +7,7 @@ use App\Services\CameraStorageService;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxConfigService;
 use App\Services\Relay\MediaMtxPathStatusService;
+use App\Support\CameraUrl;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -709,6 +710,7 @@ class RtspStreamDiagnosticsService
 
     private function injectCredentials(string $uri, ?string $username, ?string $password): string
     {
+        CameraUrl::assertRtsp($uri);
         $parts = parse_url($uri);
 
         if (! is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {

@@ -121,7 +121,7 @@ class AppServiceProvider extends ServiceProvider
 
         try {
             File::ensureDirectoryExists($directory);
-            @chmod($directory, 02775);
+            @chmod($directory, 02770);
         } catch (Throwable) {
         }
     }
@@ -141,7 +141,7 @@ class AppServiceProvider extends ServiceProvider
         clearstatcache(true, $path);
 
         if (is_file($path) && is_writable($path)) {
-            @chmod($path, 0664);
+            @chmod($path, 0660);
 
             return;
         }
@@ -160,7 +160,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         if (is_file($path)) {
-            @chmod($path, 0664);
+            @chmod($path, 0660);
         }
     }
 

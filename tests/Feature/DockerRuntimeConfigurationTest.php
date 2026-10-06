@@ -147,7 +147,7 @@ class DockerRuntimeConfigurationTest extends TestCase
         $this->assertStringContainsString('storage/app/private/continuous-recorders', $entrypoint);
         $this->assertStringContainsString('storage/app/private/motion-recorders', $entrypoint);
         $this->assertStringContainsString('chown -R www-data:www-data "$runtime_path"', $entrypoint);
-        $this->assertStringContainsString('find "$runtime_path" -type d -exec chmod 2775 {} +', $entrypoint);
+        $this->assertStringContainsString('find "$runtime_path" -type d -exec chmod 2770 {} +', $entrypoint);
     }
 
     public function test_production_runtime_warms_safe_caches_without_persisting_database_backed_secrets(): void

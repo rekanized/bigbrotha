@@ -237,7 +237,7 @@
     };
 
     const syncAudioSelection = () => {
-        state.players.forEach((player) => player.applyAudioSelection());
+        state.managedPlayers.forEach((player) => player.applyAudioSelection());
     };
 
     const setActiveAudioPlayer = (player) => {
@@ -357,7 +357,7 @@
         }
 
         start(delayMs = 0) {
-            if (this.bootstrapUrl === '' || this.video === null || this.message === null) {
+            if (state.managedPlayers.has(this) || this.closed || this.bootstrapUrl === '' || this.video === null || this.message === null) {
                 return;
             }
 
@@ -482,6 +482,9 @@
             }
 
             const session = await response.json();
+            if (!this.isCurrentAttempt(attempt)) {
+                throw new DOMException('Superseded player session.', 'AbortError');
+            }
             this.applyStreamHints(session?.stream || null);
 
             return session;
@@ -584,6 +587,7 @@
                     this.mediaStream.addTrack(track);
                     const attachedAttempt = this.connectionAttempt;
                     track.addEventListener('ended', () => {
+                        if (!this.isCurrentAttempt(attachedAttempt)) return;
                         this.removeTrack(track.id);
 
                         if (track.kind === 'video' && this.isCurrentAttempt(attachedAttempt)) {
@@ -630,10 +634,6 @@
             if (this.video.muted !== !isActive) this.video.muted = !isActive;
             // Preserve the native volume slider while muted so unmuting remains audible.
             if (this.video.volume !== state.masterVolume) this.video.volume = state.masterVolume;
-
-            if (isActive) {
-                this.tryPlay().catch(() => undefined);
-            }
 
             this.syncAudioUi();
         }
@@ -788,6 +788,13 @@
                     return false;
                 }
                 if (this.isAutoplayBlocked(error)) {
+                    // A reconnect can lose permission to autoplay audible media.
+                    // Keep video moving and let the operator select audio again.
+                    if (!this.video.muted) {
+                        if (state.activeAudioPlayer === this) setActiveAudioPlayer(null);
+                        this.video.muted = true;
+                        return this.tryPlay();
+                    }
                     this.awaitingUserActivation = true;
                     this.updateStatusMessage();
 
@@ -1110,7 +1117,6 @@
                     return;
                 }
 
-                this.hasRetriedFreshSession = false;
                 this.connectIfEligible();
             }, delayMs);
         }
@@ -1186,9 +1192,13 @@
     }
 
     const closePlayers = () => {
-        const players = state.players;
+        const players = [...state.managedPlayers];
         state.players = [];
         state.activeAudioPlayer = null;
+        if (state.documentSuspendTimeout !== null) {
+            window.clearTimeout(state.documentSuspendTimeout);
+            state.documentSuspendTimeout = null;
+        }
         players.forEach((player) => player.close());
         clearFocusedTile();
         state.pointerStart = null;
@@ -1203,16 +1213,21 @@
     };
 
     const bootstrapPlayers = () => {
-        closePlayers();
+        const roots = Array.from(document.querySelectorAll('[data-webrtc-player]'))
+            .filter((element) => element instanceof HTMLElement && element.dataset.webrtcPlayerSkipAuto !== 'true');
+        state.players.filter((player) => !roots.includes(player.root)).forEach((player) => player.close());
+        if (state.focusedTile && !state.focusedTile.isConnected) clearFocusedTile();
 
-        state.players = Array.from(document.querySelectorAll('[data-webrtc-player]'))
-            .filter((element) => element instanceof HTMLElement && element.dataset.webrtcPlayerSkipAuto !== 'true')
-            .map((element) => {
-                const player = new BigBrothaWhepPlayer(element);
-                element.bigBrothaWhepPlayer = player;
+        // DOMContentLoaded, Livewire navigation and lazy script loading may all
+        // bootstrap the same document. Preserve receivers already playing here.
+        state.players = roots.map((element) => {
+            const existing = element.bigBrothaWhepPlayer;
+            if (existing instanceof BigBrothaWhepPlayer && !existing.closed) return existing;
+            const player = new BigBrothaWhepPlayer(element);
+            element.bigBrothaWhepPlayer = player;
 
-                return player;
-            });
+            return player;
+        });
 
         updateMasterVolumeUi();
         state.players.forEach((player, index) => player.start(Math.min(1800, index * 150)));
@@ -1245,7 +1260,12 @@
         }
 
         if (!document.hidden) {
-            [...state.managedPlayers].forEach((player, index) => player.resume('document', Math.min(1800, index * 150)));
+            [...state.managedPlayers].forEach((player, index) => {
+                // Frame callbacks can be throttled before the suspension timer
+                // runs. Allow presentation to resume before declaring a stall.
+                player.lastVideoProgressAt = Date.now();
+                player.resume('document', Math.min(1800, index * 150));
+            });
 
             return;
         }

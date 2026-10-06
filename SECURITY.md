@@ -27,5 +27,15 @@ database dumps, or unredacted logs in public issues or pull requests.
 - Do not use development mode, seed example accounts, or enable debug output on a public server.
 - Treat camera/network reachability and access to private storage as trusted deployment privileges.
 
+ONVIF HTTPS requests verify the device certificate. Install the device's issuing
+CA in the image's trust store when using a private CA. Discovery accepts media,
+PTZ and RTSP addresses on the configured device host only (service ports may
+differ); configure devices to advertise that same hostname or IP. SOAP responses
+must be UTF-8, at most 1 MiB, and must not contain a DTD or entity declarations.
+
+Production images use Debian 13 and exclude build tools. Rebuild with current
+base images and scan the resulting image as well as Composer dependencies;
+a clean Composer audit does not cover operating-system or media-decoder issues.
+
 See [deployment](docs/startup-from-scratch.md), [backup and restore](docs/backup-and-restore.md),
 and [deployment constraints](docs/known-issues-and-constraints.md) for configuration requirements.

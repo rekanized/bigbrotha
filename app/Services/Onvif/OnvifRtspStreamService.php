@@ -5,6 +5,7 @@ namespace App\Services\Onvif;
 use App\Models\Camera;
 use App\Support\CameraUrl;
 use App\Support\Logging\SensitiveDataRedactor;
+use App\Support\OnvifXml;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -45,6 +46,7 @@ class OnvifRtspStreamService
         );
 
         $mediaServiceUrl = $this->parseMediaServiceUrl($capabilitiesPayload) ?? $deviceServiceUrl;
+        CameraUrl::assertSameHost($mediaServiceUrl, $deviceServiceUrl);
         $profilesPayload = $this->sendSoapRequest(
             $mediaServiceUrl,
             self::GET_PROFILES_ACTION,
@@ -85,6 +87,7 @@ class OnvifRtspStreamService
             }
 
             $streamUri = CameraUrl::withoutCredentials($streamUri);
+            CameraUrl::assertRtspFromDevice($streamUri, $deviceServiceUrl);
 
             $profiles[] = array_merge($profile, [
                 'uri' => $streamUri,
@@ -111,10 +114,12 @@ class OnvifRtspStreamService
         ?string $password = null,
         int $timeoutSeconds = 5,
     ): string {
+        CameraUrl::assertHttp($serviceUrl);
+
         try {
             $response = Http::timeout($timeoutSeconds)
                 ->connectTimeout($timeoutSeconds)
-                ->withOptions(['verify' => false, 'allow_redirects' => false])
+                ->withOptions(['verify' => true, 'allow_redirects' => false])
                 ->accept('application/soap+xml, application/xml, text/xml')
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$action.'"',
@@ -329,11 +334,12 @@ XML;
 
     private function createXPath(string $payload): ?DOMXPath
     {
+        OnvifXml::assertSafe($payload);
         $document = new DOMDocument;
         $previousState = libxml_use_internal_errors(true);
 
         try {
-            if (! @$document->loadXML($payload, LIBXML_NONET)) {
+            if (! @$document->loadXML($payload, LIBXML_NONET) || $document->doctype !== null) {
                 return null;
             }
         } finally {

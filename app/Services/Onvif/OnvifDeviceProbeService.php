@@ -2,7 +2,9 @@
 
 namespace App\Services\Onvif;
 
+use App\Support\CameraUrl;
 use App\Support\Logging\SensitiveDataRedactor;
+use App\Support\OnvifXml;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
@@ -125,10 +127,12 @@ class OnvifDeviceProbeService
         string $userAgent,
         string $connectionErrorMessage,
     ): Response {
+        CameraUrl::assertHttp($serviceUrl);
+
         try {
             return Http::timeout($timeoutSeconds)
                 ->connectTimeout($timeoutSeconds)
-                ->withOptions(['verify' => false, 'allow_redirects' => false])
+                ->withOptions(['verify' => true, 'allow_redirects' => false])
                 ->accept('application/soap+xml, application/xml, text/xml')
                 ->withHeaders([
                     'Content-Type' => 'application/soap+xml; charset=utf-8; action="'.$action.'"',
@@ -310,11 +314,12 @@ XML;
 
     private function createXPath(string $payload): ?DOMXPath
     {
+        OnvifXml::assertSafe($payload);
         $document = new DOMDocument;
         $previousState = libxml_use_internal_errors(true);
 
         try {
-            if (! @$document->loadXML($payload, LIBXML_NONET)) {
+            if (! @$document->loadXML($payload, LIBXML_NONET) || $document->doctype !== null) {
                 return null;
             }
         } finally {

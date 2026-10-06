@@ -20,6 +20,12 @@ class EnsureActiveOperator
         if ($user instanceof User) {
             $settings = app(AuthenticationSettingsService::class);
             $method = $request->session()->get('auth_method');
+            // Only local sign-in issues remember-me cookies. A restored cookie
+            // must not inherit access from an unrelated Google login method.
+            if ($method === null && Auth::viaRemember()) {
+                $method = 'local';
+                $request->session()->put('auth_method', $method);
+            }
             $localAllowed = $settings->manualAuthEnabled() && $user->hasLocalAuth();
             $googleAllowed = $settings->googleAuthEnabled()
                 && filled($user->google_id)

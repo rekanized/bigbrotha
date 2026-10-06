@@ -72,6 +72,14 @@ closed. Stream authorization uses short-lived tokens scoped to the account and
 one relay path. Account changes affect subsequent authorization requests; an
 already established WebRTC connection is not forcibly terminated.
 
+Relay sources and live outputs preserve media timestamps by default, so packets
+read in a burst still have evenly spaced presentation times. Recording workers
+retain their independent timestamp policy. `FFMPEG_THREADS` bounds software
+live decoding, encoding, and filtering; compatible H.264 remains a video copy.
+Repeated page initialization reuses existing receivers, while page teardown
+closes both wall and modal players. Background-tab restoration allows time for
+frame presentation to resume before the stall watchdog retries a stream.
+
 See [camera operations](camera-fleet-workflow.md) and
 [deployment constraints](known-issues-and-constraints.md).
 

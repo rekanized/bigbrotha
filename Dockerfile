@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim AS mediamtx
+FROM debian:trixie-slim AS mediamtx
 
 ARG MEDIAMTX_VERSION=1.21.1
 ARG MEDIAMTX_SHA256_AMD64=653abc672a3e693f8d3b2717752492fdcfb8072291ec108d03d3dd857411b0ee
@@ -32,7 +32,7 @@ RUN set -eux; \
     install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx; \
     install -Dm 0644 /tmp/mediamtx/LICENSE /usr/share/doc/mediamtx/LICENSE
 
-FROM php:8.5-fpm-bookworm AS runtime
+FROM php:8.5-fpm-trixie AS runtime
 
 ENV APP_ROOT=/app \
     COMPOSER_ALLOW_SUPERUSER=1
@@ -58,6 +58,14 @@ RUN apt-get update \
         pdo_pgsql \
         xml \
         zip \
+    && apt-mark manual libonig5 libpq5 libxml2 libzip5 \
+    && apt-get purge -y --auto-remove \
+        $PHPIZE_DEPS libonig-dev libpq-dev libxml2-dev libzip-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && php -r 'foreach (["bcmath", "mbstring", "pcntl", "pdo_pgsql", "xml", "zip"] as $extension) { if (!extension_loaded($extension)) { exit(1); } }'
+
+# libc-dev is a virtual package; purge its concrete provider and kernel headers.
+RUN apt-get purge -y --auto-remove libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=mediamtx /usr/local/bin/mediamtx /usr/local/bin/mediamtx
@@ -117,8 +125,7 @@ ENV APP_ENV=production \
     MEDIAMTX_AUTH_CALLBACK_URL=http://app:8080/relay/auth/mediamtx \
     MEDIAMTX_MANAGED_EXTERNALLY=true \
     QUEUE_CONNECTION=database \
-    SESSION_DRIVER=database \
-    TRUSTED_PROXIES=172.16.0.0/12
+    SESSION_DRIVER=database
 
 LABEL org.opencontainers.image.title="BigBrotha Laravel application" \
       org.opencontainers.image.description="Laravel camera operations application with ffmpeg and MediaMTX" \
@@ -188,7 +195,7 @@ FROM runtime AS test
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libsqlite3-dev unzip \
+    && apt-get install -y --no-install-recommends git libsqlite3-dev unzip $PHPIZE_DEPS \
     && docker-php-ext-install -j"$(nproc)" pdo_sqlite \
     && rm -rf /var/lib/apt/lists/*
 
@@ -213,7 +220,7 @@ FROM application AS development
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git libsqlite3-dev unzip \
+    && apt-get install -y --no-install-recommends git libsqlite3-dev unzip $PHPIZE_DEPS \
     && docker-php-ext-install -j"$(nproc)" pdo_sqlite \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/open_file_cache max=1000 inactive=60s;/open_file_cache off;/' /etc/nginx/nginx.conf \

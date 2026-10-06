@@ -36,6 +36,12 @@ fixtures under `tests/Browser/` run manually in Chromium; they are not part of
 PHPUnit. Review affected operator screens at desktop and phone sizes and verify
 live camera, SMB, and OAuth behavior when those integrations change.
 
+Open `tests/Browser/live-wall-player.html` in Chromium to run the isolated live
+player regression checks, including lifecycle, stale sessions, autoplay, audio,
+focus, and recovery behavior. The page needs no camera or authenticated session;
+reload it to repeat the checks. Relay timing and sparse-audio integration tests
+run through PHPUnit using the image's FFmpeg and ffprobe binaries.
+
 ## Pull requests and releases
 
 Explain the concrete behavior change and relevant verification. Include a new

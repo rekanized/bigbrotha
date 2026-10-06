@@ -9,6 +9,7 @@ use App\Models\CameraMotionState;
 use App\Models\CameraRecording;
 use App\Services\Concerns\ResolvesConfiguredBinaries;
 use App\Services\Relay\MediaMtxPathNamer;
+use App\Support\CameraUrl;
 use App\Support\Logging\SensitiveDataRedactor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
@@ -2619,6 +2620,7 @@ class CameraRecordingService
 
     private function injectCredentials(string $uri, ?string $username, ?string $password): string
     {
+        CameraUrl::assertRtsp($uri);
         $parts = parse_url($uri);
 
         if (! is_array($parts) || isset($parts['user']) || $username === null || $username === '' || $password === null || $password === '') {

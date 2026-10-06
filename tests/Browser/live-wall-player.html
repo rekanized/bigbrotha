@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live player regression tests</title>
+<body>
+<h1>Live player regression tests</h1>
+<p>These isolated fixtures use no cameras or sign-in session. Reload to run again.</p>
+<pre id="results" role="status">Running…</pre>
+<script src="../../public/js/live-wall-player.js"></script>
+<script src="live-wall-player.test.js"></script>
+<script>
+    window.addEventListener('load', async () => {
+        const results = document.getElementById('results');
+        try {
+            const passed = await window.runLiveWallPlayerTests();
+            results.textContent = `${passed.length} checks passed\n\n${passed.join('\n')}`;
+            document.title = `PASS: ${passed.length} live player checks`;
+        } catch (error) {
+            results.textContent = error.stack || String(error);
+            document.title = 'FAIL: live player checks';
+        } finally {
+            window.BigBrothaLiveWallPlayerModule.close();
+        }
+    }, { once: true });
+</script>
+</body>
+</html>

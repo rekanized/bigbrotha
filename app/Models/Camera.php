@@ -122,7 +122,9 @@ class Camera extends Model
             return null;
         }
 
-        return sprintf('http://%s:%d%s', $host, $this->onvif_port, Str::start($this->onvif_path ?: '/onvif/device_service', '/'));
+        $scheme = strtolower((string) parse_url($this->metadata['onvif']['service_url'] ?? '', PHP_URL_SCHEME)) === 'https' ? 'https' : 'http';
+
+        return sprintf('%s://%s:%d%s', $scheme, $host, $this->onvif_port, Str::start($this->onvif_path ?: '/onvif/device_service', '/'));
     }
 
     public function rtspEndpoint(?string $path = null): ?string

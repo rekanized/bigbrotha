@@ -280,6 +280,27 @@ class SecurityHardeningTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_remembered_local_login_cannot_bypass_disabled_local_auth_using_a_linked_google_identity(): void
+    {
+        $this->configureGoogle();
+        $user = User::factory()->create(['email' => 'operator@example.com', 'local_auth_enabled' => true, 'google_id' => 'linked-id']);
+        AllowedLoginEmail::query()->create(['email' => $user->email]);
+        app(AuthenticationSettingsService::class)->saveConfiguration(false, true);
+        $recaller = $user->id.'|'.$user->remember_token.'|'.$user->getAuthPassword();
+        $this->withCookie(Auth::guard('web')->getRecallerName(), $recaller)
+            ->get(route('camera-fleet.index'))->assertRedirect(route('login'));
+        $this->assertGuest();
+    }
+
+    public function test_logged_out_operator_cannot_replay_camera_component_actions(): void
+    {
+        $this->actingAs(User::factory()->localOnly()->create());
+        $snapshot = $this->snapshot($this->get(route('camera-fleet.index'))->getContent(), 'camera-fleet.manager');
+        Auth::guard('web')->logout();
+
+        $this->updateSnapshot($snapshot, 'newCamera')->assertUnauthorized();
+    }
+
     public function test_read_tokens_stop_working_after_a_password_reset_or_access_revocation(): void
     {
         $user = User::factory()->localOnly()->create();

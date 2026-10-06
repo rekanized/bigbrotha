@@ -174,5 +174,101 @@ window.runLiveWallPlayerTests = async () => {
         loader.close();
     }
 
+    const automatic = document.createElement('div');
+    automatic.dataset.webrtcPlayer = '';
+    automatic.dataset.sessionUrl = '/session';
+    automatic.innerHTML = '<video data-role="video"></video><span data-role="message"></span>';
+    document.body.append(automatic);
+    window.BigBrothaLiveWallPlayerModule.bootstrap();
+    const original = automatic.bigBrothaWhepPlayer;
+    let starts = 0;
+    original.connect = async () => { starts++; };
+    window.BigBrothaLiveWallPlayerModule.bootstrap();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert(automatic.bigBrothaWhepPlayer === original && starts === 1, 'Repeated bootstrap preserves the receiver and starts it only once');
+
+    original.hasVideoTrack = true;
+    original.lastVideoProgressAt = Date.now() - 60000;
+    document.dispatchEvent(new Event('visibilitychange'));
+    assert(Date.now() - original.lastVideoProgressAt < 1000, 'Returning from a throttled background tab grants a presentation grace period');
+
+    const modal = makePlayer();
+    modal.connect = async () => {};
+    modal.start();
+    window.BigBrothaLiveWallPlayerModule.close();
+    assert(modal.closed && original.closed && modal.initialStartTimeout === null, 'Page teardown closes wall and external receivers and cancels pending starts');
+    automatic.remove();
+
+    const rejected = makePlayer();
+    rejected.bootstrapWhepUrl = 'https://example.com/camera/whep';
+    rejected.bootstrapAccessToken = 'rejected-token';
+    rejected.hasRetriedFreshSession = true;
+    let reusedRejectedToken = false;
+    rejected.connect = async () => { reusedRejectedToken = rejected.readBootstrapSession() !== null; };
+    rejected.scheduleReconnect(0);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert(!reusedRejectedToken, 'Later retries never reuse a previously rejected embedded token');
+    rejected.close();
+
+    const oldSession = makePlayer();
+    const previousFetch = window.fetch;
+    let resolveBody;
+    let bodyRequested;
+    const readingBody = new Promise(resolve => { bodyRequested = resolve; });
+    window.fetch = async () => ({ ok: true, json: () => {
+        bodyRequested();
+        return new Promise(resolve => { resolveBody = resolve; });
+    } });
+    try {
+        const result = oldSession.fetchSession(oldSession.connectionAttempt).catch(error => error.name);
+        await readingBody;
+        oldSession.connectionAttempt++;
+        resolveBody({ stream: { video_codec: 'obsolete-codec' } });
+        assert(await result === 'AbortError' && oldSession.expectedVideoCodec === 'h264', 'A superseded JSON response cannot overwrite the current stream hints');
+    } finally {
+        window.fetch = previousFetch;
+        oldSession.close();
+    }
+
+    const audible = makePlayer();
+    let playCalls = 0;
+    audible.video = { muted: false, play: async () => {
+        playCalls++;
+        if (!audible.video.muted) throw new DOMException('Autoplay blocked', 'NotAllowedError');
+    } };
+    assert(await audible.tryPlay() && audible.video.muted && playCalls === 2 && !audible.awaitingUserActivation, 'Blocked audible autoplay falls back to moving muted video');
+    audible.video.play = async () => { throw new DOMException('Autoplay blocked', 'NotAllowedError'); };
+    assert(await audible.tryPlay() === false && audible.awaitingUserActivation, 'Blocked muted autoplay waits for user activation without a retry loop');
+    audible.close();
+
+    const audioRoot = document.createElement('div');
+    audioRoot.innerHTML = '<video data-role="video" controls></video><span data-role="message"></span><button data-role="audio-toggle"></button><span data-role="audio-indicator"></span>';
+    const audioPlayer = new window.BigBrothaWhepPlayer(audioRoot);
+    audioPlayer.bootstrapUrl = '/session';
+    audioPlayer.connect = async () => {};
+    audioPlayer.start();
+    audioPlayer.hasAudioTrack = true;
+    audioPlayer.hasStream = true;
+    let audioPlays = 0;
+    audioPlayer.video.play = async () => { audioPlays++; };
+    audioPlayer.handleAudioToggle();
+    assert(!audioPlayer.video.muted && audioRoot.dataset.audioState === 'active', 'External players participate in shared audio selection');
+    const beforeVolume = audioPlays;
+    audioPlayer.video.volume = 0.5;
+    audioPlayer.handleNativeVolumeChange();
+    assert(audioPlays === beforeVolume, 'Changing native volume does not resume a paused player');
+    audioPlayer.close();
+
+    const ended = makePlayer();
+    const canvas = document.createElement('canvas');
+    const track = canvas.captureStream().getVideoTracks()[0];
+    ended.mergeIncomingTrack({ track });
+    ended.connectionAttempt++;
+    let staleRemovals = 0;
+    ended.removeTrack = () => { staleRemovals++; };
+    track.dispatchEvent(new Event('ended'));
+    assert(staleRemovals === 0, 'An old track ending cannot mutate a replacement stream');
+    ended.close();
+
     return passed;
 };

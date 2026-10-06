@@ -48,7 +48,7 @@ The small template shows optional stack, port, and image overrides. Advanced val
 - `MEDIAMTX_ICE_PORT`
 - `DB_DATABASE` and `DB_USERNAME` to change the bundled PostgreSQL database/user names on a new installation; changing these values does not rename existing database objects
 - `CAMERA_RECORDING_WORKER_PROCESSES` for the desired number of queue-worker processes inside `background`
-- `TRUSTED_PROXIES` to change the Docker image's default trusted proxy range of `172.16.0.0/12`; use the addresses of the reverse proxies that serve your installation
+- `TRUSTED_PROXIES` to explicitly trust the addresses of the reverse proxies that serve your installation. Forwarding headers are untrusted by default; avoid trusting entire private networks. Public links and secure cookie defaults use `APP_URL` independently of these headers.
 
 Application settings such as authentication and SMB storage belong in the setup/admin screens. Advanced runtime overrides can still be added to `.env`; their defaults are defined in `config/*.php` and the application image. Database and relay API/RTSP ports stay private, so they need no host configuration.
 
