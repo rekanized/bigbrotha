@@ -15,6 +15,8 @@ Help support me: [Buy me a coffee](https://buymeacoffee.com/rekanized).
 - Local or SMB recording storage.
 - Local and Google sign-in, administrator controls, and audit logs.
 
+![alt text](bigbrotha-example-image.webp)
+
 ## Setup
 
 Requires Docker with Compose and network access from the host and containers to your cameras. The application and deployment files come from the Docker Hub image `rekanized/bigbrotha-app:latest`.
