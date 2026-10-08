@@ -903,7 +903,7 @@ XML, 200),
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
             ->assertJsonPath('profile_index', 0)
             ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+            ->assertJsonPath('reader_url', asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')));
     }
 
     public function test_motion_editor_session_uses_the_saved_recording_profile_when_no_query_index_is_given(): void
@@ -976,7 +976,7 @@ XML, 200),
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
             ->assertJsonPath('profile_index', 1)
             ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
+            ->assertJsonPath('reader_url', asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')));
     }
 
     public function test_motion_editor_session_reuses_an_active_live_relay_when_it_matches_the_selected_recording_profile(): void
@@ -1061,7 +1061,7 @@ XML, 200),
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live')
             ->assertJsonPath('profile_index', 1)
             ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live/reader.js');
+            ->assertJsonPath('reader_url', asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')));
     }
 
     public function test_motion_editor_session_uses_a_profile_specific_live_path_when_the_default_live_path_is_not_playable(): void
@@ -1132,7 +1132,7 @@ XML, 200),
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
             ->assertJsonPath('profile_index', 1)
             ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
+            ->assertJsonPath('reader_url', asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')));
     }
 
     public function test_motion_editor_session_does_not_reprobe_the_camera_when_a_profile_specific_live_path_can_be_issued(): void
@@ -1210,7 +1210,7 @@ XML, 200),
             ->assertJsonPath('camera.path', 'camera-'.$camera->id.'-live-profile-1')
             ->assertJsonPath('profile_index', 1)
             ->assertJsonPath('whep_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/whep')
-            ->assertJsonPath('reader_url', 'https://relay.example.test/__webrtc/camera-'.$camera->id.'-live-profile-1/reader.js');
+            ->assertJsonPath('reader_url', asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')));
 
         $camera->refresh();
 

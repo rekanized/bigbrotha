@@ -270,5 +270,32 @@ window.runLiveWallPlayerTests = async () => {
     assert(staleRemovals === 0, 'An old track ending cannot mutate a replacement stream');
     ended.close();
 
+    const wall = document.createElement('div');
+    wall.innerHTML = Array.from({ length: 12 }, () => '<div data-webrtc-player data-session-url="/session"><video data-role="video"></video><span data-role="message"></span></div>').join('');
+    document.body.append(wall);
+    const realSetTimeout = window.setTimeout;
+    const delays = [];
+    window.setTimeout = (callback, delay) => {
+        delays.push(delay);
+        // Keep connections pending while observing the real lifecycle scheduling.
+        return realSetTimeout(callback, 60000);
+    };
+    try {
+        window.BigBrothaLiveWallPlayerModule.bootstrap();
+        assert(delays.length === 12 && delays[0] === 0 && delays[7] === 350 && delays[11] === 500, 'Large walls start the eighth tile at 350 ms and cap the stagger at 500 ms');
+        window.dispatchEvent(new Event('offline'));
+        delays.length = 0;
+        window.dispatchEvent(new Event('online'));
+        assert(delays.length === 12 && delays[7] === 350 && delays[11] === 500, 'Returning online uses the shorter bounded stagger');
+        [...wall.children].forEach(root => root.bigBrothaWhepPlayer.suspend('document'));
+        delays.length = 0;
+        document.dispatchEvent(new Event('visibilitychange'));
+        assert(delays.length === 12 && delays[7] === 350 && delays[11] === 500, 'Returning to the document uses the shorter bounded stagger');
+    } finally {
+        window.setTimeout = realSetTimeout;
+        window.BigBrothaLiveWallPlayerModule.close();
+        wall.remove();
+    }
+
     return passed;
 };

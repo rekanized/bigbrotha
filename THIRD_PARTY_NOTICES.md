@@ -8,6 +8,10 @@ its own copyrights and licenses; the application license does not replace them.
   included at `public/js/vendor/sortable.LICENSE.txt`.
 - **MediaMTX**: MIT. The image installs the full license from the checksum-verified
   upstream release archive at `/usr/share/doc/mediamtx/LICENSE`.
+  The vendored v1.21.1 WebRTC reader at `public/js/vendor/mediamtx-reader.js`
+  shares codec capability detection across players; its license is included at
+  `public/js/vendor/mediamtx.LICENSE.txt`. Reapply and test this small patch when
+  updating the reader alongside the image's MediaMTX version.
 - **Composer packages**, including Laravel, Livewire, Socialite, PHP-FFMpeg, and
   the SMB adapter: their license files remain in the installed `vendor/` packages.
   Run `composer licenses` in the development/test image to inspect the locked

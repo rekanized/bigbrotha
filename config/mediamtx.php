@@ -175,6 +175,7 @@ return [
         'start_timeout' => '30s',
         'live_start_timeout' => '45s',
         'close_after' => '30s',
+        'live_close_after' => $optionalEnvString('MEDIAMTX_LIVE_CLOSE_AFTER') ?? '120s',
         'hardware_acceleration' => [
             'engine' => strtolower(trim((string) env('MEDIAMTX_TRANSCODE_HWACCEL', ''))),
             'device' => $optionalEnvString('MEDIAMTX_TRANSCODE_HWACCEL_DEVICE'),

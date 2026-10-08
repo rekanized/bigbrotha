@@ -122,7 +122,7 @@ class LiveWallStreamTest extends TestCase
             ->assertSee(route('live-wall.session', ['camera' => $camera]), false)
             ->assertSee('data-profile-index="0"', false)
             ->assertSee('data-camera-name="Tapo C200"', false)
-            ->assertSee('data-reader-url="http://relay.example:8889/camera-'.$camera->id.'-live/reader.js"', false)
+            ->assertSee('data-reader-url="'.asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')).'"', false)
             ->assertSee('data-whep-url="http://relay.example:8889/camera-'.$camera->id.'-live/whep"', false)
             ->assertSee('data-access-token="', false)
             ->assertSee('data-access-token-expires-in="180"', false)
@@ -145,7 +145,7 @@ class LiveWallStreamTest extends TestCase
             ->assertSee(route('wall-tiles.index'), false);
 
         $this->assertMatchesRegularExpression(
-            '/<div\s+class="webrtc-player"[^>]*data-webrtc-player[^>]*data-session-url="'.preg_quote(route('live-wall.session', ['camera' => $camera]), '/').'"[^>]*data-reader-url="'.preg_quote('http://relay.example:8889/camera-'.$camera->id.'-live/reader.js', '/').'"[^>]*data-whep-url="'.preg_quote('http://relay.example:8889/camera-'.$camera->id.'-live/whep', '/').'"[^>]*data-access-token="[^"]+"/s',
+            '/<div\s+class="webrtc-player"[^>]*data-webrtc-player[^>]*data-session-url="'.preg_quote(route('live-wall.session', ['camera' => $camera]), '/').'"[^>]*data-reader-url="'.preg_quote(asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')), '/').'"[^>]*data-whep-url="'.preg_quote('http://relay.example:8889/camera-'.$camera->id.'-live/whep', '/').'"[^>]*data-access-token="[^"]+"/s',
             $response->getContent(),
         );
     }
@@ -687,7 +687,7 @@ class LiveWallStreamTest extends TestCase
         $response
             ->assertOk()
             ->assertDontSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false)
-            ->assertDontSee('data-reader-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/reader.js"', false)
+            ->assertDontSee('data-reader-url="'.asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')).'"', false)
             ->assertDontSee('data-whep-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep"', false);
     }
 
@@ -848,7 +848,7 @@ class LiveWallStreamTest extends TestCase
         $response
             ->assertOk()
             ->assertSee('data-session-url="'.route('live-wall.session', ['camera' => $camera]).'"', false)
-            ->assertSee('data-reader-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/reader.js"', false)
+            ->assertSee('data-reader-url="'.asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js')).'"', false)
             ->assertSee('data-whep-url="https://relay.example/__webrtc/camera-'.$camera->id.'-live/whep"', false);
     }
 

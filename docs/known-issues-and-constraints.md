@@ -58,6 +58,25 @@ the separate `FFMPEG_RECORDING_USE_WALLCLOCK_TIMESTAMPS` policy.
 
 ## WebRTC and reverse proxies
 
+Live outputs stay running for two minutes after their last reader disconnects,
+so returning to a wall can reuse the existing pipeline. Set
+`MEDIAMTX_LIVE_CLOSE_AFTER=30s` to restore the shorter idle window, or another
+MediaMTX duration such as `60s`. Longer windows retain the live pipeline's CPU
+and network use, especially for transcoded feeds. This does not start cameras
+that nobody has viewed. Shared source paths stop 30 seconds after their own last
+reader disconnects; a retained live output counts as a source reader, as do
+recording and motion workers.
+
+Live FFmpeg input analysis remains at one second. A 250 ms experiment reduced
+some startup timings but failed to start every tile in two of twenty synthetic
+cold-start trials, so it was not adopted as the default. See
+[startup validation](live-startup-validation.md) for timings and test limits.
+
+The app serves a versioned, vendored MediaMTX reader that shares browser codec
+capability checks across tiles. WHEP signaling still uses the configured relay
+URL. Keep the vendored reader and its license aligned with the MediaMTX image
+version when upgrading.
+
 The web reverse proxy handles HTTP and WHEP signaling through `/__webrtc/`.
 Browsers also need access to `MEDIAMTX_ICE_PORT` over TCP/UDP. Exposing HTTPS alone
 is insufficient. If that port cannot be reached, additional ICE/TURN infrastructure

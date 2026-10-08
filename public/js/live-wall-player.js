@@ -35,6 +35,7 @@
     const hiddenPageSuspendDelayMs = 10000;
     const stalledVideoThresholdMs = 20000;
     const connectionTimeoutMs = 65000;
+    const startDelayMs = (index) => Math.min(500, index * 50);
 
     const focusableTileSelector = '[data-live-wall-grid] .wall-monitor-tile';
 
@@ -87,7 +88,7 @@
         if (returnTarget?.isConnected) returnTarget.focus({ preventScroll: true });
         if (scrollPosition) window.scrollTo({ ...scrollPosition, behavior: 'instant' });
         state.focusedTile = null;
-        state.players.forEach((player, index) => player.setFocusEligible(true, Math.min(1800, index * 150)));
+        state.players.forEach((player, index) => player.setFocusEligible(true, startDelayMs(index)));
     };
 
     const setFocusedTile = (tile) => {
@@ -1230,7 +1231,7 @@
         });
 
         updateMasterVolumeUi();
-        state.players.forEach((player, index) => player.start(Math.min(1800, index * 150)));
+        state.players.forEach((player, index) => player.start(startDelayMs(index)));
     };
 
     const initializeIntersectionObserver = () => {
@@ -1264,7 +1265,7 @@
                 // Frame callbacks can be throttled before the suspension timer
                 // runs. Allow presentation to resume before declaring a stall.
                 player.lastVideoProgressAt = Date.now();
-                player.resume('document', Math.min(1800, index * 150));
+                player.resume('document', startDelayMs(index));
             });
 
             return;
@@ -1280,7 +1281,7 @@
     };
 
     const handleOnline = () => {
-        [...state.managedPlayers].forEach((player, index) => player.resume('offline', Math.min(1800, index * 150)));
+        [...state.managedPlayers].forEach((player, index) => player.resume('offline', startDelayMs(index)));
     };
 
     const handleOffline = () => {

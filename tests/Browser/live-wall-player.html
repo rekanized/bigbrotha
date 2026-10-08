@@ -9,11 +9,20 @@
 <pre id="results" role="status">Running…</pre>
 <script src="../../public/js/live-wall-player.js"></script>
 <script src="live-wall-player.test.js"></script>
+<script src="mediamtx-reader.test.js"></script>
 <script>
     window.addEventListener('load', async () => {
         const results = document.getElementById('results');
         try {
             const passed = await window.runLiveWallPlayerTests();
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '../../public/js/vendor/mediamtx-reader.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.append(script);
+            });
+            passed.push(...await window.runMediaMtxReaderTests(window.MediaMTXWebRTCReader));
             results.textContent = `${passed.length} checks passed\n\n${passed.join('\n')}`;
             document.title = `PASS: ${passed.length} live player checks`;
         } catch (error) {

@@ -173,7 +173,9 @@ class MediaMtxConfigService
 
     public function browserReaderUrlForPath(string $path, ?Request $request = null): string
     {
-        return rtrim($this->browserBaseUrl($request), '/').'/'.$path.'/reader.js';
+        // Keep the reader version tied to the app, including its shared codec
+        // detection patch. WHEP signaling still uses the configured relay URL.
+        return asset('js/vendor/mediamtx-reader.js').'?v='.filemtime(public_path('js/vendor/mediamtx-reader.js'));
     }
 
     public function internalPlayerUrl(string $path): string
@@ -264,7 +266,9 @@ class MediaMtxConfigService
             $lines[] = '      '.$this->buildRunOnDemandCommand($ffmpegBinary, $definition);
             $lines[] = '    runOnDemandRestart: false';
             $lines[] = '    runOnDemandStartTimeout: '.$this->runOnDemandStartTimeout($definition);
-            $lines[] = '    runOnDemandCloseAfter: '.config('mediamtx.transcode.close_after', '15s');
+            $lines[] = '    runOnDemandCloseAfter: '.($definition['mode'] === 'live'
+                ? config('mediamtx.transcode.live_close_after', '120s')
+                : config('mediamtx.transcode.close_after', '30s'));
         }
 
         return implode(PHP_EOL, $lines).PHP_EOL;

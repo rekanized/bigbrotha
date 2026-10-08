@@ -85,10 +85,17 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString("-max_muxing_queue_size '1024'", $liveBlock);
         $this->assertStringContainsString('runOnDemandStartTimeout: 45s', $liveBlock);
         $this->assertStringContainsString('runOnDemandStartTimeout: 30s', $sourceBlock);
-        $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $config);
+        $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $sourceBlock);
+        $this->assertStringContainsString('runOnDemandCloseAfter: 120s', $liveBlock);
+        $this->assertStringContainsString('runOnDemandCloseAfter: 120s', $this->pathBlock($config, 'camera-'.$camera->id.'-live-profile-0'));
         $this->assertStringNotContainsString('libx264', $liveBlock);
         $this->assertStringNotContainsString('-rw_timeout', $liveBlock);
         $this->assertStringNotContainsString(' -an ', $liveBlock);
+
+        config()->set('mediamtx.transcode.live_close_after', '75s');
+        $customRetention = app(MediaMtxConfigService::class)->buildConfig();
+        $this->assertStringContainsString('runOnDemandCloseAfter: 75s', $this->pathBlock($customRetention, 'camera-'.$camera->id.'-live'));
+        $this->assertStringContainsString('runOnDemandCloseAfter: 30s', $this->pathBlock($customRetention, 'camera-'.$camera->id.'-source-profile-0'));
 
         // Explicit repair remains available for sources with malformed clocks.
         config()->set('ffmpeg.live.use_wallclock_timestamps', true);

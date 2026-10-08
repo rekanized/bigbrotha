@@ -23,6 +23,7 @@ class MediaMtxConfigDefaultsTest extends TestCase
             'MEDIAMTX_AUTH_CALLBACK_URL' => '',
             'MEDIAMTX_AUTH_CALLBACK_SECRET' => '',
             'MEDIAMTX_AUTH_TOKEN_SECRET' => '',
+            'MEDIAMTX_LIVE_CLOSE_AFTER' => '',
         ], function () use ($appKey, $appUrl): void {
             $config = require base_path('config/mediamtx.php');
 
@@ -49,6 +50,17 @@ class MediaMtxConfigDefaultsTest extends TestCase
             $this->assertSame('cfr', $config['transcode']['video_fps_mode']);
             $this->assertSame('1200k', $config['transcode']['video_bitrate']);
             $this->assertSame(30, $config['transcode']['gop']);
+            $this->assertSame('120s', $config['transcode']['live_close_after']);
+        });
+    }
+
+    public function test_live_retention_can_be_overridden_without_changing_source_retention(): void
+    {
+        $this->withEnvironmentOverrides(['MEDIAMTX_LIVE_CLOSE_AFTER' => '75s'], function (): void {
+            $config = require base_path('config/mediamtx.php');
+
+            $this->assertSame('75s', $config['transcode']['live_close_after']);
+            $this->assertSame('30s', $config['transcode']['close_after']);
         });
     }
 
