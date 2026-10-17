@@ -100,6 +100,7 @@ class CameraLiveStreamService
         }
 
         $input = $this->legacyStreamInput($camera, $selection);
+        $threads = (string) max(1, (int) config('ffmpeg.ffmpeg.threads', 2));
 
         return array_merge([
             $ffmpegBinary,
@@ -107,6 +108,8 @@ class CameraLiveStreamService
             '-hide_banner',
             '-loglevel',
             'error',
+            '-filter_threads',
+            $threads,
             '-rtsp_transport',
             $input['transport'],
             '-thread_queue_size',
@@ -117,16 +120,20 @@ class CameraLiveStreamService
             '-fflags',
             (string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0',
+            $this->useWallclockTimestamps($selection) ? '1' : '0',
             '-analyzeduration',
             (string) config('ffmpeg.live.input_analyze_duration', 1000000),
             '-probesize',
             (string) config('ffmpeg.live.input_probe_size', 131072),
+            '-threads:v',
+            $threads,
             '-i',
             $input['uri'],
             '-map',
             '0:v:0',
             '-an',
+            '-threads:v',
+            $threads,
             '-vf',
             'fps='.(string) config('ffmpeg.live.wall_fps', 4),
             '-q:v',
@@ -135,6 +142,8 @@ class CameraLiveStreamService
             'mpjpeg',
             '-boundary_tag',
             self::MJPEG_BOUNDARY,
+            '-flush_packets',
+            '1',
             'pipe:1',
         ]);
     }
@@ -171,7 +180,7 @@ class CameraLiveStreamService
             '-fflags',
             (string) config('ffmpeg.live.input_fflags', '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            config('ffmpeg.live.use_wallclock_timestamps', true) ? '1' : '0',
+            $this->useWallclockTimestamps($selection) ? '1' : '0',
             '-analyzeduration',
             (string) config('ffmpeg.live.input_analyze_duration', 1000000),
             '-probesize',
@@ -198,6 +207,15 @@ class CameraLiveStreamService
             'mp4',
             'pipe:1',
         ]);
+    }
+
+    /**
+     * @param  array{index: int|null, profile: array<string, mixed>}  $selection
+     */
+    private function useWallclockTimestamps(array $selection): bool
+    {
+        return (int) ($selection['profile']['video_has_b_frames'] ?? 0) === 0
+            && (bool) config('ffmpeg.live.use_wallclock_timestamps', false);
     }
 
     /**

@@ -1,5 +1,5 @@
 // MediaMTX v1.21.1, MIT; see mediamtx.LICENSE.txt.
-// Local patch: share non-advertised codec detection across readers on this page.
+// Local patches: shared codec probes and explicit, attempt-scoped WHEP teardown.
 "use strict";
 
 /**
@@ -42,6 +42,8 @@ class MediaMTXWebRTCReader {
   #sessionUrl = null;
   #queuedCandidates = [];
   #nonAdvertisedCodecs;
+  #generation = 0;
+  #abortController = null;
 
   /**
    * Create a MediaMTXWebRTCReader.
@@ -57,14 +59,49 @@ class MediaMTXWebRTCReader {
    */
   close() {
     this.#state = "closed";
-
-    if (this.#pc !== null) {
-      this.#pc.close();
-    }
+    this.#disposeConnection();
 
     if (this.#restartTimeout !== null) {
       clearTimeout(this.#restartTimeout);
+      this.#restartTimeout = null;
     }
+  }
+
+  #isCurrent(generation) {
+    return this.#state === "running" && this.#generation === generation;
+  }
+
+  #deleteSession(url) {
+    // Keep teardown alive across page navigation; a network failure must not
+    // create an unhandled rejection or restart an intentionally closed reader.
+    fetch(url, {
+      method: "DELETE",
+      headers: this.#authHeader(),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  #disposeConnection() {
+    this.#generation++;
+    this.#abortController?.abort();
+    this.#abortController = null;
+
+    if (this.#pc !== null) {
+      this.#pc.onicecandidate = null;
+      this.#pc.onconnectionstatechange = null;
+      this.#pc.ontrack = null;
+      this.#pc.ondatachannel = null;
+      this.#pc.close();
+      this.#pc = null;
+    }
+
+    if (this.#sessionUrl !== null) {
+      this.#deleteSession(this.#sessionUrl);
+      this.#sessionUrl = null;
+    }
+
+    this.#offerData = null;
+    this.#queuedCandidates = [];
   }
 
   static #supportsNonAdvertisedCodec(codec, fmtp) {
@@ -410,24 +447,14 @@ class MediaMTXWebRTCReader {
   }
 
   /** @param {string} err */
-  #handleError(err) {
+  #handleError(err, generation = null) {
+    if (generation !== null && !this.#isCurrent(generation)) {
+      return;
+    }
+
     if (this.#state === "running") {
-      if (this.#pc !== null) {
-        this.#pc.close();
-        this.#pc = null;
-      }
-
-      this.#offerData = null;
-
-      if (this.#sessionUrl !== null) {
-        fetch(this.#sessionUrl, {
-          method: "DELETE",
-        });
-        this.#sessionUrl = null;
-      }
-
-      this.#queuedCandidates = [];
       this.#state = "restarting";
+      this.#disposeConnection();
 
       this.#restartTimeout = window.setTimeout(
         () => this.#restart(),
@@ -448,6 +475,9 @@ class MediaMTXWebRTCReader {
 
   #restart() {
     this.#restartTimeout = null;
+    if (this.#state !== "restarting") {
+      return;
+    }
     this.#state = "running";
     this.#start();
   }
@@ -490,12 +520,14 @@ class MediaMTXWebRTCReader {
   }
 
   #start() {
+    const generation = ++this.#generation;
+    this.#abortController = new AbortController();
     this.#requestICEServers()
-      .then((iceServers) => this.#setupPeerConnection(iceServers))
-      .then((offer) => this.#sendOffer(offer))
-      .then((answer) => this.#setAnswer(answer))
+      .then((iceServers) => this.#setupPeerConnection(iceServers, generation))
+      .then((offer) => this.#sendOffer(offer, generation))
+      .then((answer) => this.#setAnswer(answer, generation))
       .catch((err) => {
-        this.#handleError(err.toString());
+        this.#handleError(err.toString(), generation);
       });
   }
 
@@ -514,13 +546,17 @@ class MediaMTXWebRTCReader {
     return fetch(this.#conf.url, {
       method: "OPTIONS",
       headers: this.#authHeader(),
-    }).then((res) =>
-      MediaMTXWebRTCReader.#linkToIceServers(res.headers.get("Link")),
-    );
+      signal: this.#abortController.signal,
+    }).then((res) => {
+      if (!res.ok) {
+        throw new Error(`bad status code ${res.status}`);
+      }
+      return MediaMTXWebRTCReader.#linkToIceServers(res.headers.get("Link"));
+    });
   }
 
-  #setupPeerConnection(iceServers) {
-    if (this.#state !== "running") {
+  #setupPeerConnection(iceServers, generation) {
+    if (!this.#isCurrent(generation)) {
       throw new Error("closed");
     }
 
@@ -537,12 +573,23 @@ class MediaMTXWebRTCReader {
     // using data channels requires creating a data channel locally
     this.#pc.createDataChannel("");
 
-    this.#pc.onicecandidate = (evt) => this.#onLocalCandidate(evt);
-    this.#pc.onconnectionstatechange = () => this.#onConnectionState();
-    this.#pc.ontrack = (evt) => this.#onTrack(evt);
-    this.#pc.ondatachannel = (evt) => this.#onDataChannel(evt);
+    this.#pc.onicecandidate = (evt) => {
+      if (this.#isCurrent(generation)) this.#onLocalCandidate(evt);
+    };
+    this.#pc.onconnectionstatechange = () => {
+      if (this.#isCurrent(generation)) this.#onConnectionState();
+    };
+    this.#pc.ontrack = (evt) => {
+      if (this.#isCurrent(generation)) this.#onTrack(evt);
+    };
+    this.#pc.ondatachannel = (evt) => {
+      if (this.#isCurrent(generation)) this.#onDataChannel(evt);
+    };
 
     return this.#pc.createOffer().then((offer) => {
+      if (!this.#isCurrent(generation)) {
+        throw new Error("closed");
+      }
       offer.sdp = MediaMTXWebRTCReader.#editOffer(
         offer.sdp,
         this.#nonAdvertisedCodecs,
@@ -553,11 +600,13 @@ class MediaMTXWebRTCReader {
     });
   }
 
-  #sendOffer(offer) {
-    if (this.#state !== "running") {
+  #sendOffer(offer, generation) {
+    if (!this.#isCurrent(generation)) {
       throw new Error("closed");
     }
 
+    // Do not abort the POST before its headers arrive: the server may already
+    // have allocated a session. A late Location still needs an explicit DELETE.
     return fetch(this.#conf.url, {
       method: "POST",
       headers: {
@@ -579,17 +628,26 @@ class MediaMTXWebRTCReader {
           throw new Error(`bad status code ${res.status}`);
       }
 
-      this.#sessionUrl = new URL(
-        res.headers.get("location"),
+      const location = res.headers.get("location");
+      if (!location) {
+        throw new Error("missing WHEP session location");
+      }
+      const sessionUrl = new URL(
+        location,
         this.#conf.url,
       ).toString();
+      if (!this.#isCurrent(generation)) {
+        this.#deleteSession(sessionUrl);
+        throw new Error("closed");
+      }
+      this.#sessionUrl = sessionUrl;
 
       return res.text();
     });
   }
 
-  #setAnswer(answer) {
-    if (this.#state !== "running") {
+  #setAnswer(answer, generation) {
+    if (!this.#isCurrent(generation)) {
       throw new Error("closed");
     }
 
@@ -601,7 +659,7 @@ class MediaMTXWebRTCReader {
         }),
       )
       .then(() => {
-        if (this.#state !== "running") {
+        if (!this.#isCurrent(generation)) {
           return;
         }
 
@@ -627,9 +685,11 @@ class MediaMTXWebRTCReader {
   }
 
   #sendLocalCandidates(candidates) {
+    const generation = this.#generation;
     fetch(this.#sessionUrl, {
       method: "PATCH",
       headers: {
+        ...this.#authHeader(),
         "Content-Type": "application/trickle-ice-sdpfrag",
         "If-Match": "*",
       },
@@ -637,6 +697,7 @@ class MediaMTXWebRTCReader {
         this.#offerData,
         candidates,
       ),
+      signal: this.#abortController.signal,
     })
       .then((res) => {
         switch (res.status) {
@@ -649,7 +710,7 @@ class MediaMTXWebRTCReader {
         }
       })
       .catch((err) => {
-        this.#handleError(err.toString());
+        this.#handleError(err.toString(), generation);
       });
   }
 

@@ -7,6 +7,43 @@ use Tests\TestCase;
 
 class LiveRelayBufferingTest extends TestCase
 {
+    public function test_quiet_aac_is_not_batched_into_large_rtp_audio_bursts(): void
+    {
+        if (! is_executable('/usr/bin/ffmpeg')) {
+            $this->markTestSkipped('The Docker runtime supplies FFmpeg.');
+        }
+
+        $socket = stream_socket_server('udp://127.0.0.1:0', $errorCode, $errorMessage, STREAM_SERVER_BIND);
+        $this->assertIsResource($socket, $errorMessage);
+        $address = stream_socket_get_name($socket, false);
+        stream_set_blocking($socket, false);
+
+        try {
+            // Silence produces very small AAC frames: packet size cannot hide
+            // the RTP muxer's independent 0.7-second default batching delay.
+            (new Process([
+                '/usr/bin/ffmpeg', '-nostdin', '-v', 'error',
+                '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono',
+                '-t', '2', '-c:a', 'aac', '-b:a', '32k',
+                '-muxdelay', (string) config('ffmpeg.relay_source.mux_delay'),
+                '-f', 'rtp', '-rtpflags', 'skip_rtcp', 'rtp://'.$address,
+            ]))->setTimeout(20)->mustRun();
+
+            $frameCounts = [];
+            while (($packet = stream_socket_recvfrom($socket, 65535)) !== false && $packet !== '') {
+                $this->assertGreaterThanOrEqual(16, strlen($packet));
+                // AAC-hbr RTP payload starts with the number of AU-header bits;
+                // each access unit contributes one 16-bit header.
+                $frameCounts[] = unpack('n', substr($packet, 12, 2))[1] / 16;
+            }
+
+            $this->assertGreaterThan(10, count($frameCounts), 'Audio must arrive in small, frequent RTP packets.');
+            $this->assertLessThanOrEqual(5, max($frameCounts), 'At 48 kHz, five AAC frames span approximately 107 ms.');
+        } finally {
+            fclose($socket);
+        }
+    }
+
     public function test_relay_hops_preserve_frame_spacing_when_packets_arrive_in_a_burst(): void
     {
         if (! is_executable('/usr/bin/ffmpeg') || ! is_executable('/usr/bin/ffprobe')) {
@@ -75,7 +112,8 @@ class LiveRelayBufferingTest extends TestCase
             $chunks = 0;
             $relay = new Process([
                 '/usr/bin/ffmpeg', '-nostdin', '-v', 'error', '-re', '-i', $fixture,
-                '-map', '0', '-c', 'copy',
+                '-map', '0', '-c:v', 'copy', '-c:a', $stage === 'live' ? 'libopus' : 'copy',
+                ...($stage === 'live' ? ['-af', (string) config('ffmpeg.live.audio_resample')] : []),
                 '-max_interleave_delta', (string) config('ffmpeg.'.$stage.'.max_interleave_delta'),
                 '-flush_packets', '1', '-f', 'matroska', '-cluster_time_limit', '100', 'pipe:1',
             ]);

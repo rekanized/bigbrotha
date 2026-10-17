@@ -14,7 +14,7 @@ class MediaMtxProcessServiceTest extends TestCase
     {
         $path = storage_path('app/private/mediamtx/mediamtx.yml');
         config()->set('mediamtx.config_path', $path);
-        $configService = $this->createMock(MediaMtxConfigService::class);
+        $configService = $this->createStub(MediaMtxConfigService::class);
         $configService->method('buildConfig')->willReturnOnConsecutiveCalls(
             "paths: {}\n", "paths: {}\n", "paths: {camera-1-live: {}}\n",
         );
@@ -110,7 +110,7 @@ class MediaMtxProcessServiceTest extends TestCase
             }
         };
 
-        $configService = $this->createMock(MediaMtxConfigService::class);
+        $configService = $this->createStub(MediaMtxConfigService::class);
         $service = new MediaMtxProcessService($installer, $configService);
 
         $status = $service->status();

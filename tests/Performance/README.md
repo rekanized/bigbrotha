@@ -30,6 +30,22 @@ The variants are the baseline player/upstream reader, the current player/shared
 reader with one-second analysis, and the current player/shared reader with
 250 ms analysis. `--variants after --trials 1` runs a short smoke test.
 
+For sustained reception and server-side WHEP session cleanup checks, run:
+
+```sh
+python3 tests/Performance/live-startup.py --before-ref HEAD --variants after \
+  --trials 1 --observe-seconds 30 --output tmp/live-playback-check
+```
+
+The optional observation settles playback for five seconds, then records each
+receiver's frame, freeze, RTP packet, audio concealment and jitter-buffer deltas.
+It checks that all eight receivers keep both media tracks flowing and that no
+WebRTC sessions remain three seconds after teardown. Observation failures produce
+a nonzero exit status; freeze counts are reported separately because rendering
+performance depends on the test machine. Startup CPU/timing measurements exclude
+the observation window. These counters verify media reception, not audible
+speaker output or end-to-end camera latency.
+
 The default output directory is `tmp/live-startup-benchmark`; use a new
 `--output` directory for each comparison. `results.json` contains every trial,
 `summary.json` contains medians and nearest-rank p95, and per-trial logs preserve

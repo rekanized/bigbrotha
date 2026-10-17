@@ -39,6 +39,10 @@ $configuredFfprobeBinaryCandidates = (static function () use ($defaultFfprobeBin
     return $candidates !== [] ? $candidates : $defaultFfprobeBinaryCandidates;
 })();
 $defaultTemporaryDirectory = storage_path('app/private/ffmpeg-temp');
+$relaySourceWallclockCameraIds = array_values(array_unique(array_filter(array_map(
+    static fn (string $value): int|false => filter_var(trim($value), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]),
+    explode(',', (string) env('FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS', '')),
+))));
 
 return [
     'timeout' => (int) env('FFMPEG_TIMEOUT', 3600),
@@ -109,7 +113,11 @@ return [
 
     'relay_source' => [
         'max_interleave_delta' => max(1, (int) env('FFMPEG_RELAY_SOURCE_MAX_INTERLEAVE_DELTA', 100000)),
+        // RTP audio packetization has its own buffer in addition to muxer
+        // interleaving. FFmpeg otherwise batches quiet AAC for up to 0.7s.
+        'mux_delay' => max(0, (float) env('FFMPEG_RELAY_SOURCE_MUX_DELAY', 0.1)),
         'use_wallclock_timestamps' => filter_var(env('FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS', false), FILTER_VALIDATE_BOOL),
+        'wallclock_camera_ids' => $relaySourceWallclockCameraIds,
     ],
 
     'playback' => [

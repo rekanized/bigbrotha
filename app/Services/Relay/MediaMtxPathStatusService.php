@@ -26,32 +26,37 @@ class MediaMtxPathStatusService
             return $this->activePaths = [];
         }
 
-        $payload = $this->mediaMtxApiJson('/v3/paths/list');
-
-        if (! is_array($payload)) {
-            return $this->activePaths = [];
-        }
-
-        $items = $payload['items'] ?? null;
-
-        if (! is_array($items)) {
-            return $this->activePaths = [];
-        }
-
         $paths = [];
+        $pageCount = 1;
 
-        foreach ($items as $item) {
-            if (! is_array($item)) {
-                continue;
+        for ($page = 0; $page < $pageCount; $page++) {
+            $payload = $this->mediaMtxApiJson('/v3/paths/list'.($page > 0 ? '?page='.$page : ''));
+            $items = $payload['items'] ?? null;
+
+            if (! is_array($items) || $items === []) {
+                break;
             }
 
-            $name = $this->stringOrNull($item['name'] ?? null);
-
-            if ($name === null || ! ((bool) ($item['ready'] ?? false) && (bool) ($item['online'] ?? false))) {
-                continue;
+            // The API defaults to 100 paths per page. Use the first response's
+            // page count so a growing camera fleet cannot prolong this read.
+            if ($page === 0) {
+                $pageCount = max(1, (int) ($payload['pageCount'] ?? 1));
             }
 
-            $paths[$name] = true;
+            foreach ($items as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+
+                $name = $this->stringOrNull($item['name'] ?? null);
+                $available = (bool) ($item['available'] ?? $item['ready'] ?? false);
+
+                if ($name === null || ! ($available && (bool) ($item['online'] ?? false))) {
+                    continue;
+                }
+
+                $paths[$name] = true;
+            }
         }
 
         return $this->activePaths = $paths;

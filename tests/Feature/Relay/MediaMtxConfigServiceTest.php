@@ -146,6 +146,7 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringContainsString("-thread_queue_size '1024'", $sourceBlock);
         $this->assertStringContainsString("-timeout '20000000'", $sourceBlock);
         $this->assertStringContainsString("-max_interleave_delta '100000'", $sourceBlock);
+        $this->assertStringContainsString("-muxdelay '0.1'", $sourceBlock);
         $this->assertStringContainsString('-flush_packets 1', $sourceBlock);
         $this->assertStringContainsString("-rtbufsize '128M'", $sourceBlock);
         $this->assertStringContainsString("-fflags '+genpts+discardcorrupt'", $sourceBlock);
@@ -161,6 +162,10 @@ class MediaMtxConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('-af', $sourceBlock);
         $this->assertStringNotContainsString('libopus', $sourceBlock);
         $this->assertStringNotContainsString('libx264', $sourceBlock);
+
+        config()->set('ffmpeg.relay_source.mux_delay', 0);
+        $unbatched = app(MediaMtxConfigService::class)->buildConfig();
+        $this->assertStringContainsString("-muxdelay '0'", $this->pathBlock($unbatched, 'camera-'.$camera->id.'-source-profile-0'));
     }
 
     public function test_h264_with_detected_b_frames_is_transcoded_for_webrtc(): void

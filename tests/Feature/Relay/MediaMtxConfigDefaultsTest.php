@@ -6,6 +6,26 @@ use Tests\TestCase;
 
 class MediaMtxConfigDefaultsTest extends TestCase
 {
+    public function test_source_clock_repair_selection_defaults_to_empty(): void
+    {
+        $this->withEnvironmentOverrides(['FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS' => null], function (): void {
+            $config = require base_path('config/ffmpeg.php');
+
+            $this->assertSame([], $config['relay_source']['wallclock_camera_ids']);
+        });
+    }
+
+    public function test_source_clock_repair_selection_ignores_invalid_ids_and_removes_duplicates(): void
+    {
+        $this->withEnvironmentOverrides([
+            'FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS' => '12, 34,12,,0,-2,garbage,12oops,3.5,999999999999999999999999999999',
+        ], function (): void {
+            $config = require base_path('config/ffmpeg.php');
+
+            $this->assertSame([12, 34], $config['relay_source']['wallclock_camera_ids']);
+        });
+    }
+
     public function test_blank_mediamtx_env_values_fall_back_to_app_defaults(): void
     {
         $appUrl = 'https://monitor.example.test';

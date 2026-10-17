@@ -61,7 +61,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
+     * @return array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -69,7 +69,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
+     * @return array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraSourceRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -81,6 +81,7 @@ class MediaMtxConfigService
 
         return [
             'mode' => 'source',
+            'use_wallclock_timestamps' => in_array((int) $camera->getKey(), (array) config('ffmpeg.relay_source.wallclock_camera_ids', []), true),
             'path' => $this->sourcePathName($camera, $selection['index']),
             'source_path' => $this->sourcePathName($camera, $selection['index']),
             'index' => $selection['index'],
@@ -198,9 +199,13 @@ class MediaMtxConfigService
 
     public function buildConfig(): string
     {
-        $definitions = $this->sourceRelayDefinitions()
-            ->merge($this->enabledRelayDefinitions())
-            ->merge($this->profilePlaybackDefinitions())
+        $cameras = Camera::query()
+            ->where('supports_rtsp', true)
+            ->orderBy('name')
+            ->get();
+        $definitions = $this->sourceRelayDefinitions($cameras)
+            ->merge($this->enabledRelayDefinitions($cameras))
+            ->merge($this->profilePlaybackDefinitions($cameras))
             ->unique('path')
             ->values();
         $ffmpegBinary = $this->streamService->ffmpegBinary();
@@ -210,14 +215,16 @@ class MediaMtxConfigService
             'logDestinations: [stdout]',
             'readTimeout: 20s',
             'writeTimeout: 20s',
-            'api: true',
+            'api: '.((bool) config('mediamtx.api.enabled', true) ? 'true' : 'false'),
             'apiAddress: '.config('mediamtx.api.address'),
             'rtsp: true',
             'rtspTransports: [tcp]',
             'rtspAddress: '.config('mediamtx.rtsp.listen_address'),
             'rtmp: false',
             'hls: false',
-            'webrtc: true',
+            'srt: false',
+            'moq: false',
+            'webrtc: '.((bool) config('mediamtx.webrtc.enabled', true) ? 'true' : 'false'),
             'webrtcAddress: '.config('mediamtx.webrtc.address'),
             'webrtcAllowOrigins: '.$this->inlineStringList((array) config('mediamtx.webrtc.allow_origins', ['*'])),
             'webrtcIPsFromInterfaces: '.(((bool) config('mediamtx.webrtc.ips_from_interfaces', true)) ? 'true' : 'false'),
@@ -275,29 +282,25 @@ class MediaMtxConfigService
     }
 
     /**
+     * @param  Collection<int, Camera>  $cameras
      * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
-    private function enabledRelayDefinitions(): Collection
+    private function enabledRelayDefinitions(Collection $cameras): Collection
     {
-        return Camera::query()
+        return $cameras
             ->where('is_enabled', true)
-            ->where('supports_rtsp', true)
-            ->orderBy('name')
-            ->get()
             ->map(fn (Camera $camera): ?array => $this->cameraRelayDefinition($camera))
             ->filter()
             ->values();
     }
 
     /**
-     * @return Collection<int, array{mode: 'source', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     * @param  Collection<int, Camera>  $cameras
+     * @return Collection<int, array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
-    private function sourceRelayDefinitions(): Collection
+    private function sourceRelayDefinitions(Collection $cameras): Collection
     {
-        return Camera::query()
-            ->where('supports_rtsp', true)
-            ->orderBy('name')
-            ->get()
+        return $cameras
             ->flatMap(function (Camera $camera): array {
                 $definitions = [];
                 $defaultDefinition = $this->cameraSourceRelayDefinition($camera);
@@ -324,14 +327,12 @@ class MediaMtxConfigService
     }
 
     /**
+     * @param  Collection<int, Camera>  $cameras
      * @return Collection<int, array{mode: 'live', path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
-    private function profilePlaybackDefinitions(): Collection
+    private function profilePlaybackDefinitions(Collection $cameras): Collection
     {
-        return Camera::query()
-            ->where('supports_rtsp', true)
-            ->orderBy('name')
-            ->get()
+        return $cameras
             ->flatMap(function (Camera $camera): array {
                 $definitions = [];
 
@@ -475,6 +476,7 @@ class MediaMtxConfigService
                 $definition['transport'],
                 filter_var($definition['live_transcode']['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
                     || (int) ($definition['profile']['video_has_b_frames'] ?? 0) > 0,
+                (bool) ($definition['use_wallclock_timestamps'] ?? false),
             )
             : $this->buildLiveRunOnDemandCommand(
                 $ffmpegBinary,
@@ -601,7 +603,7 @@ class MediaMtxConfigService
         return implode(' ', $command);
     }
 
-    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, bool $preserveMediaTimestamps = false): string
+    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, bool $preserveMediaTimestamps = false, bool $useWallclockTimestamps = false): string
     {
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
         $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
@@ -609,6 +611,8 @@ class MediaMtxConfigService
         $inputFflags = trim((string) config('ffmpeg.recording.input_fflags', '+genpts+discardcorrupt'));
         $fpsMode = trim((string) config('ffmpeg.recording.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.recording.avoid_negative_ts', 'make_zero'));
+        $useWallclockTimestamps = ! $preserveMediaTimestamps
+            && ($useWallclockTimestamps || (bool) config('ffmpeg.relay_source.use_wallclock_timestamps', false));
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
@@ -626,7 +630,7 @@ class MediaMtxConfigService
             '-fflags',
             escapeshellarg($inputFflags !== '' ? $inputFflags : '+genpts+discardcorrupt'),
             '-use_wallclock_as_timestamps',
-            escapeshellarg(config('ffmpeg.relay_source.use_wallclock_timestamps', false) && ! $preserveMediaTimestamps ? '1' : '0'),
+            escapeshellarg($useWallclockTimestamps ? '1' : '0'),
             '-analyzeduration',
             escapeshellarg((string) $inputAnalyzeDuration),
             '-probesize',
@@ -659,6 +663,8 @@ class MediaMtxConfigService
             escapeshellarg((string) config('ffmpeg.recording.max_muxing_queue_size', 1024)),
             '-max_interleave_delta',
             escapeshellarg((string) max(1, (int) config('ffmpeg.relay_source.max_interleave_delta', 100000))),
+            '-muxdelay',
+            escapeshellarg((string) max(0, (float) config('ffmpeg.relay_source.mux_delay', 0.1))),
             '-flush_packets',
             '1',
             '-f',

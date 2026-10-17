@@ -47,14 +47,29 @@ transcoding. This increases CPU demand. Camera firmware and upstream network
 interruptions can still cause gaps; application buffering cannot guarantee smooth
 playback when the source stops delivering packets.
 
-Live relay hops preserve the media clock by default. If a source has malformed
-timestamps, `FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS=true` explicitly enables
-arrival-time repair at the shared source, and
-`FFMPEG_LIVE_USE_WALLCLOCK_TIMESTAMPS=true` enables it at the live output. These
-are compatibility overrides: bursty packet delivery can become uneven frame
-timing when arrival times replace media timestamps. Detected B-frame streams
-always preserve their decode/presentation ordering. Recording workers still use
-the separate `FFMPEG_RECORDING_USE_WALLCLOCK_TIMESTAMPS` policy.
+Live relay hops preserve the media clock by default. For cameras with confirmed
+malformed timestamps, set `FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS=12,34` to
+replace timestamps with packet arrival times at the shared source for those
+camera IDs. The default is empty; invalid or nonpositive IDs are ignored.
+Selection applies to every source profile of those cameras, including sources
+used by recording and motion workers. Unselected cameras retain their original
+timestamps. Apply the setting through the deployment environment and regenerate
+the relay configuration; affected active source paths can reconnect on reload.
+
+The broader `FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS=true` override selects
+all shared sources, while `FFMPEG_LIVE_USE_WALLCLOCK_TIMESTAMPS=true` enables
+repair at the live output. These are compatibility overrides: bursty packet
+delivery can become uneven frame timing when arrival times replace media
+timestamps. Detected B-frame sources and sources using forced compatibility
+transcoding keep their original decode/presentation ordering even when selected
+for source repair. Recording workers still apply the separate
+`FFMPEG_RECORDING_USE_WALLCLOCK_TIMESTAMPS` policy after reading the shared source.
+
+Source RTP audio aggregation uses `FFMPEG_RELAY_SOURCE_MUX_DELAY=0.1` seconds.
+This bounds a separate AAC packetization buffer that `flush_packets` and
+`max_interleave_delta` do not control. Setting it to `0` sends each AAC access
+unit separately, increasing the local packet rate; increasing it adds audio
+delay. The default follows [FFmpeg's RTSP publishing example](https://ffmpeg.org/ffmpeg-protocols.html#rtsp).
 
 ## WebRTC and reverse proxies
 

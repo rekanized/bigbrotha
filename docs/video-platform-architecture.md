@@ -75,7 +75,10 @@ already established WebRTC connection is not forcibly terminated.
 Relay sources and live outputs preserve media timestamps by default, so packets
 read in a burst still have evenly spaced presentation times. Recording workers
 retain their independent timestamp policy. `FFMPEG_THREADS` bounds software
-live decoding, encoding, and filtering; compatible H.264 remains a video copy.
+live decoding, encoding, and filtering, including legacy MJPEG streams;
+compatible H.264 remains a video copy. Source RTP audio packetization targets
+100 ms (rounded to whole audio frames) separately from the muxer's 100 ms interleaving limit, preventing quiet
+AAC from accumulating into large audio bursts before Opus conversion.
 Repeated page initialization reuses existing receivers, while page teardown
 closes both wall and modal players. Background-tab restoration allows time for
 frame presentation to resume before the stall watchdog retries a stream.

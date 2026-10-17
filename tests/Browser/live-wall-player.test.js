@@ -111,6 +111,10 @@ window.runLiveWallPlayerTests = async () => {
     status.handleFailure = () => { throw new Error('User pause triggered a reconnect'); };
     status.checkHealth(Date.now());
     assert(status.root.querySelector('[data-role="stream-status"]').textContent === 'Paused', 'Native pause stays paused without watchdog reconnection');
+    let pausedPlays = 0;
+    status.video.play = async () => { pausedPlays++; };
+    status.handleTrack({ track: document.createElement('canvas').captureStream().getVideoTracks()[0] });
+    assert(pausedPlays === 0 && status.root.querySelector('[data-role="stream-status"]').textContent === 'Paused', 'A delayed track cannot resume playback paused with native controls');
     status.close();
 
     const grid = document.createElement('div');

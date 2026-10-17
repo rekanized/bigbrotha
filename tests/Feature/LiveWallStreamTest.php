@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Camera;
 use App\Models\LiveWall;
 use App\Models\User;
+use App\Services\CameraLiveStreamService;
 use App\Services\Relay\MediaMtxAccessTokenService;
 use App\Services\Relay\MediaMtxPathStatusService;
 use App\Services\Relay\MediaMtxProcessService;
@@ -923,6 +924,7 @@ class LiveWallStreamTest extends TestCase
         chmod($ffmpegBinary, 0755);
 
         config()->set('ffmpeg.ffmpeg.binaries', [$ffmpegBinary]);
+        config()->set('ffmpeg.ffmpeg.threads', 2);
         $pathStatus = Mockery::mock(MediaMtxPathStatusService::class);
         $pathStatus->shouldReceive('activePaths')->once()->andReturn([]);
         $this->app->instance(MediaMtxPathStatusService::class, $pathStatus);
@@ -936,6 +938,15 @@ class LiveWallStreamTest extends TestCase
 
         $this->assertStringContainsString('frame-one', $response->streamedContent());
         $this->assertStringContainsString('rtsp://operator:secret@192.0.2.67:554/stream2', File::get($argumentsPath));
+        $arguments = explode(PHP_EOL, trim(File::get($argumentsPath)));
+        $inputPosition = array_search('-i', $arguments, true);
+        $this->assertIsInt($inputPosition);
+        $inputArguments = array_slice($arguments, 0, $inputPosition);
+        $outputArguments = array_slice($arguments, $inputPosition + 2);
+        $this->assertSame('2', $inputArguments[array_search('-threads:v', $inputArguments, true) + 1]);
+        $this->assertSame('2', $outputArguments[array_search('-threads:v', $outputArguments, true) + 1]);
+        $this->assertSame('2', $inputArguments[array_search('-filter_threads', $inputArguments, true) + 1]);
+        $this->assertSame('1', $outputArguments[array_search('-flush_packets', $outputArguments, true) + 1]);
     }
 
     public function test_it_streams_a_copy_relay_without_reencoding_video(): void
@@ -992,6 +1003,25 @@ class LiveWallStreamTest extends TestCase
         $this->assertStringContainsString('ftypisomrelay-data', $response->streamedContent());
         $this->assertStringContainsString('rtsp://internal-reader:relay-pass@relay:8554/'.$sourcePath, File::get($argumentsPath));
         $this->assertStringNotContainsString('192.0.2.67', File::get($argumentsPath));
+    }
+
+    public function test_legacy_live_streams_preserve_b_frame_timing_during_wallclock_repair(): void
+    {
+        config()->set('ffmpeg.ffmpeg.binaries', ['/bin/true']);
+        config()->set('ffmpeg.live.use_wallclock_timestamps', true);
+        config()->set('mediamtx.rtsp.internal_base_url', '');
+        $camera = new Camera(['rtsp_transport' => 'tcp']);
+        $service = app(CameraLiveStreamService::class);
+
+        foreach (['buildMjpegCommand', 'buildRelayCommand'] as $method) {
+            foreach ([0 => '1', 2 => '0'] as $bFrames => $expected) {
+                $command = (new \ReflectionMethod($service, $method))->invoke($service, $camera, [
+                    'index' => null,
+                    'profile' => ['uri' => 'rtsp://camera.example.test/live', 'video_has_b_frames' => $bFrames],
+                ]);
+                $this->assertSame($expected, $command[array_search('-use_wallclock_as_timestamps', $command, true) + 1]);
+            }
+        }
     }
 
     private function mockRelayProcess(bool $running, ?bool $apiReachable = null): void

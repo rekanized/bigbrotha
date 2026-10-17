@@ -29,6 +29,12 @@ parser.add_argument(
 )
 parser.add_argument("--trials", type=int, default=20)
 parser.add_argument(
+    "--observe-seconds",
+    type=int,
+    default=0,
+    help="Observe ongoing audio/video reception after each startup (0 disables)",
+)
+parser.add_argument(
     "--variants",
     nargs="+",
     choices=["before", "after", "probe250"],
@@ -38,8 +44,10 @@ parser.add_argument(
     "--output", type=pathlib.Path, default=pathlib.Path("tmp/live-startup-benchmark")
 )
 args = parser.parse_args()
-if not args.chromium or args.trials < 1:
-    parser.error("Chromium and a positive trial count are required")
+if not args.chromium or args.trials < 1 or args.observe_seconds < 0:
+    parser.error(
+        "Chromium, a positive trial count and nonnegative observation time are required"
+    )
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORK = args.output.resolve()
 WORK.mkdir(parents=True, exist_ok=True)
@@ -281,6 +289,62 @@ try:
             raise RuntimeError(str(r))
         return r.get("result", {}).get("value")
 
+    def receiver_stats():
+        return js("""Promise.all(window.peers.map(async (pc, peer) => {
+            if (pc.connectionState !== 'connected') return null;
+            const stats = await pc.getStats();
+            return {peer, tracks: [...stats.values()]
+                .filter(s => s.type === 'inbound-rtp')
+                .map(s => ({kind: s.kind, codec: stats.get(s.codecId)?.mimeType,
+                    frames: s.framesDecoded || 0, dropped: s.framesDropped || 0,
+                    freezes: s.freezeCount || 0, packets: s.packetsReceived || 0,
+                    lost: s.packetsLost || 0, samples: s.totalSamplesReceived || 0,
+                    concealed: s.concealedSamples || 0,
+                    jitterBufferDelay: s.jitterBufferDelay || 0,
+                    jitterBufferEmitted: s.jitterBufferEmittedCount || 0}))};
+        })).then(rows => rows.filter(Boolean))""")
+
+    def observe_receivers():
+        # Let startup/keyframe effects settle before measuring ongoing playback.
+        time.sleep(5)
+        before = receiver_stats()
+        time.sleep(args.observe_seconds)
+        after = receiver_stats()
+        before_peers = {p["peer"]: p for p in before}
+        result = {"seconds": args.observe_seconds, "receivers": [], "errors": []}
+        if len(before) != 8 or len(after) != 8:
+            result["errors"].append("Expected eight connected receivers")
+        for peer in after:
+            old = before_peers.get(peer["peer"])
+            if old is None:
+                result["errors"].append("Receiver restarted during observation")
+                continue
+            tracks = []
+            for track in peer["tracks"]:
+                previous = next(
+                    (t for t in old["tracks"] if t["kind"] == track["kind"]), None
+                )
+                if previous is None:
+                    result["errors"].append("Track changed during observation")
+                    continue
+                delta = {
+                    key: value - previous[key]
+                    for key, value in track.items()
+                    if key not in {"kind", "codec"}
+                }
+                delta.update(kind=track["kind"], codec=track["codec"])
+                if (
+                    delta["packets"] <= 0
+                    or (delta["kind"] == "video" and delta["frames"] <= 0)
+                    or (delta["kind"] == "audio" and delta["samples"] <= 0)
+                ):
+                    result["errors"].append("Track stopped receiving media")
+                tracks.append(delta)
+            if {t["kind"] for t in tracks} != {"video", "audio"}:
+                result["errors"].append("Missing video or audio track")
+            result["receivers"].append({"peer": peer["peer"], "tracks": tracks})
+        return result
+
     call(
         "Emulation.setDeviceMetricsOverride",
         dict(width=1280, height=800, deviceScaleFactor=1, mobile=False),
@@ -422,6 +486,9 @@ try:
                     cpu_seconds=c1 - c0,
                     cpu_percent=100 * (c1 - c0) / elapsed,
                 )
+                if args.observe_seconds:
+                    data["observation"] = observe_receivers()
+                    data["errors"] = js("window.errors")
                 relay_log = run("docker", "exec", NAME, "cat", "/tmp/relay.log")
                 (WORK / f"{variant}-{case}-{trial}.log").write_bytes(relay_log)
                 frames = [v for v in data.get("frames", []) if v is not None]
@@ -451,7 +518,33 @@ try:
                     flush=True,
                 )
                 js("window.BigBrothaLiveWallPlayerModule?.close();true")
+                if args.observe_seconds:
+                    time.sleep(0.1)
+                    data["errors"] = js("window.errors")
                 call("Page.navigate", dict(url="about:blank"))
+                if args.observe_seconds:
+                    deadline = time.monotonic() + 3
+                    while True:
+                        sessions = json.load(
+                            urllib.request.urlopen(
+                                "http://127.0.0.1:29997/v3/webrtcsessions/list",
+                                timeout=2,
+                            )
+                        )["itemCount"]
+                        if sessions == 0 or time.monotonic() >= deadline:
+                            break
+                        time.sleep(0.1)
+                    data["sessions_after_close"] = sessions
+                    (WORK / "results.json").write_text(json.dumps(results, indent=2))
+                    print(
+                        json.dumps(
+                            {
+                                "observation": data["observation"],
+                                "sessions_after_close": sessions,
+                            }
+                        ),
+                        flush=True,
+                    )
                 for p in warm:
                     p.terminate()
                 for p in warm:
@@ -468,6 +561,11 @@ try:
                     case=c,
                     trials=len(rows),
                     failures=len(rows) - len(good),
+                    observation_failures=sum(
+                        bool(r.get("observation", {}).get("errors"))
+                        or r.get("sessions_after_close", 0) != 0
+                        for r in rows
+                    ),
                     first_median_ms=statistics.median((r["first_ms"] for r in good))
                     if good
                     else None,
@@ -496,6 +594,14 @@ try:
             )
     (WORK / "summary.json").write_text(json.dumps(summary, indent=2))
     print("SUMMARY", json.dumps(summary), flush=True)
+    if args.observe_seconds and any(
+        r.get("all_ms") is None
+        or r.get("errors")
+        or r.get("observation", {}).get("errors")
+        or r.get("sessions_after_close", 0) != 0
+        for r in results
+    ):
+        raise RuntimeError("Playback validation failed; inspect results.json")
 finally:
     for p in warm:
         p.terminate()

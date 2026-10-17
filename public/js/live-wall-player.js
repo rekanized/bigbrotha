@@ -529,6 +529,7 @@
                 return;
             }
 
+            const preservePause = this.video.controls && this.video.paused && this.hasPresentedVideo;
             this.mergeIncomingTrack(event);
 
             if (this.video.srcObject !== this.mediaStream) {
@@ -545,6 +546,11 @@
 
             if (this.isAudioSelectable) {
                 this.applyAudioSelection();
+            }
+
+            // A delayed audio track must not undo a pause made with native controls.
+            if (preservePause) {
+                return;
             }
 
             const attempt = this.connectionAttempt;
