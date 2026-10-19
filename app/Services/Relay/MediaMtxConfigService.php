@@ -61,7 +61,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
+     * @return array{mode: 'source', repair_timestamps: bool, use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraRecordingRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -69,7 +69,7 @@ class MediaMtxConfigService
     }
 
     /**
-     * @return array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
+     * @return array{mode: 'source', repair_timestamps: bool, use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string, live_transcode: array{quality: string, rate_control: string, bitrate_kbps: int|null}}|null
      */
     public function cameraSourceRelayDefinition(Camera $camera, ?int $profileIndex = null): ?array
     {
@@ -81,6 +81,7 @@ class MediaMtxConfigService
 
         return [
             'mode' => 'source',
+            'repair_timestamps' => in_array((int) $camera->getKey(), (array) config('ffmpeg.relay_source.clock_repair_camera_ids', []), true),
             'use_wallclock_timestamps' => in_array((int) $camera->getKey(), (array) config('ffmpeg.relay_source.wallclock_camera_ids', []), true),
             'path' => $this->sourcePathName($camera, $selection['index']),
             'source_path' => $this->sourcePathName($camera, $selection['index']),
@@ -296,7 +297,7 @@ class MediaMtxConfigService
 
     /**
      * @param  Collection<int, Camera>  $cameras
-     * @return Collection<int, array{mode: 'source', use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
+     * @return Collection<int, array{mode: 'source', repair_timestamps: bool, use_wallclock_timestamps: bool, path: string, source_path: string, index: int|null, profile: array<string, string|null>, authenticated_uri: string, transport: string}>
      */
     private function sourceRelayDefinitions(Collection $cameras): Collection
     {
@@ -477,6 +478,7 @@ class MediaMtxConfigService
                 filter_var($definition['live_transcode']['force_video_transcode'] ?? false, FILTER_VALIDATE_BOOL)
                     || (int) ($definition['profile']['video_has_b_frames'] ?? 0) > 0,
                 (bool) ($definition['use_wallclock_timestamps'] ?? false),
+                (bool) ($definition['repair_timestamps'] ?? false),
             )
             : $this->buildLiveRunOnDemandCommand(
                 $ffmpegBinary,
@@ -603,7 +605,7 @@ class MediaMtxConfigService
         return implode(' ', $command);
     }
 
-    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, bool $preserveMediaTimestamps = false, bool $useWallclockTimestamps = false): string
+    private function buildSourceRunOnDemandCommand(string $ffmpegBinary, string $authenticatedUri, string $transport, bool $preserveMediaTimestamps = false, bool $useWallclockTimestamps = false, bool $repairTimestamps = false): string
     {
         $publishTarget = $this->internalPublishUrl('$MTX_PATH');
         $inputAnalyzeDuration = (int) config('ffmpeg.recording.input_analyze_duration', 1000000);
@@ -611,8 +613,15 @@ class MediaMtxConfigService
         $inputFflags = trim((string) config('ffmpeg.recording.input_fflags', '+genpts+discardcorrupt'));
         $fpsMode = trim((string) config('ffmpeg.recording.fps_mode', 'passthrough'));
         $avoidNegativeTs = trim((string) config('ffmpeg.recording.avoid_negative_ts', 'make_zero'));
+        $repairTimestamps = $repairTimestamps && ! $preserveMediaTimestamps;
         $useWallclockTimestamps = ! $preserveMediaTimestamps
-            && ($useWallclockTimestamps || (bool) config('ffmpeg.relay_source.use_wallclock_timestamps', false));
+            && ($repairTimestamps || $useWallclockTimestamps || (bool) config('ffmpeg.relay_source.use_wallclock_timestamps', false));
+        // A malformed camera clock can jump every second on both tracks.
+        // Arrival time removes those jumps but contains network jitter. For
+        // explicitly selected sources, rebuild each track from coded packet
+        // durations without decoding or guessing a common video frame rate.
+        // Fall back to arrival timestamps if a packet duration is unavailable.
+        $packetClock = "setts=ts='if(eq(N,0),0,if(gt(PREV_OUTDURATION,0),PREV_OUTPTS+PREV_OUTDURATION,TS-STARTPTS))'";
         $command = [
             escapeshellarg($ffmpegBinary),
             '-nostdin',
@@ -659,6 +668,13 @@ class MediaMtxConfigService
             '-c',
             'copy',
             '-copyinkf',
+        );
+
+        if ($repairTimestamps) {
+            array_push($command, '-bsf:v', escapeshellarg($packetClock), '-bsf:a', escapeshellarg($packetClock));
+        }
+
+        array_push($command,
             '-max_muxing_queue_size',
             escapeshellarg((string) config('ffmpeg.recording.max_muxing_queue_size', 1024)),
             '-max_interleave_delta',

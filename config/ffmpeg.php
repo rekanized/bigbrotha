@@ -43,6 +43,10 @@ $relaySourceWallclockCameraIds = array_values(array_unique(array_filter(array_ma
     static fn (string $value): int|false => filter_var(trim($value), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]),
     explode(',', (string) env('FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS', '')),
 ))));
+$relaySourceClockRepairCameraIds = array_values(array_unique(array_filter(array_map(
+    static fn (string $value): int|false => filter_var(trim($value), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]),
+    explode(',', (string) env('FFMPEG_RELAY_SOURCE_CLOCK_REPAIR_CAMERA_IDS', '')),
+))));
 
 return [
     'timeout' => (int) env('FFMPEG_TIMEOUT', 3600),
@@ -118,6 +122,7 @@ return [
         'mux_delay' => max(0, (float) env('FFMPEG_RELAY_SOURCE_MUX_DELAY', 0.1)),
         'use_wallclock_timestamps' => filter_var(env('FFMPEG_RELAY_SOURCE_USE_WALLCLOCK_TIMESTAMPS', false), FILTER_VALIDATE_BOOL),
         'wallclock_camera_ids' => $relaySourceWallclockCameraIds,
+        'clock_repair_camera_ids' => $relaySourceClockRepairCameraIds,
     ],
 
     'playback' => [

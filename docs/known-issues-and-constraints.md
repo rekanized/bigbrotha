@@ -48,7 +48,20 @@ interruptions can still cause gaps; application buffering cannot guarantee smoot
 playback when the source stops delivering packets.
 
 Live relay hops preserve the media clock by default. For cameras with confirmed
-malformed timestamps, set `FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS=12,34` to
+clock jumps on fixed-rate streams, set
+`FFMPEG_RELAY_SOURCE_CLOCK_REPAIR_CAMERA_IDS=12,34` after checking their profiles.
+This rebuilds video and audio presentation timestamps from encoded packet
+durations at the shared source, while copying the media unchanged. It does not
+guess a common frame rate or add video encoding. Input arrival timestamps provide
+a fallback when packet duration is unavailable. Selection covers every source
+profile, including recording consumers. Validate sustained playback, audio and
+recording continuity before enabling it; variable-rate sources or dropped input
+frames can make a duration-based clock drift from real time. Detected B-frames
+disable this repair to preserve decode/presentation ordering. Sources using
+forced compatibility transcoding also keep their original timing.
+
+For an arrival-clock override alone on cameras with confirmed malformed
+timestamps, set `FFMPEG_RELAY_SOURCE_WALLCLOCK_CAMERA_IDS=12,34` to
 replace timestamps with packet arrival times at the shared source for those
 camera IDs. The default is empty; invalid or nonpositive IDs are ignored.
 Selection applies to every source profile of those cameras, including sources
