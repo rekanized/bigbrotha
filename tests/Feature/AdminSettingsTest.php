@@ -1807,16 +1807,19 @@ BASH
         );
 
         $disk = \Mockery::mock(FilesystemContract::class);
-        $disk->shouldReceive('files')
-            ->once()
-            ->andThrow(new \RuntimeException('The optional empty-directory cleanup parser failed.'));
+        $disk->shouldNotReceive('files');
+        $disk->shouldNotReceive('deleteDirectory');
         $disk->shouldNotReceive('exists');
         $disk->shouldNotReceive('delete');
 
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
-        $storage->shouldReceive('cameraDisk')->once()->andReturn($disk);
+        $storage->shouldReceive('cameraDisk')->andReturn($disk);
+        $storage->shouldReceive('removeEmptyCameraDiskDirectory')
+            ->once()
+            ->with('7/recordings/2026/04/10')
+            ->andThrow(new \RuntimeException('The optional empty-directory cleanup failed.'));
         $storage->shouldReceive('networkCameraDiskAvailability')
             ->once()
             ->with('7/recordings/2026/04/10/delete-with-cli.mkv')

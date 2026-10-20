@@ -1277,11 +1277,10 @@ class CameraStorageService
         $directory = dirname($diskPath);
 
         while ($directory !== '.' && $directory !== $stopDirectory && str_starts_with($directory, $stopDirectory)) {
-            if (! $this->cameraDirectoryEmpty($directory)) {
+            if (! $this->removeEmptyCameraDiskDirectory($directory)) {
                 break;
             }
 
-            $this->cameraDisk()->deleteDirectory($directory);
             $directory = dirname($directory);
         }
 
@@ -1307,10 +1306,29 @@ class CameraStorageService
         }
     }
 
-    private function cameraDirectoryEmpty(string $diskDirectory): bool
+    protected function removeEmptyCameraDiskDirectory(string $diskDirectory): bool
     {
-        return $this->cameraDisk()->files($diskDirectory) === []
-            && $this->cameraDisk()->directories($diskDirectory) === [];
+        $networkConfig = $this->settings->networkStorageDiskConfig();
+        $binary = $this->smbClientBinary();
+        $targetPath = $this->cameraDiskSmbTargetPath($diskDirectory);
+
+        if (! is_array($networkConfig) || $binary === null || $targetPath === null) {
+            return false;
+        }
+
+        // The server must check emptiness atomically. Flysystem's deleteDirectory
+        // is recursive: a stale listing or a concurrent upload can lose recordings.
+        // If this optional cleanup is unavailable, leave the directory in place.
+        $process = $this->runSmbClientCommand(
+            $binary,
+            $networkConfig,
+            'rmdir "'.$targetPath.'"',
+            self::SMB_METADATA_TIMEOUT_SECONDS,
+        );
+
+        // smbclient can exit zero while reporting NT_STATUS_DIRECTORY_NOT_EMPTY.
+        return $process->isSuccessful()
+            && trim($process->getOutput().' '.$process->getErrorOutput()) === '';
     }
 
     private function deletePrivateDirectory(string $relativeDirectory): void

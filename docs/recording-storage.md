@@ -20,5 +20,11 @@ Authenticated playback and downloads resolve remote clips into uniquely named lo
 
 Retention deletes the durable clip, then its local review assets and database row. A failed remote delete does not count as a missing file. The expired-recording audit checks metadata without downloading each clip. Camera deletion stops if removal of its remote directory fails and keeps the camera row and local files for a later attempt. On success, it also removes local previews and staging. Orphan inspection scans the active remote camera tree; legacy files outside that root and untracked local staging require separate operator review before cleanup.
 
+After deleting an individual clip, empty SMB date directories are removed with the
+server's nonrecursive `rmdir` operation. A populated directory, including one
+receiving a concurrent upload, is left intact. When this optional cleanup is
+unavailable, directories are retained; a client-side empty listing never
+authorizes recursive deletion.
+
 See [backup and restore](backup-and-restore.md) for a consistent recovery procedure,
 including a separate snapshot of the SMB recording tree.
