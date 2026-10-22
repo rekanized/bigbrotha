@@ -131,9 +131,7 @@ class RecordingMotionMaskService
         $normalized = $this->normalize($mask);
         $width = $normalized['grid_width'];
         $height = $normalized['grid_height'];
-        $selected = $this->selectedIndexes($normalized);
-
-        if ($selected === []) {
+        if ($normalized['runs'] === []) {
             return [
                 'x' => 0,
                 'y' => 0,
@@ -147,13 +145,15 @@ class RecordingMotionMaskService
         $maxX = 0;
         $maxY = 0;
 
-        foreach ($selected as $index) {
-            $x = $index % $width;
-            $y = intdiv($index, $width);
-            $minX = min($minX, $x);
-            $minY = min($minY, $y);
-            $maxX = max($maxX, $x);
-            $maxY = max($maxY, $y);
+        foreach ($normalized['runs'] as [$start, $end]) {
+            $startY = intdiv($start, $width);
+            $endY = intdiv($end, $width);
+            $minY = min($minY, $startY);
+            $maxY = max($maxY, $endY);
+
+            // A run crossing a row boundary includes both horizontal edges.
+            $minX = min($minX, $startY === $endY ? $start % $width : 0);
+            $maxX = max($maxX, $startY === $endY ? $end % $width : $width - 1);
         }
 
         return [

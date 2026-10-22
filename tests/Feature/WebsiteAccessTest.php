@@ -8,7 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Tests\TestCase;
 
-class ExampleTest extends TestCase
+class WebsiteAccessTest extends TestCase
 {
     use RefreshDatabase;
 

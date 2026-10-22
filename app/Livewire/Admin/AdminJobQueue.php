@@ -249,20 +249,23 @@ class AdminJobQueue extends Component
         $queues = array_values(array_unique(array_merge(array_keys($pendingCounts), array_keys($failedCounts), $workerQueues)));
         sort($queues);
 
+        // Rank only small scheduling columns in SQL. Fetching every payload to
+        // choose one job per queue makes polling memory grow with the backlog.
+        $rankedJobs = DB::table('jobs')
+            ->select('id')
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY queue ORDER BY available_at, id) as queue_position');
+        $nextJobIds = DB::query()->fromSub($rankedJobs, 'ranked_jobs')
+            ->select('id')
+            ->where('queue_position', 1);
+
         $nextJobs = DB::table('jobs')
             ->select('queue', 'payload', 'available_at')
-            ->orderBy('available_at')
-            ->orderBy('id')
+            ->whereIn('id', $nextJobIds)
             ->get()
-            ->groupBy('queue')
-            ->map(function ($jobs): array {
-                $nextJob = $jobs->first();
-
-                return [
-                    'label' => $this->jobLabelFromPayload((string) $nextJob->payload),
-                    'available_at_label' => $this->formatUnixTimestamp((int) $nextJob->available_at),
-                ];
-            })
+            ->mapWithKeys(fn (object $job): array => [$job->queue => [
+                'label' => $this->jobLabelFromPayload((string) $job->payload),
+                'available_at_label' => $this->formatUnixTimestamp((int) $job->available_at),
+            ]])
             ->all();
 
         $rows = [];

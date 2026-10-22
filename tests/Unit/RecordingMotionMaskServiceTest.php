@@ -7,6 +7,45 @@ use Tests\TestCase;
 
 class RecordingMotionMaskServiceTest extends TestCase
 {
+    public function test_bounds_match_selected_pixels_for_every_run_on_small_grids(): void
+    {
+        $service = app(RecordingMotionMaskService::class);
+
+        foreach ([[1, 4], [4, 1], [4, 3], [7, 5]] as [$width, $height]) {
+            for ($start = 0; $start < $width * $height; $start++) {
+                for ($end = $start; $end < $width * $height; $end++) {
+                    $mask = ['grid_width' => $width, 'grid_height' => $height, 'runs' => [[$start, $end]]];
+                    $xs = $ys = [];
+                    foreach ($service->selectedIndexes($mask) as $index) {
+                        $xs[] = $index % $width;
+                        $ys[] = intdiv($index, $width);
+                    }
+
+                    $this->assertSame([
+                        'x' => min(95, (int) floor(min($xs) / $width * 100)),
+                        'y' => min(95, (int) floor(min($ys) / $height * 100)),
+                        'width' => max(5, (int) ceil((max($xs) - min($xs) + 1) / $width * 100)),
+                        'height' => max(5, (int) ceil((max($ys) - min($ys) + 1) / $height * 100)),
+                    ], $service->bounds($mask), json_encode($mask));
+                }
+            }
+        }
+    }
+
+    public function test_bounds_handle_empty_disjoint_and_clipped_runs(): void
+    {
+        $service = app(RecordingMotionMaskService::class);
+        $this->assertSame(['x' => 0, 'y' => 0, 'width' => 100, 'height' => 100], $service->bounds([
+            'grid_width' => 640, 'grid_height' => 640, 'runs' => [],
+        ]));
+        $this->assertSame(['x' => 0, 'y' => 0, 'width' => 100, 'height' => 100], $service->bounds([
+            'grid_width' => 4, 'grid_height' => 4, 'runs' => [[-5, 0], [15, 50]],
+        ]));
+        $this->assertSame(['x' => 25, 'y' => 25, 'width' => 50, 'height' => 50], $service->bounds([
+            'grid_width' => 4, 'grid_height' => 4, 'runs' => [[10, 10], [5, 5]],
+        ]));
+    }
+
     public function test_it_builds_a_full_frame_mask_by_default(): void
     {
         $service = app(RecordingMotionMaskService::class);

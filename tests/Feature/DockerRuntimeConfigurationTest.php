@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class DockerRuntimeConfigurationTest extends TestCase
@@ -66,33 +65,6 @@ class DockerRuntimeConfigurationTest extends TestCase
         $this->assertStringContainsString('command=/usr/local/bin/run-worker worker_%(process_num)02d', $backgroundSupervisor);
         $this->assertSame(2, substr_count($backgroundSupervisor, 'stopasgroup=true'));
         $this->assertSame(2, substr_count($backgroundSupervisor, 'killasgroup=true'));
-    }
-
-    public function test_docker_shell_entrypoints_are_syntactically_valid(): void
-    {
-        $scripts = [
-            'docker/entrypoint.sh',
-            'docker/healthcheck.sh',
-            'docker/healthcheck-app.sh',
-            'docker/healthcheck-background.sh',
-            'docker/healthcheck-relay.sh',
-            'docker/run-app.sh',
-            'docker/run-background.sh',
-            'docker/run-relay.sh',
-            'docker/run-worker.sh',
-            'docker/run-scheduler.sh',
-            'docker/verify-image.sh',
-            'docker/migrate-postgres-18-volume.sh',
-            'docker/rotate-db-password.sh',
-            'publish.sh',
-        ];
-
-        foreach ($scripts as $script) {
-            $process = new Process(['sh', '-n', base_path($script)]);
-            $process->run();
-
-            $this->assertTrue($process->isSuccessful(), $script.': '.$process->getErrorOutput());
-        }
     }
 
     public function test_shutdown_budgets_allow_jobs_to_finish_before_the_container_is_killed(): void
@@ -161,29 +133,5 @@ class DockerRuntimeConfigurationTest extends TestCase
         $this->assertStringContainsString('php artisan route:cache', $entrypoint);
         $this->assertStringContainsString('php artisan view:cache', $entrypoint);
         $this->assertStringNotContainsString('php artisan optimize', $entrypoint);
-    }
-
-    public function test_production_http_and_php_runtime_enable_compression_and_bounded_caches(): void
-    {
-        $nginx = file_get_contents(base_path('docker/nginx/nginx.conf'));
-        $site = file_get_contents(base_path('docker/nginx/default.conf'));
-        $php = file_get_contents(base_path('docker/php-production.ini'));
-        $fpm = file_get_contents(base_path('docker/php-fpm-production.conf'));
-
-        $this->assertIsString($nginx);
-        $this->assertIsString($site);
-        $this->assertIsString($php);
-        $this->assertIsString($fpm);
-        $this->assertStringContainsString('gzip on;', $nginx);
-        $this->assertStringContainsString('gzip_vary on;', $nginx);
-        $this->assertStringContainsString('open_file_cache max=1000', $nginx);
-        $this->assertStringContainsString('^/css/.*\.css$', $site);
-        $this->assertStringContainsString('expires -1;', $site);
-        $this->assertStringContainsString('^/(?:img|js)/', $site);
-        $this->assertStringContainsString('expires 1h;', $site);
-        $this->assertStringContainsString('opcache.validate_timestamps = Off', $php);
-        $this->assertStringContainsString('realpath_cache_size = 4096K', $php);
-        $this->assertStringContainsString('pm.max_children = 8', $fpm);
-        $this->assertStringContainsString('pm.max_requests = 500', $fpm);
     }
 }

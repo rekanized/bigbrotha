@@ -103,8 +103,7 @@ class RecordingMotionDetectorService
         $gridWidth = $mask['grid_width'];
         $gridHeight = $mask['grid_height'];
         $frameSize = $gridWidth * $gridHeight;
-        $selectedIndexes = $this->maskService->selectedIndexes($mask);
-        $selectedPixels = count($selectedIndexes);
+        $selectedPixels = $mask['selected_pixels'];
 
         if ($selectedPixels < 1 || $frameSize < 1) {
             return [
@@ -235,15 +234,18 @@ class RecordingMotionDetectorService
         $latestReason = 'quiet';
         $frames = [];
 
-        for ($frameIndex = 0; $frameIndex < $frameCount; $frameIndex++) {
-            $frames[] = substr($output, $frameIndex * $frameSize, $frameSize);
-        }
-
         $lastFrameIndex = $requirePreviewLookahead
             ? $frameCount - 2
             : $frameCount - 1;
 
         $firstFrameIndex = $latestOnly ? max(1, $lastFrameIndex) : 1;
+
+        // Latest-only previews need the current transition and its rejection
+        // window, not a second copy of every decoded frame in the segment.
+        $firstRequiredFrame = max(0, $firstFrameIndex - $refreshSpikeWindowFrames - 1);
+        for ($frameIndex = $firstRequiredFrame; $frameIndex < $frameCount; $frameIndex++) {
+            $frames[$frameIndex] = substr($output, $frameIndex * $frameSize, $frameSize);
+        }
 
         for ($frameIndex = $firstFrameIndex; $frameIndex <= $lastFrameIndex; $frameIndex++) {
             // The overlay follows the newest confirmed transition, including
@@ -375,14 +377,15 @@ class RecordingMotionDetectorService
 
         for ($index = 0; $index < $frameSize; $index++) {
             $delta = ord($rightFrame[$index]) - ord($leftFrame[$index]);
-            $absoluteDelta += abs($delta);
+            $pixelDelta = abs($delta);
+            $absoluteDelta += $pixelDelta;
             $signedDelta += $delta;
 
-            if (abs($delta) >= $pixelDeltaThreshold) {
+            if ($pixelDelta >= $pixelDeltaThreshold) {
                 $changedPixels++;
             }
 
-            if (abs($delta) >= $luminancePixelDelta) {
+            if ($pixelDelta >= $luminancePixelDelta) {
                 $luminanceChangedPixels++;
             }
         }
@@ -435,10 +438,9 @@ class RecordingMotionDetectorService
             }
 
             $futureChangedPixels = $this->changedPixelsAcrossFrame($currentFrame, $futureFrame, $frameSize, $pixelDeltaThreshold);
-            $recoveredPixels = $this->changedPixelsAcrossFrame($previousFrame, $futureFrame, $frameSize, $pixelDeltaThreshold);
 
             if (($futureChangedPixels / $frameSize) >= $refreshSpikeActivityRatio
-                && ($recoveredPixels / $frameSize) < $activityThreshold) {
+                && ($this->changedPixelsAcrossFrame($previousFrame, $futureFrame, $frameSize, $pixelDeltaThreshold) / $frameSize) < $activityThreshold) {
                 return true;
             }
         }
@@ -451,10 +453,9 @@ class RecordingMotionDetectorService
             }
 
             $pastChangedPixels = $this->changedPixelsAcrossFrame($olderFrame, $previousFrame, $frameSize, $pixelDeltaThreshold);
-            $recoveredPixels = $this->changedPixelsAcrossFrame($olderFrame, $currentFrame, $frameSize, $pixelDeltaThreshold);
 
             if (($pastChangedPixels / $frameSize) >= $refreshSpikeActivityRatio
-                && ($recoveredPixels / $frameSize) < $activityThreshold) {
+                && ($this->changedPixelsAcrossFrame($olderFrame, $currentFrame, $frameSize, $pixelDeltaThreshold) / $frameSize) < $activityThreshold) {
                 return true;
             }
         }
@@ -467,6 +468,10 @@ class RecordingMotionDetectorService
      */
     private function changedIndexes(string $leftFrame, string $rightFrame, array $selectedIndexes, int $pixelDeltaThreshold): array
     {
+        if ($leftFrame === $rightFrame) {
+            return [];
+        }
+
         $changedIndexes = [];
 
         foreach ($selectedIndexes as $index) {
@@ -552,6 +557,10 @@ class RecordingMotionDetectorService
 
     private function changedPixelsAcrossFrame(string $leftFrame, string $rightFrame, int $frameSize, int $pixelDeltaThreshold): int
     {
+        if ($leftFrame === $rightFrame) {
+            return 0;
+        }
+
         $changedPixels = 0;
 
         for ($index = 0; $index < $frameSize; $index++) {

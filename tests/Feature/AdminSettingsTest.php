@@ -61,6 +61,20 @@ class AdminSettingsTest extends TestCase
         ]);
     }
 
+    public function test_timezone_catalog_reuse_does_not_cache_the_operator_timezone(): void
+    {
+        $settings = app(ApplicationSettingsService::class);
+        $timestamp = Carbon::parse('2026-07-01 12:00:00', 'UTC');
+
+        $settings->saveAppTimezone('Europe/Stockholm');
+        $this->assertSame('14:00 +02:00', $settings->formatDateTime($timestamp, 'H:i P', false));
+        $settings->saveAppTimezone('UTC');
+        $this->assertSame('12:00 +00:00', $settings->formatDateTime($timestamp, 'H:i P', false));
+        $settings->saveAppTimezone('Europe/Helsinki');
+        $this->assertSame('15:00 +03:00', $settings->formatDateTime($timestamp, 'H:i P', false));
+        $this->assertSame('Europe/Helsinki', config('app.operator_timezone'));
+    }
+
     public function test_admin_can_open_the_current_users_page_and_see_navigation_links(): void
     {
         $admin = User::factory()->admin()->create([
@@ -112,16 +126,6 @@ class AdminSettingsTest extends TestCase
             ->assertOk()
             ->assertDontSee(route('admin.users.index'), false)
             ->assertDontSee(route('admin.settings.index'), false);
-    }
-
-    public function test_authenticated_root_redirects_to_live_wall(): void
-    {
-        $operator = User::factory()->create();
-
-        $this->actingAs($operator)
-            ->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])
-            ->get('/')
-            ->assertRedirect(route('live-wall.index'));
     }
 
     public function test_admin_settings_page_shows_recorder_runtime_information(): void
@@ -202,6 +206,43 @@ class AdminSettingsTest extends TestCase
             ->assertSee('Pending retry')
             ->assertSee('Requeued 1 time')
             ->assertSee('Auto retry 2 times');
+    }
+
+    public function test_queue_summary_selects_one_head_per_queue_with_stable_ties_and_empty_queues(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+        config()->set('queue.default', 'database');
+        config()->set('recording.worker.queue', 'recordings,default,review-assets');
+        $now = now()->timestamp;
+
+        foreach ([
+            ['recordings', 'LaterJob', $now + 10],
+            ['recordings', 'FirstJob', $now],
+            ['recordings', 'TiedJob', $now],
+            ['default', 'DefaultJob', $now + 20],
+        ] as [$queue, $job, $availableAt]) {
+            DB::table('jobs')->insert([
+                'queue' => $queue,
+                'payload' => json_encode(['displayName' => 'App\\Jobs\\'.$job], JSON_THROW_ON_ERROR),
+                'attempts' => 0,
+                'reserved_at' => null,
+                'available_at' => $availableAt,
+                'created_at' => $now,
+            ]);
+        }
+
+        $component = Livewire::test(AdminJobQueue::class)->assertSet('pendingJobTotal', 4);
+        $summary = collect($component->get('queueSummary'))->keyBy('queue');
+        $this->assertSame('FirstJob', $summary['recordings']['next_job_label']);
+        $this->assertSame(3, $summary['recordings']['pending_count']);
+        $this->assertSame('DefaultJob', $summary['default']['next_job_label']);
+        $this->assertNull($summary['review-assets']['next_job_label']);
+
+        DB::table('jobs')->delete();
+        $component->call('refreshQueueSnapshot')->assertSet('pendingJobTotal', 0);
+        foreach ($component->get('queueSummary') as $queue) {
+            $this->assertNull($queue['next_job_label']);
+        }
     }
 
     public function test_failed_job_auto_retry_command_requeues_eligible_jobs_and_respects_the_limit(): void

@@ -39,10 +39,13 @@ class ApplicationSettingsService
 
     public function appTimezone(): string
     {
+        // The runtime's timezone catalog is immutable; operator settings are not.
+        static $validTimezones = array_fill_keys(timezone_identifiers_list(), true);
+
         $fallbackTimezone = (string) config('app.default_timezone', config('app.timezone', 'Europe/Stockholm'));
         $configuredTimezone = (string) ($this->setting(self::SETTING_APP_TIMEZONE) ?? $fallbackTimezone);
 
-        return in_array($configuredTimezone, timezone_identifiers_list(), true)
+        return isset($validTimezones[$configuredTimezone])
             ? $configuredTimezone
             : $fallbackTimezone;
     }

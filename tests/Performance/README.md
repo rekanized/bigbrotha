@@ -59,3 +59,34 @@ These are local synthetic playback measurements, excluding Laravel page render,
 real camera firmware, WAN delays and user-device performance. Do not run other
 load tests during a comparison. Keep longer playback, lifecycle and retention
 checks separate from this startup benchmark.
+
+# PHP hot-path benchmarks
+
+Run these inside the PHP 8.5 development/test image with the current source:
+
+```sh
+php tests/Performance/php-hot-paths.php
+php tests/Performance/queue-summary.php
+```
+
+The first script constructs synthetic grayscale frames, masks and timestamps.
+It does not boot application providers or connect to storage, cameras or a
+database. Pass a case name, such as `timezone_format` or
+`motion_latest_180_frames`, to run only that case. It reports the median of five
+per-iteration timing samples, peak additional PHP allocation after warmup, and a
+hash of the returned result. The mask case uses the maximum supported 640×640
+grid; motion cases use the default 160×90 grid and 180 frames. Identical quiet
+frames exercise a fast path; noisy camera footage will have different gains.
+
+The queue script invokes the application's summary method against a private,
+in-memory SQLite database containing 5,000 jobs across four queues, each with an
+8 KiB synthetic payload. It reports the median of seven runs and the same memory
+and result-hash measurements. It never reads deployment database settings.
+
+For comparisons, use the same PHP image, INI settings, fixture script and quiet
+host for both source revisions. Compare result hashes as well as timings. To
+measure the CLI optimizer separately, run the first script with
+`php -d opcache.enable_cli=1`; this does not change deployment configuration.
+These are component measurements, not end-to-end application latency or process
+RSS. See [the PHP 8.5 review](../../docs/php85-performance-review.md) for the
+measured results and the wider validation performed.
