@@ -34,6 +34,9 @@ RUN set -eux; \
 
 FROM php:8.5-fpm-trixie AS runtime
 
+# PHP is compiled into the base image; apt upgrades cannot update it.
+RUN php -r 'exit(version_compare(PHP_VERSION, "8.5.12", ">=") ? 0 : 1);'
+
 ENV APP_ROOT=/app \
     COMPOSER_ALLOW_SUPERUSER=1
 

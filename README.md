@@ -82,6 +82,8 @@ Set `APP_URL` and `DB_PASSWORD` in `.env`. Choose a unique project name and port
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait
 ```
 
+Source builds always pull fresh base images and rerun package upgrades. PHP is supplied by `php:8.5-fpm-trixie`; `apt-get upgrade` updates Debian packages, not PHP itself. Rebuild and recreate the containers to apply new PHP patch releases. The image build rejects PHP older than 8.5.12.
+
 For development with live source mounts, use `docker-compose.dev.yml` instead of `docker-compose.build.yml`. Include the same Compose files for later commands such as `ps`, `logs`, and `exec`.
 
 [Full setup and proxy configuration](docs/startup-from-scratch.md) · [Backup and restore](docs/backup-and-restore.md) · [Camera workflow](docs/camera-fleet-workflow.md) · [Troubleshooting](docs/known-issues-and-constraints.md)

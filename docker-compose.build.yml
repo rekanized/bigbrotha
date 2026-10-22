@@ -7,6 +7,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      pull: true
+      no_cache: true
 
   background:
     image: *local-image

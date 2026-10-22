@@ -16,6 +16,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      pull: true
+      no_cache: true
       target: development
 
   background:
