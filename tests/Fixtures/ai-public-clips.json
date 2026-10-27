@@ -1,0 +1,151 @@
+[
+  {
+    "file": "Cat_Plays.webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/f/f9/Cat_Plays.webm",
+    "sha256": "3258309e1d573fda6595fee0c02e3f055931a06c01bac24d986a5aff28297b32",
+    "bytes": 2279724,
+    "split": "calibration",
+    "truth": [
+      "cat"
+    ],
+    "author": "Riverarvi",
+    "license": "CC-BY-SA-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://commons.wikimedia.org/wiki/File:Cat_Plays.webm"
+  },
+  {
+    "file": "Cat_playing_with_a_laser_pointer.webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/7/7a/Cat_playing_with_a_laser_pointer.webm",
+    "sha256": "949d0edb9cc7fd160f29a2a481ab854efb4646071083ff1172be431ddf9a212c",
+    "bytes": 5996221,
+    "split": "evaluation",
+    "truth": [
+      "cat"
+    ],
+    "author": "Clément Bucco-Lechat",
+    "license": "CC-BY-SA-3.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://commons.wikimedia.org/wiki/File:Cat_playing_with_a_laser_pointer.webm"
+  },
+  {
+    "file": "2015-11-11_Labradoodle_Berlin.webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/4/44/2015-11-11_Labradoodle_Berlin.webm",
+    "sha256": "6a3fd60222a2f330d428bf17fe4ab632f39536284be6c7be03c24d71dc016509",
+    "bytes": 12854207,
+    "split": "calibration",
+    "truth": [
+      "dog"
+    ],
+    "author": "L. Beck / mother (as credited on source page)",
+    "license": "CC-BY-SA-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://commons.wikimedia.org/wiki/File:2015-11-11_Labradoodle_Berlin.webm"
+  },
+  {
+    "file": "German_shepherd_eating_apple_(1).webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/9/9f/German_shepherd_eating_apple_%281%29.webm",
+    "sha256": "882a685473897417ad5a71bfa72a5a3485ec780770af420c5c9b111b90b15953",
+    "bytes": 6285459,
+    "split": "evaluation",
+    "truth": [
+      "dog"
+    ],
+    "author": "Shadster",
+    "license": "CC-BY-SA-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://commons.wikimedia.org/wiki/File:German_shepherd_eating_apple_%281%29.webm"
+  },
+  {
+    "file": "people-detection.mp4",
+    "url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/people-detection.mp4",
+    "sha256": "18ffe8672d741e3e29c9d891d22c59d453720b086c25b35c88b393d55f92f693",
+    "bytes": 5482579,
+    "split": "calibration",
+    "truth": [
+      "person"
+    ],
+    "author": "Intel IoT DevKit",
+    "license": "CC-BY-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/people-detection.mp4"
+  },
+  {
+    "file": "car-detection.mp4",
+    "url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/car-detection.mp4",
+    "sha256": "d31e0ebf194cc16e50eea784e7c3b0b1bb7976a4fb9b3fec26cb92a6704cca34",
+    "bytes": 2811553,
+    "split": "calibration",
+    "truth": [
+      "car"
+    ],
+    "author": "Intel IoT DevKit",
+    "license": "CC-BY-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/car-detection.mp4"
+  },
+  {
+    "file": "person-bicycle-car-detection.mp4",
+    "url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/person-bicycle-car-detection.mp4",
+    "sha256": "452b11b7e0efbd019f1d9570d0c790e90416ad4ad29eec6003872d08443140ef",
+    "bytes": 6031199,
+    "split": "evaluation",
+    "truth": [
+      "person",
+      "car"
+    ],
+    "author": "Intel IoT DevKit",
+    "license": "CC-BY-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 20,
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/person-bicycle-car-detection.mp4"
+  },
+  {
+    "file": "bolt-detection.mp4",
+    "url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/bolt-detection.mp4",
+    "sha256": "885ecc3333a93888ba79ae857cb79160b3c4a398f7b10cde4021ad45b4a20faf",
+    "bytes": 9285374,
+    "split": "calibration",
+    "truth": [],
+    "author": "Intel IoT DevKit",
+    "license": "CC-BY-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/bolt-detection.mp4"
+  },
+  {
+    "file": "bottle-detection.mp4",
+    "url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/bottle-detection.mp4",
+    "sha256": "d52ba94aedf8a923c342fe9ea1d2bd85f712c4cc0f49a6de1bac43eebe3a48ff",
+    "bytes": 504961,
+    "split": "evaluation",
+    "truth": [],
+    "author": "Intel IoT DevKit",
+    "license": "CC-BY-4.0",
+    "start_seconds": 0,
+    "duration_seconds": 8,
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/bottle-detection.mp4",
+    "ignore_classes": [
+      "person"
+    ],
+    "annotation_note": "Only a hand and forearm enter the frame; person is unscored because fragment labeling is ambiguous."
+  },
+  {
+    "file": "Small_waterfall.webm",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/b/b5/Small_waterfall.webm",
+    "sha256": "5284b829ee6d1f52eefece0582a3068c0fb2b3f78c0e05590fd1d4983596a091",
+    "bytes": 18429839,
+    "split": "evaluation",
+    "truth": [],
+    "author": "YouTube user Editor",
+    "license": "CC-BY-3.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Small_waterfall.webm",
+    "start_seconds": 0,
+    "duration_seconds": 8
+  }
+]

@@ -1,0 +1,15 @@
+# Add after docker-compose.ai.yml. Requires NVIDIA Container Toolkit on the host.
+services:
+  ai:
+    build:
+      target: cuda
+    image: bigbrotha-ai-cuda:local
+    environment:
+      AI_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -219,6 +219,9 @@
                                     <span class="status-pill status-pill--{{ $camera->supports_rtsp ? 'good' : 'warn' }}">{{ $camera->supports_rtsp ? 'RTSP' : 'No RTSP' }}</span>
                                     <span class="status-pill status-pill--{{ $camera->recording_mode === 'off' ? 'neutral' : 'good' }}">{{ $recordingModeLabel }}</span>
                                     @if ($camera->recording_mode !== 'off')
+                                        @if ($camera->ai_enabled)
+                                            <livewire:camera-fleet.analysis-status :camera-id="$camera->id" :key="'analysis-'.$camera->id" />
+                                        @endif
                                         <span class="status-pill">Retention {{ $camera->recording_retention_days }} day{{ $camera->recording_retention_days === 1 ? '' : 's' }}</span>
                                     @endif
                                     @if ($serialNumber)
@@ -870,7 +873,31 @@
 
                     </div>
 
-                    @if (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION)
+                    <div class="camera-form-grid">
+                        <label class="field-stack">
+                            <span><input type="checkbox" wire:model.live="form.ai_enabled"> Label people, pets, and vehicles during motion</span>
+                            <small class="probe-note">Experimental labels help search recordings and can miss or misclassify objects. Requires the optional local AI service.</small>
+                            @error('form.ai_enabled') <small class="field-error">{{ $message }}</small> @enderror
+                        </label>
+                        @if ($form['ai_enabled'] ?? false)
+                            <label class="field-stack">
+                                <span>Analysis stream</span>
+                                <select class="form-select" wire:model.live="form.ai_profile_index">
+                                    <option value="">Recording stream</option>
+                                    @foreach (($selectedCamera?->rtspProfiles() ?? []) as $profileIndex => $profile)
+                                        <option value="{{ $profileIndex }}">{{ $profile['name'] ?? 'Profile '.$profileIndex }}</option>
+                                    @endforeach
+                                </select>
+                                <small class="probe-note">Choose a smaller stream with the same framing. Verify its preview and motion mask before enabling.</small>
+                                @error('form.ai_profile_index') <small class="field-error">{{ $message }}</small> @enderror
+                            </label>
+                            @if (filled($form['ai_profile_index'] ?? null) && $selectedCamera)
+                                <img style="max-width:320px;width:100%" src="{{ route('camera-fleet.preview', ['camera' => $selectedCamera->id, 'profileIndex' => (int) $form['ai_profile_index']]) }}" alt="Selected analysis stream preview">
+                            @endif
+                        @endif
+                    </div>
+
+                    @if (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION || ($form['ai_enabled'] ?? false))
                         @php($motionMask = is_array($form['recording_motion_mask'] ?? null) ? $form['recording_motion_mask'] : app(App\Services\RecordingMotionMaskService::class)->fullFrameMask())
                         @php($selectedMotionPixels = max(0, (int) ($motionMask['selected_pixels'] ?? 0)))
                         @php($motionTriggerPixels = max(1, (int) ($form['recording_motion_trigger_pixels'] ?? max(1, (int) ceil(max(1, $selectedMotionPixels) * 0.35)))))
@@ -880,36 +907,42 @@
                         @php($motionSessionUrlBase = $selectedCameraId ? route('camera-fleet.motion-editor-session', ['camera' => $selectedCameraId]) : '')
                         @php($motionAnalysisUrl = $selectedCameraId ? route('camera-fleet.motion-editor-analysis', ['camera' => $selectedCameraId]) : '')
 
-                        <div class="camera-form-grid">
-                            <label class="field-stack">
-                                <span>Pre-roll buffer seconds</span>
-                                <input class="form-input" type="number" min="0" max="30" wire:model="form.recording_motion_pre_roll_seconds">
-                                <small class="probe-note">Footage kept before the first detected movement.</small>
-                                @error('form.recording_motion_pre_roll_seconds')
-                                    <small class="field-error">{{ $message }}</small>
-                                @enderror
-                            </label>
+                        @if (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION)
+                            <div class="camera-form-grid">
+                                <label class="field-stack">
+                                    <span>Pre-roll buffer seconds</span>
+                                    <input class="form-input" type="number" min="0" max="30" wire:model="form.recording_motion_pre_roll_seconds">
+                                    <small class="probe-note">Footage kept before the first detected movement.</small>
+                                    @error('form.recording_motion_pre_roll_seconds')
+                                        <small class="field-error">{{ $message }}</small>
+                                    @enderror
+                                </label>
 
-                            <label class="field-stack">
-                                <span>Post-trigger seconds</span>
-                                <input class="form-input" type="number" min="1" max="60" wire:model="form.recording_motion_post_trigger_seconds">
-                                <small class="probe-note">Keep recording this long after the last detected movement. New movement restarts this timer.</small>
-                                @error('form.recording_motion_post_trigger_seconds')
-                                    <small class="field-error">{{ $message }}</small>
-                                @enderror
-                            </label>
+                                <label class="field-stack">
+                                    <span>Post-trigger seconds</span>
+                                    <input class="form-input" type="number" min="1" max="60" wire:model="form.recording_motion_post_trigger_seconds">
+                                    <small class="probe-note">Keep recording this long after the last detected movement. New movement restarts this timer.</small>
+                                    @error('form.recording_motion_post_trigger_seconds')
+                                        <small class="field-error">{{ $message }}</small>
+                                    @enderror
+                                </label>
 
-                            <article class="detail-card detail-card--inline">
-                                <span class="detail-card__label">Event length</span>
-                                <strong>Extends while movement continues</strong>
-                                <small class="probe-note">Includes {{ $motionPreRollSeconds }} seconds before movement and {{ $motionPostTriggerSeconds }} quiet seconds afterward. Timing follows recorder segment boundaries.</small>
-                            </article>
-                        </div>
+                                <article class="detail-card detail-card--inline">
+                                    <span class="detail-card__label">Event length</span>
+                                    <strong>Extends while movement continues</strong>
+                                    <small class="probe-note">Includes {{ $motionPreRollSeconds }} seconds before movement and {{ $motionPostTriggerSeconds }} quiet seconds afterward. Timing follows recorder segment boundaries.</small>
+                                </article>
+                            </div>
+
+                        @endif
+                        @if ($form['ai_enabled'] ?? false)
+                            <p class="probe-note">Object labeling starts on motion and stops after three quiet seconds. It does not change recording timing.</p>
+                        @endif
 
                         <div class="motion-threshold-card" wire:key="motion-threshold-{{ $selectedCameraId ?? 'new' }}" wire:ignore>
                             <div>
                                 <h4 class="panel-title">Motion trigger pixels</h4>
-                                <p class="panel-copy">Lower values trigger on smaller movements; higher values require more movement. Recording starts when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
+                                <p class="panel-copy">Lower values trigger on smaller movements; higher values require more movement. Motion is confirmed when the effective trigger pixels reach this number. Dense clusters add bonus effective pixels so solid moving objects count more than scattered speckles.</p>
                             </div>
 
                             <div class="motion-threshold-card__control">
@@ -1228,7 +1261,7 @@
                 @endif
 
                 @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
-                    @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
+                    @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION || ($form['ai_enabled'] ?? false)) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
                     <footer class="camera-editor__actions">
                         <p>
                             <strong>{{ $editingCameraId ? 'Ready to apply your camera changes?' : 'Ready to add this camera?' }}</strong>

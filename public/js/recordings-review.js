@@ -2448,8 +2448,9 @@
         button.dataset.scrubFrameIntervalMs = String(segment.scrubFrameIntervalMs || 0);
         button.style.top = `${topPx}px`;
         button.style.height = `${heightPx}px`;
-        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} ${segment.modeLabel || 'Recorded clip'}`);
-        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
+        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} ${segment.modeLabel || 'Recorded clip'} ${(segment.objectLabels || []).join(', ')}`);
+        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}${(segment.objectLabels || []).length ? ' · ' + segment.objectLabels.join(', ') : ''}`;
+        button.classList.toggle('has-object-labels', (segment.objectLabels || []).length > 0);
 
         if (!existing) {
             const bar = document.createElement('span');
@@ -2483,8 +2484,9 @@
         button.dataset.scrubRows = String(segment.scrubRows || 0);
         button.dataset.thumbnailAlt = `${cameraName} ${segment.timeLabel || 'Segment preview'} preview`;
         button.style.top = `${Number(segment.thumbnailTopPx || 0)}px`;
-        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail`);
-        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}`;
+        button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail ${(segment.objectLabels || []).join(', ')}`);
+        button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}${(segment.objectLabels || []).length ? ' · ' + segment.objectLabels.join(', ') : ''}`;
+        button.classList.toggle('has-object-labels', (segment.objectLabels || []).length > 0);
 
         if (existing) return button;
 

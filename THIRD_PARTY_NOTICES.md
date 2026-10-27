@@ -27,3 +27,19 @@ Upstream references: [SortableJS](https://github.com/SortableJS/Sortable),
 [MediaMTX](https://github.com/bluenviron/mediamtx),
 [FFmpeg legal information](https://ffmpeg.org/legal.html), and
 [Debian FFmpeg source](https://sources.debian.org/src/ffmpeg/).
+
+## Optional AI image
+
+- **NanoDet-Plus-m** code and upstream ONNX release weights are distributed by
+  [NanoDet](https://github.com/RangiLyu/nanodet) under Apache-2.0. The source
+  notices are retained at `ai/licenses/NanoDet.txt` and in the optional image.
+  The build verifies the manifest checksum and modifies only the ONNX graph's
+  initializer input declarations; model parameters are unchanged.
+- **ONNX Runtime**, **NumPy**, and **OpenCV** retain their upstream license files
+  in the installed Python distributions. ONNX build tooling exists only in the
+  model preparation build stage. CUDA/cuDNN have separate NVIDIA terms and occur
+  only in the optional GPU image.
+
+Public evaluation clips are downloaded separately, retain their own licenses,
+and are not application assets or part of either runtime image. Attribution and
+source links accompany the evaluation report.

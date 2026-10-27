@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 #[Fillable([
@@ -36,6 +37,8 @@ use Illuminate\Support\Str;
     'is_enabled',
     'last_seen_at',
     'metadata',
+    'ai_enabled',
+    'ai_profile_index',
     'recording_mode',
     'recording_profile_index',
     'recording_retention_days',
@@ -367,11 +370,20 @@ class Camera extends Model
         return $normalized;
     }
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
+    /** Current coordinator state; absence is never evidence of no objects. */
+    public function analysisStatus(): array
+    {
+        if (! $this->ai_enabled || ! $this->is_enabled || ! $this->supports_rtsp || ! $this->hasRecordingEnabled() || $this->recordingMotionMask()['selected_pixels'] < 1) {
+            return ['state' => 'disabled', 'labels' => [], 'active' => false];
+        }
+        if (! config('analysis.enabled')) {
+            return ['state' => 'unavailable', 'labels' => [], 'active' => false];
+        }
+
+        return Cache::store('file')->get('analysis:'.$this->id)
+            ?? ['state' => 'unavailable', 'labels' => [], 'active' => false];
+    }
+
     protected function casts(): array
     {
         return [
@@ -381,6 +393,8 @@ class Camera extends Model
             'supports_onvif' => 'boolean',
             'supports_rtsp' => 'boolean',
             'is_enabled' => 'boolean',
+            'ai_enabled' => 'boolean',
+            'ai_profile_index' => 'integer',
             'recording_profile_index' => 'integer',
             'recording_retention_days' => 'integer',
             'motion_sensitivity' => 'integer',

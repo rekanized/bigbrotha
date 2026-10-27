@@ -1,0 +1,29 @@
+# Add this override only when local object labeling is wanted.
+services:
+  app:
+    environment:
+      CAMERA_AI_ENABLED: "true"
+      CAMERA_AI_TOKEN: ${CAMERA_AI_TOKEN:?Set CAMERA_AI_TOKEN to a random secret of at least 32 characters}
+  background:
+    environment:
+      CAMERA_AI_ENABLED: "true"
+      CAMERA_AI_URL: http://ai:8091
+      CAMERA_AI_TOKEN: ${CAMERA_AI_TOKEN:?Set CAMERA_AI_TOKEN}
+  ai:
+    build:
+      context: .
+      dockerfile: ai/Dockerfile
+      target: cpu
+    image: bigbrotha-ai:local
+    init: true
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp:size=16m]
+    environment:
+      CAMERA_AI_TOKEN: ${CAMERA_AI_TOKEN:?Set CAMERA_AI_TOKEN}
+      AI_THREADS: ${CAMERA_AI_THREADS:-1}
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}

@@ -59,6 +59,22 @@
                         </div>
 
                         <div class="key-value-row">
+                            <span>Object labels</span>
+                            <strong>{{ implode(', ', array_map('ucfirst', $recording->analysisLabelNames())) ?: 'No confirmed labels' }}</strong>
+                        </div>
+                        <div class="key-value-row">
+                            <span>Motion analysis</span>
+                            <strong>
+                                @if (($analysisCoverage?->analyzed ?? 0) > 0)
+                                    {{ $analysisCoverage->analyzed }} sampled frames in overlapping events{{ ($analysisCoverage->skipped ?? 0) > 0 ? ' · incomplete coverage ('.$analysisCoverage->skipped.' skipped)' : '' }}
+                                @elseif (($analysisCoverage?->skipped ?? 0) > 0)
+                                    Incomplete · no frames successfully analyzed
+                                @else
+                                    No analysis evidence available
+                                @endif
+                            </strong>
+                        </div>
+                        <div class="key-value-row">
                             <span>Capture mode</span>
                             <strong>{{ $recording->capture_mode === 'motion' ? 'Record on movement' : 'Constantly recording' }}</strong>
                         </div>

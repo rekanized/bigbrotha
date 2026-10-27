@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Camera;
+use App\Models\CameraAnalysisEvent;
+use App\Models\CameraAnalysisLabel;
 use App\Models\CameraRecording;
 use App\Services\ApplicationSettingsService;
 use App\Services\CameraRecordingService;
@@ -30,6 +32,7 @@ class RecordingController extends Controller
     public function index(Request $request): View
     {
         $filters = [
+            'object' => (string) $request->query('object', ''),
             'search' => trim((string) $request->query('search', '')),
             'camera_id' => $request->filled('camera_id') ? (int) $request->query('camera_id') : null,
             'status' => (string) $request->query('status', 'recorded'),
@@ -39,13 +42,15 @@ class RecordingController extends Controller
         ];
 
         $recordings = CameraRecording::query()
-            ->with('camera')
+            ->with(['camera', 'analysisLabels'])
+            ->when(CameraAnalysisLabel::filterClasses($filters['object']), fn (Builder $query, array $classes) => $query->whereHas('analysisLabels', fn (Builder $labels) => $labels->whereIn('class', $classes)))
             ->when($filters['search'] !== '', function (Builder $query) use ($filters): void {
                 $search = $filters['search'];
 
                 $query->where(function (Builder $query) use ($search): void {
                     $query->where('relative_path', 'like', '%'.$search.'%')
                         ->orWhere('message', 'like', '%'.$search.'%')
+                        ->orWhereHas('analysisLabels', fn (Builder $labels) => $labels->whereIn('class', CameraAnalysisLabel::filterClasses(strtolower($search))))
                         ->orWhereHas('camera', function (Builder $cameraQuery) use ($search): void {
                             $cameraQuery->where('name', 'like', '%'.$search.'%')
                                 ->orWhere('local_ip', 'like', '%'.$search.'%')
@@ -182,7 +187,7 @@ class RecordingController extends Controller
 
     public function show(CameraRecording $recording, CameraStorageService $storage, CameraRecordingService $recordings): View
     {
-        $recording->loadMissing('camera');
+        $recording->loadMissing(['camera', 'analysisLabels']);
         $durationSeconds = $this->durationSeconds($recording);
         $playbackAvailable = $recording->status === CameraRecording::STATUS_RECORDED && $storage->recordingExists($recording->relative_path);
         $playbackAssetReady = app(RecordingReviewAssetService::class)->hasReadyPlaybackAsset($recording);
@@ -194,6 +199,12 @@ class RecordingController extends Controller
             'displayTimezone' => $this->settings->appTimezone(),
             'playbackAvailable' => $playbackAvailable,
             'browserPlaybackAvailable' => $playbackAvailable && ($playbackAssetReady || $recordings->ffmpegBinary() !== null),
+            'analysisCoverage' => $recording->started_at && $recording->ended_at
+                ? CameraAnalysisEvent::query()->where('camera_id', $recording->camera_id)
+                    ->where('started_at', '<', $recording->ended_at->format('Y-m-d H:i:s.u'))
+                    ->where(fn ($query) => $query->whereNull('ended_at')->orWhere('ended_at', '>', $recording->started_at->format('Y-m-d H:i:s.u')))
+                    ->selectRaw('COALESCE(SUM(analyzed_frames), 0) AS analyzed, COALESCE(SUM(skipped_frames), 0) AS skipped')->first()
+                : null,
         ]);
     }
 
@@ -607,6 +618,7 @@ class RecordingController extends Controller
         string $direction,
     ): ?array {
         $query = CameraRecording::query()
+            ->with('analysisLabels')
             ->select($this->timelineRecordingColumns())
             ->where('camera_id', $camera->getKey())
             ->where('status', CameraRecording::STATUS_RECORDED)
@@ -689,6 +701,7 @@ class RecordingController extends Controller
         }
 
         $query = CameraRecording::query()
+            ->with('analysisLabels')
             ->select($this->timelineRecordingColumns())
             ->whereIn('camera_id', $selectedCameraIds->all())
             ->where('status', CameraRecording::STATUS_RECORDED)

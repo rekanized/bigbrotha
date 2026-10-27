@@ -4472,3 +4472,17 @@ body.camera-editor-open {
 .motion-editor__stat-card strong {
     font-variant-numeric: tabular-nums;
 }
+
+/* Confirmed object labels on both initial and dynamically loaded timeline segments. */
+.recording-review-focus__rail-segment.has-object-labels::after,
+.recording-review-focus__rail-thumbnail.has-object-labels::after {
+    content: '';
+    position: absolute;
+    inset: 3px 3px auto auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f6bd4f;
+    box-shadow: 0 0 0 1px #272b35;
+    pointer-events: none;
+}

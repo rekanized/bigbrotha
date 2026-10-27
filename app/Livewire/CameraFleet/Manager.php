@@ -203,6 +203,8 @@ class Manager extends Component
             'is_enabled' => $camera->is_enabled,
             'recording_mode' => $camera->recording_mode,
             'recording_retention_days' => $camera->recording_retention_days,
+            'ai_enabled' => $camera->ai_enabled,
+            'ai_profile_index' => $camera->ai_profile_index ?? '',
             'motion_sensitivity' => $camera->motion_sensitivity,
             'recording_motion_trigger_pixels' => $camera->motionTriggerPixels(),
             'recording_motion_pre_roll_seconds' => $camera->motionPreRollSeconds(),
@@ -263,6 +265,8 @@ class Manager extends Component
             'form.is_enabled' => ['boolean'],
             'form.recording_mode' => ['required', Rule::in(Camera::RECORDING_MODES)],
             'form.recording_retention_days' => ['required', 'integer', 'between:1,365'],
+            'form.ai_enabled' => ['boolean'],
+            'form.ai_profile_index' => ['nullable', 'integer', 'between:0,32767'],
             'form.recording_motion_trigger_pixels' => ['required', 'integer', 'min:1'],
             'form.recording_motion_pre_roll_seconds' => ['required', 'integer', 'between:0,30'],
             'form.recording_motion_post_trigger_seconds' => ['required', 'integer', 'between:1,60'],
@@ -274,6 +278,12 @@ class Manager extends Component
         ]);
 
         $validator->after(function ($validator): void {
+            if (($this->form['ai_enabled'] ?? false) && filled($this->form['ai_profile_index'] ?? null)) {
+                $profiles = $this->editingCameraId ? Camera::find($this->editingCameraId)?->rtspProfiles() : [];
+                if (! isset($profiles[(int) $this->form['ai_profile_index']])) {
+                    $validator->errors()->add('form.ai_profile_index', 'Select an available analysis profile.');
+                }
+            }
             $recordingMode = $this->form['recording_mode'] ?? Camera::RECORDING_MODE_OFF;
             $motionMask = app(RecordingMotionMaskService::class)->normalize(
                 $this->form['recording_motion_mask'] ?? null,
@@ -341,6 +351,8 @@ class Manager extends Component
             'supports_onvif' => (bool) $validated['supports_onvif'],
             'supports_rtsp' => (bool) $validated['supports_rtsp'],
             'is_enabled' => (bool) $validated['is_enabled'],
+            'ai_enabled' => (bool) ($validated['ai_enabled'] ?? false),
+            'ai_profile_index' => filled($validated['ai_profile_index'] ?? null) ? (int) $validated['ai_profile_index'] : null,
             'recording_mode' => $validated['recording_mode'],
             'recording_retention_days' => (int) $validated['recording_retention_days'],
             'motion_sensitivity' => (int) ($camera->motion_sensitivity ?? 35),
@@ -715,6 +727,8 @@ class Manager extends Component
             'is_enabled' => true,
             'recording_mode' => Camera::RECORDING_MODE_OFF,
             'recording_retention_days' => 1,
+            'ai_enabled' => false,
+            'ai_profile_index' => '',
             'motion_sensitivity' => 35,
             'recording_motion_trigger_pixels' => $this->defaultMotionTriggerPixels($defaultMask),
             'recording_motion_pre_roll_seconds' => max(0, min(30, (int) config('recording.motion.pre_roll_seconds', 8))),

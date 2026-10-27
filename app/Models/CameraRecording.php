@@ -6,6 +6,7 @@ use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class CameraRecording extends Model
 {
@@ -68,6 +69,16 @@ class CameraRecording extends Model
             'source_profile_index' => 'integer',
             'motion_score' => 'decimal:4',
         ];
+    }
+
+    public function analysisLabels(): BelongsToMany
+    {
+        return $this->belongsToMany(CameraAnalysisLabel::class, 'camera_analysis_label_recording', 'recording_id', 'label_id');
+    }
+
+    public function analysisLabelNames(): array
+    {
+        return $this->analysisLabels->pluck('class')->unique()->sort()->values()->all();
     }
 
     public function camera(): BelongsTo

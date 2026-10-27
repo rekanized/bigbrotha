@@ -145,6 +145,7 @@ class RecordingTimelineReviewService
             'cameraId' => $recording->camera_id,
             'captureMode' => $recording->capture_mode,
             'modeLabel' => $modeLabel,
+            'objectLabels' => $recording->analysisLabelNames(),
             'message' => $recording->message,
             'startMs' => $recordingStart->valueOf(),
             'endMs' => $recordingEnd->valueOf(),

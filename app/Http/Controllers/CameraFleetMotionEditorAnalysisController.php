@@ -62,9 +62,9 @@ class CameraFleetMotionEditorAnalysisController extends Controller
             return $this->waitingResponse('Paint an area to monitor movement.', 0, $triggerPixels, $settingsSaved, $state?->active_recording_id !== null);
         }
 
-        if ($camera->recording_mode !== Camera::RECORDING_MODE_MOTION) {
+        if ($camera->recording_mode !== Camera::RECORDING_MODE_MOTION && ! $camera->ai_enabled) {
             return $this->waitingResponse(
-                'Save this camera in motion mode before testing the recorder decision.',
+                'Save this camera with motion recording or object labeling enabled before testing motion.',
                 $selectedPixels,
                 $triggerPixels,
                 false,

@@ -1,0 +1,41 @@
+{
+  "version": "nanodet-plus-m-416-upstream-onnx",
+  "family": "nanodet",
+  "input_size": 416,
+  "file": "nanodet-plus-m-416.onnx",
+  "url": "https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_416.onnx",
+  "sha256": "59d2f166088889c902f523bf08079391993491324f0d84847e3c4016a8f7cc3d",
+  "license": "Apache-2.0",
+  "source": "https://github.com/RangiLyu/nanodet",
+  "calibrated": false,
+  "thresholds": {
+    "person": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "cat": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "dog": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "car": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "motorcycle": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "bus": {
+      "minimum": 0.35,
+      "single": null
+    },
+    "truck": {
+      "minimum": 0.35,
+      "single": null
+    }
+  }
+}

@@ -63,8 +63,9 @@ class DockerRuntimeConfigurationTest extends TestCase
         $this->assertStringContainsString('[program:worker]', $backgroundSupervisor);
         $this->assertStringContainsString('numprocs=%(ENV_CAMERA_RECORDING_WORKER_PROCESSES)s', $backgroundSupervisor);
         $this->assertStringContainsString('command=/usr/local/bin/run-worker worker_%(process_num)02d', $backgroundSupervisor);
-        $this->assertSame(2, substr_count($backgroundSupervisor, 'stopasgroup=true'));
-        $this->assertSame(2, substr_count($backgroundSupervisor, 'killasgroup=true'));
+        $this->assertStringContainsString('[program:analysis]', $backgroundSupervisor);
+        $this->assertSame(3, substr_count($backgroundSupervisor, 'stopasgroup=true'));
+        $this->assertSame(3, substr_count($backgroundSupervisor, 'killasgroup=true'));
     }
 
     public function test_shutdown_budgets_allow_jobs_to_finish_before_the_container_is_killed(): void

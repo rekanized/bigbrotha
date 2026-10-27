@@ -11,6 +11,7 @@ Help support me: [Buy me a coffee](https://buymeacoffee.com/rekanized).
 - ONVIF and RTSP cameras, automatic ONVIF stream-profile retrieval, connection tests, and preview thumbnails.
 - Named multi-camera live walls with customizable layouts and WebRTC playback.
 - Continuous or motion-triggered recording with painted detection zones and per-camera retention.
+- Optional [local motion labeling](docs/motion-labeling.md) for people, cats, dogs, and vehicles, with recording filters and timeline markers (disabled by default; model validation is provisional).
 - Synchronized multi-camera timeline review, recording playback, and downloads.
 - Local or SMB recording storage.
 - Local and Google sign-in, administrator controls, and audit logs.

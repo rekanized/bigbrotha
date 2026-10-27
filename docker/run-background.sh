@@ -15,6 +15,12 @@ if [ "$worker_processes" -lt 1 ]; then
     exit 1
 fi
 
+case "${CAMERA_AI_ENABLED:-false}" in
+    1|true|yes|on) CAMERA_AI_AUTOSTART=true ;;
+    *) CAMERA_AI_AUTOSTART=false ;;
+esac
+export CAMERA_AI_AUTOSTART
+
 export CAMERA_RECORDING_WORKER_PROCESSES="$worker_processes"
 : > /tmp/container-role-background
 

@@ -253,7 +253,7 @@
                         @php($segmentTopPercent = number_format((float) ($segment['_topPercent'] ?? 0), 6, '.', ''))
                         @php($segmentHeightPercent = number_format((float) ($segment['_heightPercent'] ?? 0), 6, '.', ''))
                         <button
-                            class="recording-review-focus__rail-segment recording-review-focus__rail-segment--{{ $captureMode }}{{ $activeSegmentId === (int) ($segment['id'] ?? 0) ? ' is-active' : '' }}"
+                            class="recording-review-focus__rail-segment recording-review-focus__rail-segment--{{ $captureMode }}{{ $activeSegmentId === (int) ($segment['id'] ?? 0) ? ' is-active' : '' }}{{ !empty($segment['objectLabels']) ? ' has-object-labels' : '' }}"
                             type="button"
                             data-role="rail-segment"
                             data-recording-id="{{ $segment['id'] ?? '' }}"
@@ -270,8 +270,8 @@
                             data-scrub-columns="{{ $segment['scrubColumns'] ?? 0 }}"
                             data-scrub-rows="{{ $segment['scrubRows'] ?? 0 }}"
                             data-scrub-frame-interval-ms="{{ $segment['scrubFrameIntervalMs'] ?? 0 }}"
-                            aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' '.($segment['modeLabel'] ?? 'Recorded clip') }}"
-                            title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip') }}"
+                            aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' '.($segment['modeLabel'] ?? 'Recorded clip').' '.implode(', ', $segment['objectLabels'] ?? []) }}"
+                            title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip').' · '.implode(', ', $segment['objectLabels'] ?? []) }}"
                             style="top: {{ $segmentTopPercent }}%; height: {{ $segmentHeightPercent }}%;"
                         >
                             <span class="recording-review-focus__rail-segment-bar"></span>
@@ -285,7 +285,7 @@
                         @php($segmentFocusMs = (int) ($segment['startMs'] ?? 0))
                         @php($thumbnailTopPx = number_format((float) ($segment['thumbnailTopPx'] ?? $segment['_topPx'] ?? 0), 3, '.', ''))
                         <button
-                            class="recording-review-focus__rail-thumbnail recording-review-focus__rail-thumbnail--{{ $captureMode }}{{ $activeSegmentId === (int) ($segment['id'] ?? 0) ? ' is-active' : '' }}"
+                            class="recording-review-focus__rail-thumbnail recording-review-focus__rail-thumbnail--{{ $captureMode }}{{ $activeSegmentId === (int) ($segment['id'] ?? 0) ? ' is-active' : '' }}{{ !empty($segment['objectLabels']) ? ' has-object-labels' : '' }}"
                             type="button"
                             data-role="rail-thumbnail"
                             data-recording-id="{{ $segment['id'] ?? '' }}"
@@ -299,8 +299,8 @@
                             data-scrub-columns="{{ $segment['scrubColumns'] ?? 0 }}"
                             data-scrub-rows="{{ $segment['scrubRows'] ?? 0 }}"
                             data-thumbnail-alt="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Segment preview').' preview' }}"
-                            aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' preview thumbnail' }}"
-                            title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip') }}"
+                            aria-label="{{ ($tile['cameraName'] ?? 'Camera').' '.($segment['timeLabel'] ?? 'Saved clip').' preview thumbnail '.implode(', ', $segment['objectLabels'] ?? []) }}"
+                            title="{{ ($segment['timeLabel'] ?? 'Saved clip').' · '.($segment['modeLabel'] ?? 'Recorded clip').' · '.implode(', ', $segment['objectLabels'] ?? []) }}"
                             style="top: {{ $thumbnailTopPx }}px;"
                         >
                             <span class="recording-review-focus__rail-thumbnail-frame" data-role="rail-thumbnail-frame">

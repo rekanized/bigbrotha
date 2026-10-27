@@ -421,6 +421,7 @@ class TimelineReview extends Component
     private function recordingsForCameraWindow(int $cameraId, Carbon $windowStart, Carbon $windowEnd): Collection
     {
         return CameraRecording::query()
+            ->with('analysisLabels')
             ->select($this->timelineRecordingColumns())
             ->where('camera_id', $cameraId)
             ->where('status', CameraRecording::STATUS_RECORDED)

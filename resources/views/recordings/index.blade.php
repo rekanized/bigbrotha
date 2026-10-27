@@ -91,6 +91,15 @@
                 </label>
 
                 <label class="field-stack">
+                    <span>Objects</span>
+                    <select class="form-select" name="object">
+                        <option value="">All objects</option>
+                        @foreach (['person' => 'People', 'animals' => 'Animals', 'cat' => 'Cats', 'dog' => 'Dogs', 'vehicles' => 'Vehicles', 'car' => 'Cars', 'motorcycle' => 'Motorcycles', 'bus' => 'Buses', 'truck' => 'Trucks'] as $value => $label)
+                            <option value="{{ $value }}" @selected($filters['object'] === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label class="field-stack">
                     <span>Camera</span>
                     <select class="form-select" name="camera_id">
                         <option value="">All cameras</option>
@@ -163,6 +172,9 @@
 
                                 <div class="badge-row">
                                     <span class="status-pill status-pill--{{ $recording->status === 'recorded' ? 'good' : ($recording->status === 'failed' ? 'warn' : 'neutral') }}">{{ ucfirst($recording->status) }}</span>
+                                    @foreach ($recording->analysisLabelNames() as $objectLabel)
+                                        <span class="status-pill status-pill--good">{{ ucfirst($objectLabel) }}</span>
+                                    @endforeach
                                     <span class="status-pill">{{ $recording->capture_mode === 'motion' ? 'Record on movement' : 'Constantly recording' }}</span>
                                 </div>
                             </div>

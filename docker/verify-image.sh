@@ -45,7 +45,7 @@ docker run --rm --entrypoint sh "$1" -lc '
         test -x /usr/local/bin/run-relay
         nginx -t
         php-fpm -tt 2>&1 | grep -F "listen = 127.0.0.1:9000"
-        CAMERA_RECORDING_WORKER_PROCESSES=1 python3 -c '\''import sys; from supervisor.options import ServerOptions; [ServerOptions().realize(["-c", path]) for path in sys.argv[1:]]'\'' /etc/supervisor/app.conf /etc/supervisor/background.conf
+        CAMERA_RECORDING_WORKER_PROCESSES=1 CAMERA_AI_AUTOSTART=false python3 -c '\''import sys; from supervisor.options import ServerOptions; [ServerOptions().realize(["-c", path]) for path in sys.argv[1:]]'\'' /etc/supervisor/app.conf /etc/supervisor/background.conf
         php -r '\''foreach (["bcmath", "mbstring", "pcntl", "pdo_pgsql", "xml", "zip"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing PHP extension: {$extension}\n"); exit(1); } }'\''
         php artisan --version
         /usr/local/bin/mediamtx --version

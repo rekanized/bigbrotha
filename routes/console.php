@@ -5,6 +5,7 @@ use App\Jobs\RefreshCameraPreviewJob;
 use App\Models\AuditLog;
 use App\Models\Camera;
 use App\Models\CameraRecording;
+use App\Services\Analysis\AnalysisLabels;
 use App\Services\ApplicationSettingsService;
 use App\Services\AuthenticationSettingsService;
 use App\Services\CameraRecordingService;
@@ -827,3 +828,12 @@ Schedule::command('camera-recordings:prune')
 Schedule::command('model:prune', ['--model' => [AuditLog::class]])
     ->daily()
     ->withoutOverlapping(180);
+
+Artisan::command('camera-ai:maintain', function (): int {
+    app(AnalysisLabels::class)->maintain();
+
+    return 0;
+})->purpose('Associate detection labels with finalized recordings and apply retention');
+
+Schedule::command('camera-ai:maintain')->cron(config('analysis.enabled') ? '* * * * *' : '0 * * * *')
+    ->withoutOverlapping(5)->runInBackground();

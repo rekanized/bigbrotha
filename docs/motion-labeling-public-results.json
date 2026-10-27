@@ -1,0 +1,460 @@
+{
+  "nanodet-plus-m-416": {
+    "confirmation_iou": 0.05,
+    "provisional_confidence": 0.35,
+    "single_frame_confirmation": false,
+    "clips": [
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "cat": 3.079,
+          "dog": 1.09
+        },
+        "file": "Cat_Plays.webm",
+        "split": "calibration",
+        "truth": [
+          "cat"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "cat",
+          "dog"
+        ],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "cat": 1.093
+        },
+        "file": "Cat_playing_with_a_laser_pointer.webm",
+        "split": "evaluation",
+        "truth": [
+          "cat"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "cat"
+        ],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "dog": 2.065
+        },
+        "file": "2015-11-11_Labradoodle_Berlin.webm",
+        "split": "calibration",
+        "truth": [
+          "dog"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "dog"
+        ],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "dog": 1.087
+        },
+        "file": "German_shepherd_eating_apple_(1).webm",
+        "split": "evaluation",
+        "truth": [
+          "dog"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "dog"
+        ],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "person": 2.114
+        },
+        "file": "people-detection.mp4",
+        "split": "calibration",
+        "truth": [
+          "person"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "person"
+        ],
+        "analyzed_frames": 7,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {},
+        "file": "car-detection.mp4",
+        "split": "calibration",
+        "truth": [
+          "car"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "person": 3.086,
+          "car": 16.073
+        },
+        "file": "person-bicycle-car-detection.mp4",
+        "split": "evaluation",
+        "truth": [
+          "person",
+          "car"
+        ],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [
+          "person",
+          "car"
+        ],
+        "analyzed_frames": 20,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {},
+        "file": "bolt-detection.mp4",
+        "split": "calibration",
+        "truth": [],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {
+          "person": 5.733
+        },
+        "file": "bottle-detection.mp4",
+        "split": "evaluation",
+        "truth": [],
+        "ignore_classes": [
+          "person"
+        ],
+        "predicted_at_provisional_035": [
+          "person"
+        ],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      },
+      {
+        "confirmation_seconds_from_first_analyzed_capture": {},
+        "file": "Small_waterfall.webm",
+        "split": "evaluation",
+        "truth": [],
+        "ignore_classes": [],
+        "predicted_at_provisional_035": [],
+        "analyzed_frames": 8,
+        "skipped_frames": 0
+      }
+    ],
+    "exploratory_calibration": {
+      "model_sha256": "ba89e0af46b91cb4538417c61fb4dd697b825adc351b3595377dfc66a3518abd",
+      "minimum_events_per_split_and_sign": 1,
+      "precision_target": 0.95,
+      "classes": {
+        "person": {
+          "threshold": 0.23,
+          "single": null,
+          "evaluation": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "true_positives": 1,
+            "false_positives": 0,
+            "false_negatives": 0,
+            "positive_events": 1,
+            "negative_events": 3
+          },
+          "status": "measured"
+        },
+        "car": {
+          "threshold": 0.08,
+          "single": null,
+          "evaluation": {
+            "precision": 0.5,
+            "recall": 1.0,
+            "true_positives": 1,
+            "false_positives": 1,
+            "false_negatives": 0,
+            "positive_events": 1,
+            "negative_events": 4
+          },
+          "status": "evaluation precision target unmet"
+        },
+        "motorcycle": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "bus": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "truck": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "cat": {
+          "threshold": 0.19,
+          "single": null,
+          "evaluation": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "true_positives": 1,
+            "false_positives": 0,
+            "false_negatives": 0,
+            "positive_events": 1,
+            "negative_events": 4
+          },
+          "status": "measured"
+        },
+        "dog": {
+          "threshold": 0.7100000000000001,
+          "single": null,
+          "evaluation": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "true_positives": 1,
+            "false_positives": 0,
+            "false_negatives": 0,
+            "positive_events": 1,
+            "negative_events": 4
+          },
+          "status": "measured"
+        }
+      },
+      "selection_rule": "Choose lower CPU cost only within 0.05 recall per category at matched measured precision."
+    },
+    "production_coverage": {
+      "model_sha256": "ba89e0af46b91cb4538417c61fb4dd697b825adc351b3595377dfc66a3518abd",
+      "minimum_events_per_split_and_sign": 20,
+      "precision_target": 0.95,
+      "classes": {
+        "person": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 3
+            }
+          }
+        },
+        "car": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            }
+          }
+        },
+        "motorcycle": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "bus": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "truck": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": null,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0,
+              "positive_events": 0,
+              "negative_events": 5
+            }
+          }
+        },
+        "cat": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            }
+          }
+        },
+        "dog": {
+          "status": "insufficient coverage",
+          "coverage": {
+            "calibration": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            },
+            "evaluation": {
+              "precision": null,
+              "recall": 0.0,
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 1,
+              "positive_events": 1,
+              "negative_events": 4
+            }
+          }
+        }
+      },
+      "selection_rule": "Choose lower CPU cost only within 0.05 recall per category at matched measured precision."
+    }
+  }
+}
