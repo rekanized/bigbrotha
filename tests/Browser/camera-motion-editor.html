@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion editor regression tests</title>
+<body>
+<h1>Motion editor regression tests</h1>
+<p>Serve the repository over HTTP and open this page in Chromium. No camera or login is needed.</p>
+<pre id="results" role="status">Running…</pre>
+<script src="camera-motion-editor.test.js"></script>
+<script>
+    window.addEventListener('load', async () => {
+        const results = document.getElementById('results');
+        try {
+            const source = await (await fetch('../../public/js/camera-motion-editor.js')).text();
+            const result = await window.runCameraMotionEditorTests(source);
+            results.textContent = `${result.passed} checks passed\n\n${result.checks.join('\n')}`;
+            document.title = `PASS: ${result.passed} motion editor checks`;
+        } catch (error) {
+            results.textContent = error.stack || String(error);
+            document.title = 'FAIL: motion editor checks';
+        }
+    }, { once: true });
+</script>
+</body>
+</html>

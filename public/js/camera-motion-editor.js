@@ -1067,7 +1067,9 @@
             });
         });
 
-        observer.observe(document.body, {
+        // wire:navigate replaces the body; keep watching the persistent document
+        // so editors opened on later visits still initialize and clean up.
+        observer.observe(document.documentElement, {
             childList: true,
             subtree: true,
         });

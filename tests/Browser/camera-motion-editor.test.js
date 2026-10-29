@@ -4,7 +4,7 @@
 window.runCameraMotionEditorTests = async (source) => {
     const frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;left:0;top:0;width:1000px;height:700px;z-index:99999';
-    frame.src = "/up";
+    frame.src = '/up';
     await new Promise(resolve => { frame.onload = resolve; document.body.append(frame); });
     const win = frame.contentWindow;
     const doc = frame.contentDocument;
@@ -149,6 +149,36 @@ window.runCameraMotionEditorTests = async (source) => {
         await tick(2200);
         assert(requests.length === expiredCount, 'Expired sessions do not keep polling');
         reopened.remove(); await tick();
+
+        // wire:navigate replaces the body, while data-navigate-once keeps this module alive.
+        for (let visit = 0; visit < 2; visit++) {
+            doc.dispatchEvent(new win.Event('livewire:navigating'));
+            doc.body.replaceWith(doc.createElement('body'));
+            doc.dispatchEvent(new win.Event('livewire:navigated'));
+            await tick();
+            const playerCount = players.length;
+            const requestCount = requests.length;
+            const navigatedHost = fixture();
+            await tick();
+            assert(players.length === playerCount + 1 && players.at(-1).started, 'Opening a camera after navigation starts its preview without refreshing');
+            assert(requests.length === requestCount + 1, 'Motion analysis starts once after navigation');
+            releaseResponse(response()); await tick();
+            assert(players.length === playerCount + 1, 'Motion metrics after navigation do not duplicate the preview');
+            const activePlayer = players.at(-1);
+            navigatedHost.remove(); await tick();
+            assert(activePlayer.closed, 'Closing a camera after navigation releases its preview');
+        }
+
+        fixture(); await tick();
+        const departingPlayer = players.at(-1);
+        doc.dispatchEvent(new win.Event('livewire:navigating'));
+        assert(departingPlayer.closed, 'Navigating away with an open camera releases its preview');
+        doc.body.replaceWith(doc.createElement('body'));
+        doc.dispatchEvent(new win.Event('livewire:navigated'));
+        releaseResponse(response()); await tick();
+        const finalRequestCount = requests.length;
+        await tick(750);
+        assert(requests.length === finalRequestCount, 'Navigating away stops motion analysis even if a request completes late');
         return { passed: checks.length, checks: [...new Set(checks)] };
     } finally { frame.remove(); }
 };

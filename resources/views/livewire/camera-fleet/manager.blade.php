@@ -97,7 +97,7 @@
         </div>
 
         <div class="notice-stack" aria-live="polite">
-            @if ($statusMessage)
+            @if ($statusMessage && !$isEditorModalOpen)
                 <div class="notice notice--success">{{ $statusMessage }}</div>
             @endif
 
@@ -233,6 +233,12 @@
 
                         <div class="camera-row__footer">
                             <div class="camera-row__actions">
+                                <button class="button button--soft" type="button"
+                                    data-copy-camera-link="{{ route('cameras.live', ['camera' => $camera]) }}"
+                                    aria-label="Copy live link for {{ $camera->name }}">
+                                    Copy camera link
+                                </button>
+                                <span class="panel-copy" data-camera-link-status role="status"></span>
                                 <button class="button button--primary" type="button" wire:click="editCamera({{ $camera->id }})" wire:loading.attr="disabled" wire:target="editCamera({{ $camera->id }})" data-camera-editor-trigger="camera-{{ $camera->id }}">
                                     <span class="button__content">
                                         <span class="button__icon-slot" aria-hidden="true">
@@ -396,10 +402,6 @@
                 </header>
 
                 <div class="notice-stack" aria-live="polite">
-                    @if ($statusMessage)
-                        <div class="notice notice--success">{{ $statusMessage }}</div>
-                    @endif
-
                     @if ($errorMessage)
                         <div class="notice notice--danger">{{ $errorMessage }}</div>
                     @endif
@@ -823,7 +825,8 @@
                         <label class="field-stack">
                             <span>CBR target bitrate</span>
                             <input class="form-input" type="number" min="250" max="20000" step="50" wire:model="form.live_transcode_bitrate_kbps" {{ ($form['live_transcode_rate_control'] ?? App\Models\Camera::LIVE_TRANSCODE_RATE_CONTROL_DEFAULT) === App\Models\Camera::LIVE_TRANSCODE_RATE_CONTROL_CBR ? '' : 'disabled' }}>
-                            <small class="probe-note">Enter kilobits per second. Only used when constant bitrate mode is selected.</small>
+                            <small class="probe-note">Live video bandwidth per viewer in kilobits per second (3500 kbps = 3.5 Mbps, plus audio and network overhead). Higher values preserve more detail; lower values save bandwidth but can look blocky during motion. This does not change resolution, frame rate, the camera's own bitrate, or recording quality and size.</small>
+                            <small class="probe-note">Applies only with CBR selected and live video transcoding active. Compatible H.264 feeds normally pass through unchanged, so this setting has no effect unless “Always normalize video through H.264” or global forced transcoding is enabled.</small>
                             @error('form.live_transcode_bitrate_kbps')
                                 <small class="field-error">{{ $message }}</small>
                             @enderror
@@ -1263,10 +1266,33 @@
                 @if ($selectedCamera || $probeResponse !== [] || !($form['supports_onvif'] ?? true))
                     @php($usesMotionEditorSave = (($form['recording_mode'] ?? null) === App\Models\Camera::RECORDING_MODE_MOTION || ($form['ai_enabled'] ?? false)) && $editingCameraId !== null && ($form['supports_rtsp'] ?? false))
                     <footer class="camera-editor__actions">
-                        <p>
-                            <strong>{{ $editingCameraId ? 'Ready to apply your camera changes?' : 'Ready to add this camera?' }}</strong>
-                            <span>{{ $usesMotionEditorSave ? 'The current motion mask and all settings will be saved together.' : 'Review the highlighted validation messages if saving fails.' }}</span>
-                        </p>
+                        <div class="camera-editor__save-status{{ !$statusMessage && !$errorMessage && !$errors->any() ? ' camera-editor__save-status--idle' : '' }}" role="status" aria-live="polite" aria-atomic="true"
+                            wire:loading.class="is-saving" wire:target="saveCamera,saveCameraFromMotionEditor">
+                            <div class="camera-editor__save-feedback" wire:loading.flex wire:target="saveCamera,saveCameraFromMotionEditor">
+                                <strong>Saving camera settings…</strong>
+                            </div>
+                            <div wire:loading.remove wire:target="saveCamera,saveCameraFromMotionEditor">
+                                @if ($errors->any() || $errorMessage)
+                                    <div class="camera-editor__save-feedback camera-editor__save-feedback--error">
+                                        @include('layouts.partials.ui-icon', ['name' => 'alert'])
+                                        <strong>{{ $errorMessage ?: 'Changes were not saved. Check the highlighted fields.' }}</strong>
+                                    </div>
+                                @elseif ($statusMessage)
+                                    <div class="camera-editor__save-feedback camera-editor__save-feedback--success">
+                                        @include('layouts.partials.ui-icon', ['name' => 'check'])
+                                        <div>
+                                            <strong>Camera saved successfully</strong>
+                                            <span>{{ $statusMessage }}</span>
+                                        </div>
+                                    </div>
+                                @else
+                                    <p>
+                                        <strong>{{ $editingCameraId ? 'Ready to apply your camera changes?' : 'Ready to add this camera?' }}</strong>
+                                        <span>{{ $usesMotionEditorSave ? 'The current motion mask and all settings will be saved together.' : 'Review the highlighted validation messages if saving fails.' }}</span>
+                                    </p>
+                                @endif
+                            </div>
+                        </div>
 
                         <div class="probe-actions">
                             <button class="button button--soft" type="button" wire:click="closeEditorModal" data-camera-editor-close>Cancel</button>

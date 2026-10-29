@@ -15,6 +15,7 @@
 @endsection
 
 @push('scripts')
+    <script src="{{ asset('js/camera-links.js').'?v='.filemtime(public_path('js/camera-links.js')) }}" defer data-navigate-once></script>
     <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer data-navigate-once></script>
     <script src="{{ asset('js/camera-motion-editor.js').'?v='.filemtime(public_path('js/camera-motion-editor.js')) }}" defer data-navigate-once></script>
     <script src="{{ asset('js/camera-editor-modal.js').'?v='.filemtime(public_path('js/camera-editor-modal.js')) }}" defer data-navigate-once></script>

@@ -52,6 +52,7 @@ Route::middleware('auth')->group(function (): void {
     });
 
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
+    Route::get('/cameras/{camera}/live', LiveWallPlayerController::class)->middleware('media-access')->name('cameras.live');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
     Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)
         ->middleware('media-access')

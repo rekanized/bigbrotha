@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Camera link checks</title>
+<body>
+<h1>Camera link checks</h1>
+<pre id="results" role="status">Running…</pre>
+<div id="fixture"></div>
+<script src="../../public/js/camera-links.js"></script>
+<script>
+    window.addEventListener('load', async () => {
+        const fixture = document.getElementById('fixture');
+        const results = document.getElementById('results');
+        const passed = [];
+        const assert = (condition, message) => { if (!condition) throw new Error(message); };
+        const clipboard = (value) => Object.defineProperty(navigator, 'clipboard', { configurable: true, value });
+        const render = (id) => {
+            fixture.innerHTML = `<div><button data-copy-camera-link="https://camera.example.test/cameras/${id}/live"><span>Copy camera link</span></button><span data-camera-link-status role="status"></span></div>`;
+            return fixture.querySelector('button');
+        };
+        const click = async (button) => {
+            button.querySelector('span').click();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        };
+
+        try {
+            let copied = '';
+            let writes = 0;
+            clipboard({ writeText: async (url) => { copied = url; writes++; } });
+            let button = render(42);
+            await click(button);
+            assert(copied === button.dataset.copyCameraLink, 'Copies the full camera URL');
+            assert(fixture.textContent.includes('Link copied') && !button.disabled, 'Confirms successful copying');
+            passed.push('Clipboard API copies the selected camera link and confirms success');
+
+            button = render(99);
+            await click(button);
+            assert(copied.endsWith('/99/live'), 'New rows use their own camera URL');
+            passed.push('Replaced fleet rows work without reinitializing listeners');
+
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '../../public/js/camera-links.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.append(script);
+            });
+            writes = 0;
+            await click(button);
+            assert(writes === 1, 'Repeated script loads must not duplicate clipboard writes');
+            passed.push('Navigation does not register duplicate listeners');
+
+            const fallback = () => {
+                copied = document.activeElement.value;
+                return true;
+            };
+            document.execCommand = fallback;
+            clipboard(undefined);
+            await click(button);
+            assert(copied === button.dataset.copyCameraLink, 'Copies on HTTP without Clipboard API');
+            assert(!document.querySelector('textarea'), 'Temporary selection is removed');
+            passed.push('Selection fallback supports browsers without the Clipboard API');
+
+            clipboard({ writeText: async () => { throw new Error('Permission denied'); } });
+            copied = '';
+            await click(button);
+            assert(copied === button.dataset.copyCameraLink, 'Denied clipboard permission uses fallback');
+            passed.push('Denied clipboard permission falls back to selection copying');
+
+            document.execCommand = () => false;
+            await click(button);
+            const manual = fixture.querySelector('input');
+            assert(manual?.value === button.dataset.copyCameraLink, 'Failed copy exposes exact link');
+            assert(manual.readOnly && document.activeElement === manual, 'Manual link is focused and read-only');
+            assert(!fixture.textContent.includes('Link copied'), 'Does not falsely report success');
+            passed.push('Blocked copying offers a selected link for manual copying');
+
+            results.textContent = `${passed.length} checks passed\n\n${passed.join('\n')}`;
+            document.title = `PASS: ${passed.length} camera link checks`;
+        } catch (error) {
+            results.textContent = error.stack || String(error);
+            document.title = 'FAIL: camera link checks';
+        }
+    }, { once: true });
+</script>
+</body>
+</html>

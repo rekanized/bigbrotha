@@ -25,7 +25,7 @@ class LiveWallPlayerController extends Controller
         $liveSelection = $streamService->selectWallProfile($camera);
         $liveDefinition = $relayConfig->cameraLivePlaybackDefinition($camera);
 
-        return view('live-wall.player', [
+        return view($request->routeIs('cameras.live') ? 'live-wall.quick' : 'live-wall.player', [
             'camera' => $camera,
             'liveSelection' => $liveSelection,
             'relayStatus' => $relayStatus,

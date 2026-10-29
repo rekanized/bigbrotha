@@ -78,6 +78,12 @@ See [recording storage](recording-storage.md) for local and SMB storage behavior
 
 ## Build a live wall
 
+For a single camera, choose **Copy camera link** in its Camera Fleet row. The
+stable `/cameras/{id}/live` link opens a minimal live player with audio and
+fullscreen controls, without requiring a wall assignment. Viewers must sign in;
+after login they return to that camera. Disabled, deleted, or non-RTSP cameras
+return 404. The link contains no camera credentials or media access tokens.
+
 Open **Wall Tiles** to create or select a named wall, arrange its tiles, and assign
 cameras. Open **Live Wall** to watch the layout. Camera focus mode expands one feed;
 Escape restores the grid. Audio and wall-switching controls remain in the wall dock.

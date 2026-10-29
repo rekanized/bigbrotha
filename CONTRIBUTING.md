@@ -42,6 +42,13 @@ focus, and recovery behavior. The page needs no camera or authenticated session;
 reload it to repeat the checks. Relay timing and sparse-audio integration tests
 run through PHPUnit using the image's FFmpeg and ffprobe binaries.
 
+Open `tests/Browser/camera-links.html` to check camera-link copying, clipboard
+fallbacks, and listener behavior when fleet rows are replaced.
+
+Serve the repository over HTTP and open `tests/Browser/camera-motion-editor.html`
+to check the recording-mask editor, including preview startup and cleanup after
+Livewire navigation. The fixture uses simulated streams and analysis responses.
+
 ## Pull requests and releases
 
 Explain the concrete behavior change and relevant verification. Include a new
