@@ -12,12 +12,12 @@ body { margin: 0; }
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1rem max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left));
+    padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left));
 }
 h1 { margin: 0; font-size: 1.1rem; overflow-wrap: anywhere; }
 a { color: #b9d3ff; }
 .quick-header a { flex-shrink: 0; }
-main { padding: 0 1rem max(1rem, env(safe-area-inset-bottom)); }
+main { padding: 0 max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
 .webrtc-player { position: relative; }
 .webrtc-player__video {
     display: block;
@@ -53,3 +53,7 @@ main { padding: 0 1rem max(1rem, env(safe-area-inset-bottom)); }
 }
 :focus-visible { outline: 2px solid #b9d3ff; outline-offset: 3px; }
 .empty-state { padding: 2rem; border: 1px solid #45546b; border-radius: .5rem; }
+.quick-shortcut { margin-top: 1rem; color: #c4cfdf; font-size: .9rem; line-height: 1.5; }
+.quick-shortcut summary { cursor: pointer; padding: .5rem 0; color: #b9d3ff; }
+.quick-shortcut p { max-width: 65ch; }
+.quick-shortcut [role="status"]:empty { display: none; }

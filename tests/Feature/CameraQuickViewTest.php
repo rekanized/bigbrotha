@@ -7,6 +7,7 @@ use App\Models\Camera;
 use App\Models\User;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\URL;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -81,6 +82,91 @@ class CameraQuickViewTest extends TestCase
             ->assertSee('data-copy-camera-link="'.route('cameras.live', $other).'"', false)
             ->assertSee('Copy camera link')
             ->assertSee('js/camera-links.js');
+    }
+
+    public function test_camera_page_uses_only_its_own_authenticated_manifest(): void
+    {
+        $this->mockRelay();
+        $camera = $this->camera(['name' => 'Front "Door" & driveway']);
+        $response = $this->actingAs(User::factory()->create())->get(route('cameras.live', $camera))
+            ->assertOk()
+            ->assertSee('href="'.route('cameras.manifest', $camera).'" crossorigin="use-credentials"', false)
+            ->assertSee('name="apple-mobile-web-app-title" content="'.e($camera->name).'"', false)
+            ->assertSee('Add to Home Screen')
+            ->assertDontSee('site.webmanifest');
+
+        $this->assertSame(1, substr_count($response->getContent(), 'rel="manifest"'));
+        $this->get(route('camera-fleet.index'))->assertOk()->assertSee('site.webmanifest');
+    }
+
+    public function test_each_camera_shortcut_has_its_own_identity_and_authenticated_launch_url(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $identities = [];
+        foreach (['Front entrance', 'Back garden'] as $name) {
+            $camera = $this->camera(['name' => $name]);
+            $path = route('cameras.live', $camera, false);
+            $manifest = $this->get(route('cameras.manifest', $camera))
+                ->assertOk()
+                ->assertHeader('Content-Type', 'application/manifest+json')
+                ->assertHeader('Cache-Control', 'no-store, private')
+                ->assertJsonPath('name', $name)
+                ->assertJsonPath('short_name', $name)
+                ->assertJsonPath('id', $path)
+                ->assertJsonPath('start_url', $path)
+                ->assertJsonPath('scope', '/cameras/'.$camera->id.'/')
+                ->assertJsonPath('display', 'standalone')
+                ->assertDontSee('fixture-secret')
+                ->assertDontSee($camera->local_ip)
+                ->assertDontSee('access_token')
+                ->json();
+
+            foreach ($manifest['icons'] as $icon) {
+                $this->assertFileExists(public_path(parse_url($icon['src'], PHP_URL_PATH)));
+            }
+            $identities[] = $manifest['id'];
+            $camera->update(['name' => $name.' renamed']);
+            $this->get(route('cameras.manifest', $camera))
+                ->assertJsonPath('id', $path)->assertJsonPath('name', $name.' renamed');
+        }
+        $this->assertCount(2, array_unique($identities));
+    }
+
+    public function test_manifest_does_not_expose_camera_metadata_to_guests_or_replace_the_login_destination(): void
+    {
+        $camera = $this->camera();
+        $this->get(route('cameras.live', $camera))->assertRedirect(route('login'));
+        $this->get(route('cameras.manifest', $camera), ['Accept' => 'application/manifest+json'])
+            ->assertUnauthorized()
+            ->assertDontSee($camera->name)
+            ->assertSessionHas('url.intended', route('cameras.live', $camera));
+    }
+
+    public function test_unavailable_cameras_do_not_offer_installation_metadata(): void
+    {
+        $this->actingAs(User::factory()->create());
+        foreach ([['is_enabled' => false], ['supports_rtsp' => false]] as $attributes) {
+            $this->get(route('cameras.manifest', $this->camera($attributes)))->assertNotFound();
+        }
+        $camera = $this->camera();
+        $url = route('cameras.manifest', $camera);
+        $camera->delete();
+        $this->get($url)->assertNotFound();
+    }
+
+    public function test_manifest_urls_preserve_the_application_base_path(): void
+    {
+        config()->set('app.url', 'https://camera.example.test/monitor');
+        $camera = $this->camera();
+        $this->actingAs(User::factory()->create());
+        URL::forceRootUrl('https://camera.example.test/monitor');
+        URL::forceScheme('https');
+        $this->get('https://camera.example.test/cameras/'.$camera->id.'/manifest.webmanifest')
+            ->assertOk()
+            ->assertJsonPath('id', '/monitor/cameras/'.$camera->id.'/live')
+            ->assertJsonPath('start_url', '/monitor/cameras/'.$camera->id.'/live')
+            ->assertJsonPath('scope', '/monitor/cameras/'.$camera->id.'/')
+            ->assertJsonPath('icons.0.src', 'https://camera.example.test/monitor/img/bigbrotha-icon-192.png');
     }
 
     public function test_missing_stream_and_missing_relay_have_clear_empty_states(): void

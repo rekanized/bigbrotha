@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Camera shortcut checks</title>
+<body>
+<h1>Camera shortcut checks</h1>
+<p>Serve the repository over HTTP and open this page in Chromium. Installation prompts are simulated.</p>
+<pre id="results" role="status">Running…</pre>
+<script>
+    window.addEventListener('load', async () => {
+        const passed = [];
+        const assert = (value, message) => { if (!value) throw new Error(message); passed.push(message); };
+        const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+        let frame;
+        try {
+            const source = await (await fetch('../../public/js/camera-shortcut.js')).text();
+            for (const outcome of ['accepted', 'dismissed', 'error', 'standalone', 'ios']) {
+                frame = document.createElement('iframe');
+                frame.srcdoc = '<details data-camera-shortcut><summary>Add to Home Screen</summary><button data-install-camera hidden>Install</button><p data-shortcut-status></p></details>';
+                await new Promise(resolve => { frame.onload = resolve; document.body.append(frame); });
+                const win = frame.contentWindow;
+                const doc = frame.contentDocument;
+                const media = new win.EventTarget();
+                media.matches = outcome === 'standalone';
+                win.matchMedia = () => media;
+                Object.defineProperty(win.navigator, 'standalone', { value: outcome === 'ios' });
+                const script = doc.createElement('script');
+                script.textContent = source;
+                doc.body.append(script);
+                const help = doc.querySelector('details');
+                const button = doc.querySelector('button');
+                const status = doc.querySelector('p');
+                if (outcome === 'standalone' || outcome === 'ios') {
+                    assert(help.hidden, `${outcome}: installed camera hides installation guidance`);
+                } else {
+                    assert(!help.hidden && button.hidden, `${outcome}: browser-menu guidance works without native installation support`);
+                    let prompts = 0;
+                    const event = new win.Event('beforeinstallprompt', { cancelable: true });
+                    event.prompt = async () => { prompts++; if (outcome === 'error') throw new Error('Unavailable'); };
+                    event.userChoice = Promise.resolve({ outcome });
+                    win.dispatchEvent(event);
+                    assert(event.defaultPrevented && !button.hidden, `${outcome}: browser installation offer enables the button`);
+                    button.click(); button.click();
+                    await tick();
+                    assert(prompts === 1 && button.hidden && !button.disabled, `${outcome}: installation prompt is consumed once`);
+                    assert(status.textContent.includes(outcome === 'accepted' ? 'requested' : 'browser menu'), `${outcome}: result gives accurate feedback`);
+                    win.dispatchEvent(new win.Event('appinstalled'));
+                    assert(status.textContent === 'Camera shortcut installed.' && button.hidden, `${outcome}: actual installation confirms completion`);
+                    media.matches = true;
+                    media.dispatchEvent(new win.Event('change'));
+                    assert(help.hidden, `${outcome}: switching to standalone hides installation controls`);
+                }
+                frame.remove();
+            }
+            document.getElementById('results').textContent = `${passed.length} checks passed\n\n${passed.join('\n')}`;
+            document.title = `PASS: ${passed.length} camera shortcut checks`;
+        } catch (error) {
+            document.getElementById('results').textContent = error.stack || String(error);
+            document.title = 'FAIL: camera shortcut checks';
+        } finally {
+            frame?.remove();
+        }
+    }, { once: true });
+</script>
+</body>
+</html>

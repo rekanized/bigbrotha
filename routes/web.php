@@ -12,6 +12,7 @@ use App\Http\Controllers\CameraFleetController;
 use App\Http\Controllers\CameraFleetMotionEditorAnalysisController;
 use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
+use App\Http\Controllers\CameraShortcutManifestController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
 use App\Http\Controllers\LiveWallPtzController;
@@ -53,6 +54,7 @@ Route::middleware('auth')->group(function (): void {
 
     Route::get('/camera-fleet', CameraFleetController::class)->name('camera-fleet.index');
     Route::get('/cameras/{camera}/live', LiveWallPlayerController::class)->middleware('media-access')->name('cameras.live');
+    Route::get('/cameras/{camera}/manifest.webmanifest', CameraShortcutManifestController::class)->name('cameras.manifest');
     Route::get('/camera-fleet/{camera}/profiles/{profileIndex}/preview', CameraFleetStreamPreviewController::class)->name('camera-fleet.preview');
     Route::get('/camera-fleet/{camera}/motion-editor-session', CameraFleetMotionEditorSessionController::class)
         ->middleware('media-access')

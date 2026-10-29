@@ -92,6 +92,33 @@ A successful HTTP connection does not establish WebRTC media reachability.
 Browsers also need the configured ICE TCP/UDP port, and the relay must reach the
 camera. See [deployment constraints](known-issues-and-constraints.md).
 
+### Add a camera to your phone's Home Screen
+
+Open the copied camera link on your phone and sign in so the camera's live page
+is visible before adding it. Expand **Add to Home Screen** below the feed for
+instructions, or use **Install camera shortcut** when the browser offers it.
+
+- **iPhone / iPad:** In Safari, tap **Share → Add to Home Screen**. Keep
+  **Open as Web App** enabled if shown, then tap **Add**.
+- **Android:** In Chrome, open the menu and choose **Install and create shortcut**
+  or **Add to Home screen**, then **Install** or **Create shortcut** and confirm.
+
+Each camera has its own manifest identity, name, and launch URL, so you can add
+multiple cameras separately. A shortcut still requires authentication and returns
+to its camera after login. Use HTTPS for browser installation support. Existing
+shortcuts created with the general app manifest may need to be removed and added
+again from the camera page. No camera footage is cached for offline use.
+
+The camera manifest requires the operator session; its link uses
+`crossorigin="use-credentials"` so browsers include that session when fetching it.
+Its scope is limited to that camera's directory. Login may show browser controls
+while outside that scope; returning to the camera restores the standalone view.
+
+References: [Apple Home Screen instructions](https://support.apple.com/guide/iphone/open-as-web-app-iphea86e5236/ios),
+[Chrome installation instructions](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid&hl=en),
+[manifest identity](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest/Reference/id),
+and [authenticated manifest loading](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/crossorigin#web_manifest_with_credentials).
+
 ## Routine troubleshooting
 
 ```sh

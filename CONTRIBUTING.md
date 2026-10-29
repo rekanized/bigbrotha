@@ -45,6 +45,10 @@ run through PHPUnit using the image's FFmpeg and ffprobe binaries.
 Open `tests/Browser/camera-links.html` to check camera-link copying, clipboard
 fallbacks, and listener behavior when fleet rows are replaced.
 
+Serve the repository over HTTP and open `tests/Browser/camera-shortcut.html` to
+check the camera installation prompt and browser-menu fallback. Test phone Home
+Screen installation on HTTPS, including two different cameras and a fresh login.
+
 Serve the repository over HTTP and open `tests/Browser/camera-motion-editor.html`
 to check the recording-mask editor, including preview startup and cleanup after
 Livewire navigation. The fixture uses simulated streams and analysis responses.
