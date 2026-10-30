@@ -107,7 +107,20 @@ Each camera has its own manifest identity, name, and launch URL, so you can add
 multiple cameras separately. A shortcut still requires authentication and returns
 to its camera after login. Use HTTPS for browser installation support. Existing
 shortcuts created with the general app manifest may need to be removed and added
-again from the camera page. No camera footage is cached for offline use.
+again from the camera page. Live footage is not cached for offline playback.
+
+The shortcut icon uses the latest saved camera preview, without connecting to
+the camera for a fresh capture. The installation guide shows the selected image
+and capture time. Missing, invalid, or unreachable previews use the BigBrotha icon.
+The complete frame is fitted onto a padded dark square for iPhone and Android.
+Phone icons are installation snapshots; updating an existing icon may require
+removing and adding the shortcut again. The phone can retain that saved icon
+even when you are signed out.
+
+Generated PNGs remain in private local storage under each camera's
+`shortcut-icons` directory, with the three newest revisions retained. Their
+routes require an authenticated operator, including when fetched during
+installation. An expired cached revision falls back to the BigBrotha icon.
 
 The camera manifest requires the operator session; its link uses
 `crossorigin="use-credentials"` so browsers include that session when fetching it.

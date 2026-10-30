@@ -3,12 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Camera;
+use App\Services\CameraShortcutIconService;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class CameraShortcutManifestController extends Controller
 {
-    public function __invoke(Camera $camera): JsonResponse
+    public function __invoke(Camera $camera, CameraShortcutIconService $icons): JsonResponse
     {
         abort_unless($camera->is_enabled && $camera->supports_rtsp, Response::HTTP_NOT_FOUND);
 
@@ -23,11 +24,7 @@ class CameraShortcutManifestController extends Controller
             'display' => 'standalone',
             'background_color' => '#10141b',
             'theme_color' => '#10141b',
-            'icons' => [
-                ['src' => asset('img/bigbrotha-icon-192.png'), 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any'],
-                ['src' => asset('img/bigbrotha-icon-512.png'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any'],
-                ['src' => asset('img/bigbrotha-icon-maskable-512.png'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
-            ],
+            'icons' => $icons->forCamera($camera)['icons'],
         ], headers: ['Content-Type' => 'application/manifest+json']);
     }
 }

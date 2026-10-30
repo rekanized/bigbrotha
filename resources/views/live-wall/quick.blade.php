@@ -8,7 +8,7 @@
         <meta name="apple-mobile-web-app-title" content="{{ $camera->name }}">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
         <title>{{ $camera->name }} | {{ config('app.name', 'Bigbrotha') }}</title>
-        @include('layouts.partials.app-icons', ['assetBase' => rtrim(request()->getBaseUrl(), '/'), 'manifestUrl' => route('cameras.manifest', ['camera' => $camera])])
+        @include('layouts.partials.app-icons', ['assetBase' => rtrim(request()->getBaseUrl(), '/'), 'manifestUrl' => route('cameras.manifest', ['camera' => $camera]), 'appleTouchIconUrl' => $shortcutIcon['apple_url']])
         <link rel="stylesheet" href="{{ asset('css/pages/camera-quick.css').'?v='.filemtime(public_path('css/pages/camera-quick.css')) }}">
         <script src="{{ asset('js/live-wall-player.js').'?v='.filemtime(public_path('js/live-wall-player.js')) }}" defer></script>
         <script src="{{ asset('js/camera-shortcut.js').'?v='.filemtime(public_path('js/camera-shortcut.js')) }}" defer></script>
@@ -23,6 +23,21 @@
             <details class="quick-shortcut" data-camera-shortcut>
                 <summary>Add to Home Screen</summary>
                 <p>Save a shortcut that opens {{ $camera->name }} directly.</p>
+                <div class="quick-shortcut__preview">
+                    <img src="{{ $shortcutIcon['apple_url'] }}" alt="Home Screen icon for {{ $camera->name }}" width="96" height="96">
+                    <div>
+                        @if ($shortcutIcon['revision'] !== null)
+                            <strong>Latest saved camera preview</strong>
+                            @if ($capturedAt = $appSettings->formatStoredTimestamp($shortcutIcon['captured_at']))
+                                <span>Captured {{ $capturedAt }}</span>
+                            @endif
+                        @else
+                            <strong>BigBrotha icon</strong>
+                            <span>No camera preview is available for the shortcut yet.</span>
+                        @endif
+                    </div>
+                </div>
+                <p>The icon is a snapshot when you add the shortcut. To change an existing phone icon, you may need to remove the shortcut and add it again.</p>
                 <button class="button" type="button" data-install-camera hidden>Install camera shortcut</button>
                 <p><strong>iPhone / iPad:</strong> Open this camera page in Safari, tap Share, then Add to Home Screen. Keep Open as Web App enabled if shown, then tap Add.</p>
                 <p><strong>Android:</strong> Open this camera page in Chrome, tap the menu, then Install and create shortcut or Add to Home screen. Choose Install or Create shortcut and confirm.</p>

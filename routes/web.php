@@ -12,6 +12,7 @@ use App\Http\Controllers\CameraFleetController;
 use App\Http\Controllers\CameraFleetMotionEditorAnalysisController;
 use App\Http\Controllers\CameraFleetMotionEditorSessionController;
 use App\Http\Controllers\CameraFleetStreamPreviewController;
+use App\Http\Controllers\CameraShortcutIconController;
 use App\Http\Controllers\CameraShortcutManifestController;
 use App\Http\Controllers\LiveWallController;
 use App\Http\Controllers\LiveWallPlayerController;
@@ -36,6 +37,11 @@ Route::middleware('guest')->group(function (): void {
 
 Route::post('/logout', LogoutController::class)->middleware('auth')->name('logout');
 Route::post('/relay/auth/mediamtx', MediaMtxAuthController::class)->name('relay.auth.mediamtx');
+
+// Image fetches must fail directly, without replacing the camera's login destination.
+Route::get('/cameras/{camera}/shortcut-icon/{revision}/{size}.png', CameraShortcutIconController::class)
+    ->where('revision', '[a-f0-9]{64}')->where('size', '180|192|512')
+    ->middleware('media-access')->name('cameras.shortcut-icon');
 
 Route::middleware('auth')->group(function (): void {
     Route::redirect('/', '/live-wall');

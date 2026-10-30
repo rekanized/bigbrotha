@@ -57,3 +57,7 @@ main { padding: 0 max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-
 .quick-shortcut summary { cursor: pointer; padding: .5rem 0; color: #b9d3ff; }
 .quick-shortcut p { max-width: 65ch; }
 .quick-shortcut [role="status"]:empty { display: none; }
+.quick-shortcut__preview { display: flex; align-items: center; gap: 1rem; margin: 1rem 0; }
+.quick-shortcut__preview img { flex: 0 0 96px; border-radius: 1.25rem; background: #10141b; }
+.quick-shortcut__preview div { min-width: 0; overflow-wrap: anywhere; }
+.quick-shortcut__preview strong, .quick-shortcut__preview span { display: block; }

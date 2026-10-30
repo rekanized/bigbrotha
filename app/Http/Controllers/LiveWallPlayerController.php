@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Camera;
 use App\Services\CameraLiveStreamService;
+use App\Services\CameraShortcutIconService;
 use App\Services\Relay\MediaMtxConfigService;
 use App\Services\Relay\MediaMtxProcessService;
 use Illuminate\Contracts\View\View;
@@ -18,6 +19,7 @@ class LiveWallPlayerController extends Controller
         CameraLiveStreamService $streamService,
         MediaMtxConfigService $relayConfig,
         MediaMtxProcessService $relayProcess,
+        CameraShortcutIconService $shortcutIcons,
     ): View {
         $this->assertCameraCanStream($camera);
 
@@ -27,6 +29,7 @@ class LiveWallPlayerController extends Controller
 
         return view($request->routeIs('cameras.live') ? 'live-wall.quick' : 'live-wall.player', [
             'camera' => $camera,
+            'shortcutIcon' => $request->routeIs('cameras.live') ? $shortcutIcons->forCamera($camera) : null,
             'liveSelection' => $liveSelection,
             'relayStatus' => $relayStatus,
             'sessionUrl' => $liveDefinition !== null ? route('live-wall.session', ['camera' => $camera]) : null,
