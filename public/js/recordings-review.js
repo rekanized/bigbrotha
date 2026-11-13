@@ -28,6 +28,7 @@
         thumbnailObserver: null,
         thumbnailObserverScope: null,
         ticks: [],
+        detectionGroups: [],
     });
 
     const defaultStagePrewarmState = () => ({
@@ -47,6 +48,10 @@
         cleanupFns: [],
         drag: null,
         clipScrub: null,
+        detectionPanel: null,
+        detectionHideTimer: null,
+        detectionRestoringFocus: false,
+        selectedDetectionSegment: null,
         lastDragEndedAt: 0,
         lastNativeScrollAt: 0,
         lastPointerEventAt: 0,
@@ -374,12 +379,12 @@
         syncCompanionAudioTime(video, stageAudio(scope), true);
     };
 
-    const selectFocus = (scope, focusMs) => {
+    const selectFocus = (scope, focusMs, segmentId = null) => {
         const nextFocus = clamp(focusMs, timelineStartMs(scope), timelineMaximumFocusMs(scope));
         updateLocalFocus(scope, nextFocus);
         centerViewportOnFocus(scope, nextFocus);
         hideScrubPreview(scope);
-        void syncStageSegmentToFocus(scope, nextFocus, { fetchIfMissing: true });
+        void syncStageSegmentToFocus(scope, nextFocus, { fetchIfMissing: true, segmentId });
         commitFocus(scope, nextFocus);
     };
 
@@ -1601,6 +1606,7 @@
     };
 
     const resetRailState = () => {
+        closeDetectionPanel(false);
         if (typeof AbortController !== 'undefined' && state.rail.requestController instanceof AbortController) {
             state.rail.requestController.abort();
         }
@@ -1923,6 +1929,16 @@
 
             element.classList.toggle('is-active', resolvedActiveSegmentId !== '' && String(element.dataset.recordingId || '') === resolvedActiveSegmentId);
         });
+        scope.querySelectorAll('[data-role="detection-marker"]').forEach((button) => {
+            const group = state.rail.detectionGroups.find(item => item.key === button.dataset.groupKey);
+            const selected = group?.segments.some(segment => String(segment.id) === resolvedActiveSegmentId) || false;
+            button.classList.toggle('is-active', selected);
+            if (selected) button.setAttribute('aria-current', 'true');
+            else button.removeAttribute('aria-current');
+        });
+        const selected = state.rail.segments.find(segment => String(segment.id) === resolvedActiveSegmentId)
+            || (String(state.selectedDetectionSegment?.id) === resolvedActiveSegmentId ? state.selectedDetectionSegment : null);
+        updateSelectedObjects(scope, selected);
     };
 
     const setActiveRailSegmentId = (scope, segmentId) => {
@@ -1978,6 +1994,7 @@
         }
 
         const preservedFocus = currentFocusMs(scope);
+        state.selectedDetectionSegment = null;
         state.activeCameraId = nextCameraId;
         scope.dataset.activeCameraId = nextCameraId;
         host.dataset.cameraId = nextCameraId;
@@ -2419,6 +2436,227 @@
         return button;
     };
 
+    const objectOrder = ['person', 'cat', 'dog', 'car', 'motorcycle', 'bus', 'truck'];
+    const objectLabels = (labels) => [...new Set((Array.isArray(labels) ? labels : [])
+        .filter(label => typeof label === 'string').map(label => label.trim().toLowerCase()).filter(Boolean))]
+        .sort((a, b) => {
+            const rank = label => objectOrder.includes(label) ? objectOrder.indexOf(label) : objectOrder.length;
+            return rank(a) - rank(b) || a.localeCompare(b);
+        });
+    const objectName = label => label.charAt(0).toUpperCase() + label.slice(1);
+    const objectNames = labels => objectLabels(labels).map(objectName).join(', ');
+
+    const createObjectIcons = (scope, labels, limit = 2) => {
+        const names = objectLabels(labels);
+        const badge = document.createElement('span');
+        badge.className = 'recording-review__object-icons';
+        badge.dataset.role = 'object-icons';
+        badge.setAttribute('aria-hidden', 'true');
+        const url = timelineRail(scope)?.dataset.objectIconsUrl || '/img/timeline-objects.svg';
+        names.slice(0, limit).forEach(label => {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('focusable', 'false');
+            svg.dataset.object = label;
+            use.setAttribute('href', `${url}#${objectOrder.includes(label) ? label : 'unknown'}`);
+            svg.append(use);
+            badge.append(svg);
+        });
+        if (names.length > limit) {
+            const more = document.createElement('span');
+            more.className = 'recording-review__object-more';
+            more.textContent = `+${names.length - limit}`;
+            badge.append(more);
+        }
+        return badge;
+    };
+
+    const updateSelectedObjects = (scope, segment) => {
+        const details = scope.querySelector('[data-role="selected-objects"]');
+        if (!details) return;
+        const labels = objectNames(segment?.objectLabels);
+        details.hidden = !labels;
+        setText(details, labels ? `Detected in selected clip: ${labels}` : '');
+    };
+
+    const buildDetectionGroups = (scope) => {
+        const height = railTrackHeight(scope);
+        const groups = [];
+        const segments = state.rail.segments.filter(segment => objectLabels(segment.objectLabels).length)
+            .sort((a, b) => a.startMs - b.startMs || Number(a.id) - Number(b.id));
+        for (const segment of segments) {
+            const top = clamp(railTrackOffsetPxForMs(scope, segment.startMs, height), 0, Math.max(0, height - 44));
+            let group = groups[groups.length - 1];
+            // Anchor to the first clip, not the preceding clip: a dense run must
+            // not collapse into one unbounded group. Layout is independent of scroll.
+            if (!group || top - group.top >= 48) {
+                group = { key: `${state.rail.cameraId}:${segment.id}`, top, segments: [], labels: [] };
+                groups.push(group);
+            }
+            group.segments.push(segment);
+            group.labels.push(...objectLabels(segment.objectLabels));
+        }
+        groups.forEach(group => { group.labels = objectLabels(group.labels); });
+        return groups;
+    };
+
+    const createDetectionMarker = (scope, group, existing = null) => {
+        const button = existing || document.createElement('button');
+        button.type = 'button';
+        button.className = 'recording-review__detection-marker';
+        button.dataset.role = 'detection-marker';
+        button.dataset.groupKey = group.key;
+        button.style.top = `${group.top}px`;
+        const count = group.segments.length;
+        const first = group.segments[0];
+        const last = group.segments[count - 1];
+        const time = count > 1 ? `${first.timeLabel} through ${last.timeLabel}` : first.timeLabel;
+        button.setAttribute('aria-label', `${objectNames(group.labels)} detected in ${count === 1 ? 'clip' : count + ' clips'}, ${time}. ${count > 1 ? 'Choose a clip' : 'Play clip'}`);
+        button.setAttribute('aria-controls', 'timeline-detection-panel');
+        button.setAttribute('aria-expanded', 'false');
+        button.replaceChildren(createObjectIcons(scope, group.labels));
+        if (count > 1) {
+            const label = document.createElement('span');
+            label.className = 'recording-review__detection-count';
+            label.textContent = `${count} clips`;
+            button.append(label);
+        }
+        return button;
+    };
+
+    const closeDetectionPanel = (restoreFocus = false) => {
+        window.clearTimeout(state.detectionHideTimer);
+        state.detectionHideTimer = null;
+        const current = state.detectionPanel;
+        if (!current) return;
+        state.detectionPanel = null;
+        current.panel.hidden = true;
+        current.trigger.setAttribute('aria-expanded', 'false');
+        current.trigger.removeAttribute('aria-describedby');
+        if (restoreFocus) {
+            const target = current.trigger.isConnected ? current.trigger : railViewport(current.scope);
+            state.detectionRestoringFocus = true;
+            target?.focus({ preventScroll: true });
+            state.detectionRestoringFocus = false;
+        }
+    };
+
+    const positionDetectionPanel = () => {
+        const current = state.detectionPanel;
+        if (!current) return;
+        const rect = current.trigger.getBoundingClientRect();
+        const panel = current.panel;
+        panel.style.width = `${Math.min(320, window.innerWidth - 24)}px`;
+        panel.style.maxHeight = `${Math.min(360, window.innerHeight - 24)}px`;
+        const width = panel.offsetWidth;
+        const height = panel.offsetHeight;
+        const left = rect.left >= width + 20 ? rect.left - width - 8 : rect.right + 8;
+        panel.style.left = `${clamp(left, 12, Math.max(12, window.innerWidth - width - 12))}px`;
+        panel.style.top = `${clamp(rect.top, 12, Math.max(12, window.innerHeight - height - 12))}px`;
+    };
+
+    const showDetectionPanel = (scope, trigger, pinned = false) => {
+        const group = state.rail.detectionGroups.find(item => item.key === trigger.dataset.groupKey);
+        const panel = scope.querySelector('[data-role="detection-panel"]');
+        if (!group || !panel || (!pinned && state.detectionPanel?.pinned)) return;
+        closeDetectionPanel();
+        const count = group.segments.length;
+        setText(panel.querySelector('[data-role="detection-heading"]'), count > 1 ? `${count} clips with detections` : 'Detected in this clip');
+        const summary = panel.querySelector('[data-role="detection-summary"]');
+        summary.id = 'timeline-detection-summary';
+        setText(summary, `${objectNames(group.labels)} · ${group.segments[0].timeLabel}${count > 1 ? ' through ' + group.segments[count - 1].timeLabel : ''}`);
+        const list = panel.querySelector('[data-role="detection-list"]');
+        list.replaceChildren();
+        if (pinned) {
+            group.segments.forEach(segment => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.dataset.role = 'detection-clip';
+                row.dataset.recordingId = String(segment.id);
+                const copy = document.createElement('span');
+                const time = document.createElement('strong');
+                time.textContent = segment.timeLabel;
+                const names = document.createElement('span');
+                names.textContent = objectNames(segment.objectLabels);
+                copy.append(time, names);
+                row.append(createObjectIcons(scope, segment.objectLabels, Infinity), copy);
+                row.setAttribute('aria-label', `Play ${segment.timeLabel}: ${names.textContent}`);
+                list.append(row);
+            });
+        }
+        panel.querySelector('[data-role="detection-close"]').hidden = !pinned;
+        panel.hidden = false;
+        trigger.setAttribute('aria-expanded', String(pinned));
+        trigger.setAttribute('aria-describedby', summary.id);
+        state.detectionPanel = { scope, panel, trigger, pinned, signature: JSON.stringify(group) };
+        positionDetectionPanel();
+        if (pinned) list.querySelector('button')?.focus({ preventScroll: true });
+    };
+
+    const handleDetectionEnter = (event) => {
+        if (!(event.target instanceof Element) || event.pointerType === 'touch' || state.detectionRestoringFocus) return;
+        if (event.target.closest('[data-role="detection-panel"], [data-role="detection-marker"]')) {
+            window.clearTimeout(state.detectionHideTimer);
+        }
+        const trigger = event.target.closest('[data-role="detection-marker"]');
+        const scope = rootFor(trigger);
+        if (scope && trigger && !trigger.contains(event.relatedTarget)) showDetectionPanel(scope, trigger);
+    };
+
+    const handleDetectionLeave = (event) => {
+        const current = state.detectionPanel;
+        if (!current || current.pinned || current.trigger.contains(event.relatedTarget) || current.panel.contains(event.relatedTarget)) return;
+        if (!current.trigger.contains(event.target) && !current.panel.contains(event.target)) return;
+        if (event.type === 'focusout') closeDetectionPanel();
+        else if (document.activeElement !== current.trigger) {
+            // Allow the pointer to cross the small gap into the details panel.
+            window.clearTimeout(state.detectionHideTimer);
+            state.detectionHideTimer = window.setTimeout(() => {
+                if (state.detectionPanel === current && !current.pinned) closeDetectionPanel();
+            }, 150);
+        }
+    };
+
+    const handleDetectionDismiss = (event) => {
+        const current = state.detectionPanel;
+        if (!current) return;
+        if (event.type === 'keydown') {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeDetectionPanel(true);
+            }
+            return;
+        }
+        if (event.type === 'scroll') {
+            if (current.panel.contains(event.target)) return;
+            const marker = current.trigger.getBoundingClientRect();
+            const viewport = railViewport(current.scope).getBoundingClientRect();
+            if (marker.bottom < viewport.top || marker.top > viewport.bottom) closeDetectionPanel();
+            else positionDetectionPanel();
+            return;
+        }
+        if (current.panel.contains(event.target) || current.trigger.contains(event.target)) return;
+        closeDetectionPanel(current.panel.contains(document.activeElement) && event.type !== 'pointerdown');
+    };
+
+    const renderDetectionMarkers = (scope) => {
+        const layer = scope.querySelector('[data-role="rail-detections"]');
+        if (!layer) return;
+        state.rail.detectionGroups = buildDetectionGroups(scope);
+        const viewport = railViewport(scope);
+        const groups = state.rail.detectionGroups.filter(group => group.top + 44 >= viewport.scrollTop - 100
+            && group.top <= viewport.scrollTop + viewport.clientHeight + 100);
+        reconcileRailLayer(layer, groups, group => group.key, group => JSON.stringify(group),
+            (group, node) => createDetectionMarker(scope, group, node));
+        const current = state.detectionPanel;
+        if (current) {
+            const group = groups.find(item => item.key === current.trigger.dataset.groupKey);
+            if (!current.trigger.isConnected || JSON.stringify(group) !== current.signature) closeDetectionPanel(current.panel.contains(document.activeElement));
+            else positionDetectionPanel();
+        }
+    };
+
     const createRailSegmentElement = (scope, segment, existing = null) => {
         const button = existing || document.createElement('button');
         const captureMode = segment.captureMode === 'motion' ? 'motion' : 'continuous';
@@ -2487,6 +2725,9 @@
         button.setAttribute('aria-label', `${cameraName} ${segment.timeLabel || 'Saved clip'} preview thumbnail ${(segment.objectLabels || []).join(', ')}`);
         button.title = `${segment.timeLabel || 'Saved clip'} · ${segment.modeLabel || 'Recorded clip'}${(segment.objectLabels || []).length ? ' · ' + segment.objectLabels.join(', ') : ''}`;
         button.classList.toggle('has-object-labels', (segment.objectLabels || []).length > 0);
+
+        button.querySelector('[data-role="object-icons"]')?.remove();
+        if (objectLabels(segment.objectLabels).length) button.append(createObjectIcons(scope, segment.objectLabels));
 
         if (existing) return button;
 
@@ -2560,6 +2801,7 @@
             (segment, node) => createRailSegmentElement(scope, segment, node));
         reconcileRailLayer(thumbnailsLayer, thumbnails, keyForSegment, segmentSignature,
             (segment, node) => createRailThumbnailElement(scope, segment, node));
+        renderDetectionMarkers(scope);
         updateActiveRailDecorations(scope);
         observeRailThumbnails(scope);
         updateTimelineTickLabelVisibility(scope);
@@ -2681,7 +2923,10 @@
             timelineStartMs(scope),
             timelineMaximumFocusMs(scope),
         );
-        const localSegment = segmentPayloadForFocus(scope, resolvedFocusMs);
+        // An explicit clip choice must win when two recordings overlap in time.
+        const localSegment = (options.segmentId == null ? null : state.rail.segments.find(segment =>
+            String(segment.id) === String(options.segmentId) && segment.startMs <= resolvedFocusMs && segment.endMs > resolvedFocusMs))
+            || segmentPayloadForFocus(scope, resolvedFocusMs);
         const shouldFetch = options.fetchIfMissing !== false;
         const shouldResumePlayback = options.resumePlayback === true;
 
@@ -2766,6 +3011,7 @@
         }
         setPlaybackNotice(scope);
         updateStageText(scope, 'camera-label', cameraName);
+        state.selectedDetectionSegment = segment;
         setActiveRailSegmentId(scope, segment && typeof segment === 'object' ? (segment.id ?? null) : null);
 
         if (!(segment && typeof segment === 'object')) {
@@ -3885,6 +4131,7 @@
     };
 
     const handlePointerDown = (event) => {
+        if (event.target instanceof Element && event.target.closest('[data-role="detection-marker"], [data-role="detection-panel"]')) return;
         if ('button' in event && event.button !== 0) {
             return;
         }
@@ -4110,6 +4357,32 @@
         }
 
         const action = event.target.closest('button[data-role]')?.dataset.role;
+        if (action === 'detection-marker') {
+            event.preventDefault();
+            const trigger = event.target.closest('button');
+            const group = state.rail.detectionGroups.find(item => item.key === trigger.dataset.groupKey);
+            if (!group || shouldSuppressFocusInteraction()) return;
+            if (group.segments.length > 1) showDetectionPanel(scope, trigger, true);
+            else {
+                closeDetectionPanel();
+                selectFocus(scope, group.segments[0].startMs, group.segments[0].id);
+            }
+            return;
+        }
+        if (action === 'detection-close') {
+            event.preventDefault();
+            closeDetectionPanel(true);
+            return;
+        }
+        if (action === 'detection-clip') {
+            event.preventDefault();
+            const id = event.target.closest('button').dataset.recordingId;
+            const segment = state.rail.segments.find(item => String(item.id) === id);
+            closeDetectionPanel(true);
+            if (segment) selectFocus(scope, segment.startMs, segment.id);
+            return;
+        }
+        if (!event.target.closest('[data-role="detection-panel"]')) closeDetectionPanel();
         if (action === 'clip-detail') {
             applyZoomScale(scope, maximumZoomScale(scope), { anchorMs: currentFocusMs(scope) });
             event.preventDefault();
@@ -4223,6 +4496,8 @@
     };
 
     const destroy = () => {
+        closeDetectionPanel();
+        state.selectedDetectionSegment = null;
         state.clipScrub = null;
         state.bootstrappedRoot = null;
         state.cleanupFns.forEach((cleanup) => cleanup());
@@ -4310,6 +4585,18 @@
         document.addEventListener('keydown', handleKeyDown, true);
         document.addEventListener('input', handleInput, true);
         document.addEventListener('click', handleClick, true);
+        const detectionListeners = [
+            ['pointerover', handleDetectionEnter], ['focusin', handleDetectionEnter],
+            ['pointerout', handleDetectionLeave], ['focusout', handleDetectionLeave],
+            ['pointerdown', handleDetectionDismiss], ['keydown', handleDetectionDismiss],
+            ['scroll', handleDetectionDismiss],
+        ];
+        detectionListeners.forEach(([type, handler]) => {
+            document.addEventListener(type, handler, true);
+            state.cleanupFns.push(() => document.removeEventListener(type, handler, true));
+        });
+        window.addEventListener('resize', positionDetectionPanel);
+        state.cleanupFns.push(() => window.removeEventListener('resize', positionDetectionPanel));
 
         state.cleanupFns.push(() => document.removeEventListener('pointerdown', handlePointerDown));
         state.cleanupFns.push(() => document.removeEventListener('pointermove', handlePointerMove));

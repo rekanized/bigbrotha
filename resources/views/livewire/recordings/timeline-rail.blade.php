@@ -119,6 +119,7 @@
     data-camera-id="{{ $tile['cameraId'] ?? '' }}"
     data-camera-name="{{ $tile['cameraName'] ?? 'Camera' }}"
     data-active-segment-id="{{ $activeSegmentId ?? '' }}"
+    data-object-icons-url="{{ asset('img/timeline-objects.svg') }}"
     data-initial-window-start-ms="{{ $initialWindowStartMs }}"
     data-initial-window-end-ms="{{ $initialWindowEndMs }}"
     data-rail-url="{{ !empty($tile['cameraId']) ? route('recordings.timeline.rail-data', ['camera' => (int) $tile['cameraId']]) : '' }}"
@@ -165,6 +166,7 @@
             <details class="recording-review__help">
                 <summary>How to use the timeline</summary>
                 <p>Scroll or swipe to browse. Select a clip or time label. Drag the blue handle to scrub. Use Ctrl/Command + wheel to zoom.</p>
+                <p>Object icons identify labels detected within a clip. Select a group to choose a clip, or zoom in to separate its markers. +N means more object types; the clip count is shown separately.</p>
                 <p>With the blue handle focused: arrow keys move 1 second; Shift + arrow moves 1 minute; Page Up/Down moves 15 minutes; Home/End jumps to the range boundary.</p>
             </details>
 
@@ -184,6 +186,12 @@
     </form>
     <p class="recording-review__scrub-hint">Drag the blue time handle to select a moment.</p>
     <div class="recording-review__legend" aria-label="Clip colors"><span>● Continuous</span><span>● Movement</span></div>
+    <p class="recording-review__selected-objects" data-role="selected-objects" hidden></p>
+    <section class="recording-review__detection-panel" data-role="detection-panel" id="timeline-detection-panel" aria-labelledby="timeline-detection-heading" hidden>
+        <header><strong id="timeline-detection-heading" data-role="detection-heading">Detected objects</strong><button type="button" class="recording-review__detection-close" data-role="detection-close" aria-label="Close detection details">×</button></header>
+        <p data-role="detection-summary"></p>
+        <div class="recording-review__detection-list" data-role="detection-list"></div>
+    </section>
     <div class="recording-review-focus__rail-shell" data-role="rail-shell">
         <div class="recording-review__rail-feedback">
             <p class="recording-review-focus__rail-status" data-role="rail-status" role="status" aria-live="polite" hidden></p>
@@ -279,6 +287,8 @@
                     @endforeach
                 </div>
 
+                <div class="recording-review__detections" data-role="rail-detections"></div>
+
                 <div class="recording-review-focus__rail-thumbnails" data-role="rail-thumbnails" wire:ignore>
                     @foreach ($thumbnailSegments as $segment)
                         @php($captureMode = ($segment['captureMode'] ?? null) === 'motion' ? 'motion' : 'continuous')
@@ -306,6 +316,7 @@
                             <span class="recording-review-focus__rail-thumbnail-frame" data-role="rail-thumbnail-frame">
                                 <span class="recording-review-focus__rail-thumbnail-sprite" data-role="rail-thumbnail-sprite" aria-hidden="true"></span>
                             </span>
+                            @include('livewire.recordings.object-icons', ['objectLabels' => $segment['objectLabels'] ?? []])
                         </button>
                     @endforeach
                 </div>

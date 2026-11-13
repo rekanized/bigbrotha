@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="person" viewBox="0 0 24 24">
+    <circle cx="12" cy="4" r="2.5"/><path d="M8 21v-7H6V9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5h-2v7h-3v-7h-2v7z"/>
+  </symbol>
+  <symbol id="cat" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10V3l5 4h4l5-4v7a8 8 0 1 1-14 0Z"/><path d="m10 15 2 2 2-2M12 17v2M2 14l5 1M2 18l5-1M22 14l-5 1M22 18l-5-1"/></g><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/>
+  </symbol>
+  <symbol id="dog" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5 4 3 1 11l4 2 2-5m10-3 3-2 3 8-4 2-2-5M7 5h10v11a5 5 0 0 1-10 0Z"/><path d="M12 15v3m-2 0 2 1 2-1"/></g><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="m9.5 13 2.5 3 2.5-3z"/>
+  </symbol>
+  <symbol id="car" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 2-5h14l2 5v8H3Zm0 0h18M5 18v3m14-3v3"/><path d="M6 14h2m8 0h2"/></g>
+  </symbol>
+  <symbol id="motorcycle" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="17" r="4"/><circle cx="19" cy="17" r="4"/><path d="m19 17-4-12h-3m-7 12 5-8h6M8 11h6l-3 6H5m2-10h4"/></g>
+  </symbol>
+  <symbol id="bus" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="18" rx="3"/><path d="M4 7h16M4 14h16M12 7v7M7 20v2m10-2v2M8 5h8M7 17h2m6 0h2"/></g>
+  </symbol>
+  <symbol id="truck" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17V4h12v13m0-10h5l3 5v5h-2M2 17h2m4 0h8m0-10v6h6"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/></g>
+  </symbol>
+  <symbol id="unknown" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m3 3 10 0 8 8-10 10-8-8Z"/><circle cx="8" cy="8" r="1.5"/></g>
+  </symbol>
+</svg>

@@ -6,6 +6,7 @@ use App\Livewire\Recordings\TimelineRail;
 use App\Livewire\Recordings\TimelineReview;
 use App\Livewire\Recordings\TimelineStage;
 use App\Models\Camera;
+use App\Models\CameraAnalysisLabel;
 use App\Models\CameraRecording;
 use App\Models\User;
 use App\Services\ApplicationSettingsService;
@@ -722,6 +723,7 @@ class TimelineReviewTest extends TestCase
             'initialSegments' => [
                 [
                     'id' => 81,
+                    'objectLabels' => ['dog', 'person', 'car'],
                     'startMs' => 2_000,
                     'endMs' => 8_000,
                     'midpointMs' => 5_000,
@@ -745,6 +747,11 @@ class TimelineReviewTest extends TestCase
         ])
             ->assertSeeHtml('data-role="rail-segment"')
             ->assertSeeHtml('data-role="rail-thumbnail"')
+            ->assertSeeHtml('data-role="rail-detections"')
+            ->assertSeeHtml('data-role="detection-panel"')
+            ->assertSeeHtml('data-object="person"')
+            ->assertSeeHtml('data-object="dog"')
+            ->assertSeeHtml('recording-review__object-more">+1')
             ->assertSeeHtml('data-focus-ms="2000"')
             ->assertSeeHtml('data-focus-ms="900000"')
             ->assertSeeHtml('data-tick-kind="secondary"')
@@ -765,6 +772,22 @@ class TimelineReviewTest extends TestCase
             ->assertSeeHtml('aria-valuemax="3599000"')
             ->assertSeeHtml('aria-valuenow="5000"')
             ->assertDontSeeHtml('wire:click="$dispatch(\'timeline-focus-selected\'');
+    }
+
+    public function test_timeline_icons_preserve_specific_classes_and_handle_unknown_or_empty_labels(): void
+    {
+        foreach (CameraAnalysisLabel::CLASSES as $class) {
+            $this->view('livewire.recordings.object-icons', ['objectLabels' => [$class, $class]])
+                ->assertSee('timeline-objects.svg#'.$class, false)
+                ->assertSee('data-object="'.$class.'"', false)
+                ->assertDontSee('object-more');
+        }
+
+        $this->view('livewire.recordings.object-icons', ['objectLabels' => ['new-object']])
+            ->assertSee('timeline-objects.svg#unknown', false)
+            ->assertSee('data-object="new-object"', false);
+        $this->view('livewire.recordings.object-icons', ['objectLabels' => []])
+            ->assertDontSee('data-role="object-icons"', false);
     }
 
     public function test_timeline_rail_drops_overlapping_thumbnails_instead_of_shifting_them_far_from_their_clip(): void

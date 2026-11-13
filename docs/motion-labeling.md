@@ -35,7 +35,13 @@ failure is shown as CPU fallback. Recording details show labels and counts of
 successful/skipped samples in overlapping analysis events. These counts are
 sampling evidence, not proof that an entire recording was analyzed. No labels
 can mean no motion, no confirmed objects, disabled analysis, or an outage.
-Gold timeline dots mark segments with confirmed labels; their tooltips list them.
+Timeline icons identify the specific confirmed objects in each clip: person,
+cat, dog, car, motorcycle, bus, or truck. Hover or focus a marker for full names;
+select it to play the clip. Nearby markers group together with a separate clip
+count. Select a group to choose a clip, or zoom in to separate the markers.
+`+N` means additional object types, not individual objects. The selected clip's
+full labels also appear above the rail for touch users. Icons describe detections
+within the clip, not an exact observation time or the cause of motion.
 
 ## Runtime behavior and bounds
 
