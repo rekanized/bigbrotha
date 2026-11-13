@@ -66,6 +66,8 @@
         scrubSpriteCache: new Map(),
         scrubSpriteFailures: new Map(),
         scrubSpritePending: new Map(),
+        scrubSpriteQueue: [],
+        scrubSpriteActiveLoads: 0,
         scrubPreviewVisible: false,
         rail: defaultRailState(),
         stage: defaultStageControllerState(),
@@ -82,6 +84,7 @@
     };
 
     const maximumRememberedSprites = 64;
+    const maximumConcurrentSpriteLoads = 3;
     const spriteFailureRetryDelayMs = 60_000;
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -2209,7 +2212,6 @@
 
         // Keep the current preview until the replacement sprite has decoded.
         if (!spriteLayer.classList.contains('is-ready')) {
-            ensureRailThumbnailFallbackImage(frame, thumbnailUrl, thumbnailAlt);
             frame.dataset.renderState = 'loading';
         }
 
@@ -2217,6 +2219,7 @@
             expectedHeight: scrubFrameHeight * scrubRows,
             expectedWidth: scrubFrameWidth * scrubColumns,
             priority: 'low',
+            isNeeded: isCurrent,
         }).then((loaded) => {
             if (!isCurrent()) return;
             if (!loaded) {
@@ -3348,6 +3351,22 @@
         trimRememberedSpriteMap(state.scrubSpriteFailures);
     };
 
+    const drainScrubSpriteQueue = () => {
+        // Virtualized thumbnails can disappear while waiting for a slot.
+        state.scrubSpriteQueue = state.scrubSpriteQueue.filter((entry) => {
+            if (entry.consumers.some((isNeeded) => isNeeded())) return true;
+            state.scrubSpritePending.delete(entry.url);
+            entry.resolve(false);
+            return false;
+        });
+
+        while (state.scrubSpriteActiveLoads < maximumConcurrentSpriteLoads && state.scrubSpriteQueue.length > 0) {
+            const entry = state.scrubSpriteQueue.shift();
+            state.scrubSpriteActiveLoads++;
+            entry.start();
+        }
+    };
+
     const preloadScrubSprite = (spriteUrl, options = {}) => {
         if (spriteUrl === '') {
             return Promise.resolve(false);
@@ -3356,6 +3375,7 @@
         const expectedWidth = Math.max(0, Number(options.expectedWidth || 0));
         const expectedHeight = Math.max(0, Number(options.expectedHeight || 0));
         const priority = options.priority === 'high' ? 'high' : 'low';
+        const isNeeded = typeof options.isNeeded === 'function' ? options.isNeeded : () => true;
 
         if (state.scrubSpriteCache.has(spriteUrl)) {
             rememberLoadedSprite(spriteUrl);
@@ -3374,21 +3394,51 @@
         const pendingLoad = state.scrubSpritePending.get(spriteUrl);
 
         if (pendingLoad) {
-            return pendingLoad;
+            pendingLoad.consumers.push(isNeeded);
+            if (priority === 'high') {
+                pendingLoad.priority = 'high';
+                if (pendingLoad.image) pendingLoad.image.fetchPriority = 'high';
+                const index = state.scrubSpriteQueue.indexOf(pendingLoad);
+                if (index >= 0) {
+                    state.scrubSpriteQueue.splice(index, 1);
+                    state.scrubSpriteQueue.unshift(pendingLoad);
+                }
+            }
+            return pendingLoad.promise;
         }
 
-        const preload = new Promise((resolve) => {
+        const entry = { url: spriteUrl, priority, consumers: [isNeeded], image: null };
+        entry.promise = new Promise((resolve) => { entry.resolve = resolve; });
+        entry.start = () => {
             const image = new Image();
+            entry.image = image;
+            let settled = false;
+            const finish = (loaded) => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timer);
+                image.onload = null;
+                image.onerror = null;
+                if (loaded) rememberLoadedSprite(spriteUrl);
+                else rememberFailedSprite(spriteUrl);
+                state.scrubSpritePending.delete(spriteUrl);
+                state.scrubSpriteActiveLoads--;
+                entry.resolve(loaded);
+                drainScrubSpriteQueue();
+            };
+            const timer = window.setTimeout(() => {
+                finish(false);
+                image.removeAttribute('src');
+            }, 15000);
 
             image.decoding = 'async';
-            image.fetchPriority = priority;
+            image.fetchPriority = entry.priority;
             image.onload = async () => {
                 const widthMatches = expectedWidth < 1 || image.naturalWidth === expectedWidth;
                 const heightMatches = expectedHeight < 1 || image.naturalHeight === expectedHeight;
 
                 if (!widthMatches || !heightMatches) {
-                    rememberFailedSprite(spriteUrl);
-                    resolve(false);
+                    finish(false);
 
                     return;
                 }
@@ -3396,24 +3446,21 @@
                 try {
                     await image.decode();
                 } catch (error) {
-                    rememberFailedSprite(spriteUrl);
-                    resolve(false);
+                    finish(false);
                     return;
                 }
-                rememberLoadedSprite(spriteUrl);
-                state.scrubSpritePending.delete(spriteUrl);
-                resolve(true);
+                finish(true);
             };
-            image.onerror = () => {
-                rememberFailedSprite(spriteUrl);
-                resolve(false);
-            };
+            image.onerror = () => finish(false);
             image.src = spriteUrl;
-        });
+        };
 
-        state.scrubSpritePending.set(spriteUrl, preload);
+        state.scrubSpritePending.set(spriteUrl, entry);
+        if (priority === 'high') state.scrubSpriteQueue.unshift(entry);
+        else state.scrubSpriteQueue.push(entry);
+        drainScrubSpriteQueue();
 
-        return preload;
+        return entry.promise;
     };
 
     const hideScrubPreview = (scope) => {
@@ -3817,6 +3864,7 @@
                 expectedHeight: frameHeight * rows,
                 expectedWidth: frameWidth * columns,
                 priority: 'high',
+                isNeeded: () => scope.isConnected && state.scrubPreviewVisible && preview.dataset.requestId === requestId,
             }).then((loaded) => {
                 if (!loaded) {
                     return;
@@ -4519,6 +4567,10 @@
         state.scrubPreviewFocusMs = null;
         state.scrubPreviewVisible = false;
         state.stageSegmentRequestId = 0;
+        state.scrubSpriteQueue.splice(0).forEach((entry) => {
+            state.scrubSpritePending.delete(entry.url);
+            entry.resolve(false);
+        });
         state.viewportScrollTop = null;
         state.zoomScale = null;
         state.stage = defaultStageControllerState();
