@@ -7,7 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.5",
-        "laravel/framework": "^13.0",
+        "laravel/framework": "^13.40",
         "laravel/socialite": "^5.16",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.3.4",
