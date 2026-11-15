@@ -1640,7 +1640,7 @@ BASH
         $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
-        $storage->shouldReceive('cameraDisk')->twice()->andReturn($disk);
+        $storage->shouldReceive('cameraDisk')->once()->andReturn($disk);
         $storage->shouldReceive('cameraDiskFileAvailabilityWithSmbClient')
             ->once()->with($diskPath)->andReturn(CameraStorageService::RECORDING_AVAILABILITY_PRESENT);
         $storage->shouldReceive('cameraDiskFileSizeWithSmbClient')->once()->with($diskPath)->andReturn(null);

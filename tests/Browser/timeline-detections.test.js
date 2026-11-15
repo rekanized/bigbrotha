@@ -118,7 +118,8 @@ window.runTimelineDetectionTests = async () => {
 
         const dense = [clip(1, 60, ['person']), clip(2, 65, ['cat']), clip(3, 70, ['dog'])];
         await reset(dense);
-        assert(markers().length === 1 && markers()[0].textContent.includes('3 clips'), 'Nearby clips group with a distinct clip count');
+        assert(markers().length === 1 && markers()[0].querySelector('.recording-review__detection-count').textContent === '3'
+            && markers()[0].getAttribute('aria-label').includes('3 clips'), 'Nearby clips group with a compact, accessible clip count');
         const original = markers()[0];
         const focusBefore = root.dataset.focusMs;
         original.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0, clientY: 100 }));

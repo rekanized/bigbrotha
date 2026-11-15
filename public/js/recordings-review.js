@@ -2518,13 +2518,17 @@
         button.setAttribute('aria-label', `${objectNames(group.labels)} detected in ${count === 1 ? 'clip' : count + ' clips'}, ${time}. ${count > 1 ? 'Choose a clip' : 'Play clip'}`);
         button.setAttribute('aria-controls', 'timeline-detection-panel');
         button.setAttribute('aria-expanded', 'false');
-        button.replaceChildren(createObjectIcons(scope, group.labels));
+        const chip = document.createElement('span');
+        chip.className = 'recording-review__detection-chip';
+        chip.append(createObjectIcons(scope, group.labels, count > 1 ? 1 : 2));
         if (count > 1) {
             const label = document.createElement('span');
             label.className = 'recording-review__detection-count';
-            label.textContent = `${count} clips`;
-            button.append(label);
+            label.textContent = String(count);
+            label.setAttribute('aria-hidden', 'true');
+            chip.append(label);
         }
+        button.replaceChildren(chip);
         return button;
     };
 

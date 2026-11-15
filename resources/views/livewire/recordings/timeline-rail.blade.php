@@ -166,7 +166,7 @@
             <details class="recording-review__help">
                 <summary>How to use the timeline</summary>
                 <p>Scroll or swipe to browse. Select a clip or time label. Drag the blue handle to scrub. Use Ctrl/Command + wheel to zoom.</p>
-                <p>Object icons identify labels detected within a clip. Select a group to choose a clip, or zoom in to separate its markers. +N means more object types; the clip count is shown separately.</p>
+                <p>Object icons show what was detected. The number after the divider counts clips; +N means more object types. Hover or select a badge for labels and clip details, or zoom in to separate grouped clips.</p>
                 <p>With the blue handle focused: arrow keys move 1 second; Shift + arrow moves 1 minute; Page Up/Down moves 15 minutes; Home/End jumps to the range boundary.</p>
             </details>
 
