@@ -14,6 +14,119 @@ class CameraSmbTransferTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_staged_smb_publish_creates_directories_and_verifies_without_the_interactive_adapter(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::deleteDirectory($remoteRoot.'/cameras');
+            $storage = $this->storageWithoutInteractiveAdapter();
+            $relativePath = 'cameras/7/recordings/2026/09/29/complete.mkv';
+            $localPath = $this->stagedFile('complete.mkv', 'complete-recording');
+
+            $storage->finalizeStagedWrite($relativePath, $localPath);
+
+            $this->assertSame('complete-recording', File::get($remoteRoot.'/'.$relativePath));
+            $this->assertFileDoesNotExist($localPath);
+            $this->assertSame([], glob(storage_path('app/private/smb-runtime/smb-auth-*')));
+
+            // Existing directories need only one bounded probe on later writes.
+            File::put($remoteRoot.'/commands.log', '');
+            $localPath = $this->stagedFile('complete.mkv', 'replacement-recording');
+            $storage->finalizeStagedWrite($relativePath, $localPath);
+            $this->assertSame('replacement-recording', File::get($remoteRoot.'/'.$relativePath));
+            $this->assertStringNotContainsString('mkdir ', File::get($remoteRoot.'/commands.log'));
+        });
+    }
+
+    public function test_smb_directory_error_with_zero_exit_status_preserves_the_staged_recording(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::put($remoteRoot.'/deny-mkdir', '1');
+            File::deleteDirectory($remoteRoot.'/cameras/7/recordings/2026');
+            $localPath = $this->stagedFile('denied.mkv', 'complete-recording');
+
+            try {
+                $this->storageWithoutInteractiveAdapter()->finalizeStagedWrite(
+                    'cameras/7/recordings/2026/09/29/denied.mkv', $localPath,
+                );
+                $this->fail('A directory error must fail the publish.');
+            } catch (\RuntimeException $exception) {
+                $this->assertStringContainsString('Unable to create the camera storage directory', $exception->getMessage());
+            }
+
+            $this->assertFileExists($localPath);
+            $this->assertStringNotContainsString('put ', File::get($remoteRoot.'/commands.log'));
+        });
+    }
+
+    public function test_failed_smb_metadata_does_not_fall_back_to_the_interactive_adapter(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::put($remoteRoot.'/fail-metadata', '1');
+
+            $this->assertSame(
+                CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE,
+                $this->storageWithoutInteractiveAdapter()->recordingAvailability('cameras/7/recordings/source.mkv'),
+            );
+        });
+    }
+
+    public function test_stalled_smb_metadata_times_out_without_blocking_the_worker_or_leaking_auth_files(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::put($remoteRoot.'/stall-metadata', '1');
+            $started = microtime(true);
+
+            $this->assertSame(
+                CameraStorageService::RECORDING_AVAILABILITY_UNREACHABLE,
+                $this->storageWithoutInteractiveAdapter()->recordingAvailability('cameras/7/recordings/source.mkv'),
+            );
+            $this->assertLessThan(8, microtime(true) - $started);
+            $this->assertSame([], glob(storage_path('app/private/smb-runtime/smb-auth-*')));
+        });
+    }
+
+    public function test_smb_verification_failure_preserves_the_staged_recording(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::put($remoteRoot.'/fail-verification', '1');
+            $localPath = $this->stagedFile('unverified.mkv', 'complete-recording');
+
+            try {
+                $this->storageWithoutInteractiveAdapter()->finalizeStagedWrite(
+                    'cameras/7/recordings/2026/09/29/unverified.mkv', $localPath,
+                );
+                $this->fail('An unverified publish must fail.');
+            } catch (\RuntimeException $exception) {
+                $this->assertStringContainsString('uploaded file size', $exception->getMessage());
+            }
+
+            $this->assertSame('complete-recording', File::get($localPath));
+        });
+    }
+
+    public function test_smb_metadata_drains_stderr_while_reading_stdout(): void
+    {
+        $this->withFakeSmbClient(function (string $remoteRoot): void {
+            File::put($remoteRoot.'/noisy-metadata', '1');
+            File::put($remoteRoot.'/cameras/7/recordings/source.mkv', 'recording');
+
+            $this->assertSame(
+                CameraStorageService::RECORDING_AVAILABILITY_PRESENT,
+                $this->storageWithoutInteractiveAdapter()->recordingAvailability('cameras/7/recordings/source.mkv'),
+            );
+        });
+    }
+
+    private function storageWithoutInteractiveAdapter(): CameraStorageService
+    {
+        $storage = \Mockery::mock(CameraStorageService::class, [app(ApplicationSettingsService::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $storage->shouldNotReceive('cameraDisk');
+
+        return $storage;
+    }
+
     public function test_partial_smb_upload_never_replaces_the_final_file(): void
     {
         $this->withFakeSmbClient(function (string $remoteRoot): void {
@@ -150,10 +263,25 @@ file_put_contents($root.'/commands.log', $command.PHP_EOL, FILE_APPEND);
 $target = static fn (string $path): string => $root.'/'.ltrim($path, '/');
 $action = strtok($command, ' ');
 if ($action === 'allinfo') {
+    if (is_file($root.'/stall-metadata')) { sleep(30); }
+    if (is_file($root.'/fail-metadata')) { fwrite(STDERR, "NT_STATUS_IO_TIMEOUT\n"); exit(1); }
+    if (is_file($root.'/noisy-metadata')) { fwrite(STDERR, str_repeat('diagnostic output ', 16384)); }
     $file = $target($paths[0]);
     if (!is_file($file)) { fwrite(STDERR, "NT_STATUS_OBJECT_NAME_NOT_FOUND\n"); exit(1); }
+    if (is_file($root.'/omit-size')) { exit(0); }
     echo 'size: '.filesize($file)."\n";
     exit(0);
+}
+if ($action === 'cd') {
+    if (is_dir($target($paths[0]))) { exit(0); }
+    echo "NT_STATUS_OBJECT_PATH_NOT_FOUND\n";
+    exit(0);
+}
+if ($action === 'mkdir') {
+    if (is_file($root.'/deny-mkdir')) { echo "NT_STATUS_ACCESS_DENIED\n"; exit(0); }
+    $directory = $target($paths[0]);
+    if (is_dir($directory)) { echo "NT_STATUS_OBJECT_NAME_COLLISION\n"; exit(1); }
+    exit(mkdir($directory) ? 0 : 1);
 }
 if ($action === 'put') {
     $destination = $target($paths[1]);
@@ -170,6 +298,7 @@ if ($action === 'rename') {
     if (is_file($root.'/fail-promotion') && str_contains($source, '.uploading-')
         && glob(dirname($destination).'/*.replacing-*') !== []) { exit(1); }
     if (!is_file($source) || is_file($destination)) { exit(1); }
+    if (is_file($root.'/fail-verification')) { file_put_contents($root.'/omit-size', '1'); }
     exit(rename($source, $destination) ? 0 : 1);
 }
 if ($action === 'del') {

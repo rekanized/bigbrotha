@@ -12,5 +12,5 @@ running_workers="$(/usr/bin/supervisorctl -c /etc/supervisor/background.conf sta
 
 [ "$running_workers" -eq "$worker_processes" ]
 
-php artisan camera-recordings:healthcheck worker --no-interaction >/dev/null
-php artisan camera-recordings:healthcheck scheduler --no-interaction >/dev/null
+php artisan camera-recordings:healthcheck worker --no-interaction
+php artisan camera-recordings:healthcheck scheduler --no-interaction

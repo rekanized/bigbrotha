@@ -1441,16 +1441,22 @@ class CameraStorageService
             );
         }
 
-        try {
-            $remoteSize = $this->cameraDisk()->size($diskPath);
-        } catch (Throwable $exception) {
+        if ($this->shouldUseSmbClientTransfers()) {
+            // Keep verification on the same bounded transport as the upload.
+            // The interactive adapter can deadlock while reading smbclient pipes.
             $remoteSize = $this->cameraDiskFileSizeWithSmbClient($diskPath);
+        } else {
+            try {
+                $remoteSize = $this->cameraDisk()->size($diskPath);
+            } catch (Throwable $exception) {
+                $remoteSize = $this->cameraDiskFileSizeWithSmbClient($diskPath);
 
-            if (! is_int($remoteSize)) {
-                throw new RuntimeException(
-                    $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
-                    previous: $exception,
-                );
+                if (! is_int($remoteSize)) {
+                    throw new RuntimeException(
+                        $this->uploadVerificationFailureMessage('Unable to verify the uploaded file size on the active camera storage disk.', $diskPath, $localPath),
+                        previous: $exception,
+                    );
+                }
             }
         }
 
@@ -1496,14 +1502,20 @@ class CameraStorageService
 
     protected function networkCameraDiskAvailability(string $diskPath): string
     {
-        $disk = $this->cameraDisk();
-        $encounteredException = false;
-
         $smbClientAvailability = $this->cameraDiskFileAvailabilityWithSmbClient($diskPath);
 
         if ($smbClientAvailability !== null) {
             return $smbClientAvailability;
         }
+
+        // A timed-out or failed SMB probe means unreachable. Falling back to the
+        // interactive adapter here defeats the timeout and can strand a worker.
+        if ($this->shouldUseSmbClientTransfers()) {
+            return self::RECORDING_AVAILABILITY_UNREACHABLE;
+        }
+
+        $disk = $this->cameraDisk();
+        $encounteredException = false;
 
         try {
             if ($disk->exists($diskPath)) {
@@ -1644,6 +1656,14 @@ class CameraStorageService
             return;
         }
 
+        if ($this->shouldUseSmbClientTransfers()) {
+            if (! $this->createCameraDiskDirectoryWithSmbClient($normalizedDirectory)) {
+                throw new RuntimeException('Unable to create the camera storage directory on the active network share: '.$normalizedDirectory);
+            }
+
+            return;
+        }
+
         $segments = explode('/', $normalizedDirectory);
         $path = '';
         $disk = $this->cameraDisk();
@@ -1712,6 +1732,19 @@ class CameraStorageService
             return false;
         }
 
+        // Most clips share an existing date directory. Avoid reconnecting once
+        // per parent for every publish, without using the interactive adapter.
+        $probe = $this->runSmbClientCommand(
+            $binary,
+            $networkConfig,
+            'cd "'.$targetPaths[array_key_last($targetPaths)].'"',
+            self::SMB_METADATA_TIMEOUT_SECONDS,
+        );
+
+        if ($probe->isSuccessful() && trim($probe->getOutput().' '.$probe->getErrorOutput()) === '') {
+            return true;
+        }
+
         foreach ($targetPaths as $targetPath) {
             $process = $this->runSmbClientCommand(
                 $binary,
@@ -1719,10 +1752,6 @@ class CameraStorageService
                 'mkdir "'.$targetPath.'"',
                 30,
             );
-
-            if ($process->isSuccessful()) {
-                continue;
-            }
 
             $errorOutput = trim($process->getErrorOutput().' '.$process->getOutput());
 
@@ -1733,7 +1762,10 @@ class CameraStorageService
                 continue;
             }
 
-            return false;
+            // smbclient can report an SMB error while exiting successfully.
+            if (! $process->isSuccessful() || str_contains(strtoupper($errorOutput), 'NT_STATUS_')) {
+                return false;
+            }
         }
 
         return true;
