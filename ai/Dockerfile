@@ -1,13 +1,16 @@
-FROM python:3.11-slim-bookworm AS models
+FROM python:3.11-slim-trixie AS models
 WORKDIR /build
-RUN pip install --no-cache-dir onnx==1.19.1
+RUN pip install --no-cache-dir onnx==1.23.2
 COPY ai/fetch_model.py ai/normalize_model.py ./
 COPY ai/manifests/nanodet-plus-m-416.json ./manifests/nanodet-plus-m-416.json
 RUN python fetch_model.py manifests/nanodet-plus-m-416.json /models && python normalize_model.py /models/model.json
 
-FROM python:3.11-slim-bookworm AS cpu
+FROM python:3.11-slim-trixie AS cpu
 ENV PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 WORKDIR /opt/ai
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY ai/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ai/detector.py ai/server.py ./

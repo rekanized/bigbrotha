@@ -1,8 +1,8 @@
 FROM debian:trixie-slim AS mediamtx
 
-ARG MEDIAMTX_VERSION=1.21.1
-ARG MEDIAMTX_SHA256_AMD64=653abc672a3e693f8d3b2717752492fdcfb8072291ec108d03d3dd857411b0ee
-ARG MEDIAMTX_SHA256_ARM64=6a3aa635fb60ea9b8d566ec306f0a42ff1b6b52a3942bc2baffbe55880d4c3dd
+ARG MEDIAMTX_VERSION=1.21.4
+ARG MEDIAMTX_SHA256_AMD64=be0c05d9c8af8338116977e7f1c3fcb409fbf882075e5ab075cf8baad76a59d2
+ARG MEDIAMTX_SHA256_ARM64=47784081da54c0608ea4dc359f5cfb19880209434769c532b3ed3a67ea99c29d
 ARG TARGETARCH
 
 RUN set -eux; \
@@ -35,7 +35,7 @@ RUN set -eux; \
 FROM php:8.5-fpm-trixie AS runtime
 
 # PHP is compiled into the base image; apt upgrades cannot update it.
-RUN php -r 'exit(version_compare(PHP_VERSION, "8.5.12", ">=") ? 0 : 1);'
+RUN php -r 'exit(version_compare(PHP_VERSION, "8.5.13", ">=") ? 0 : 1);'
 
 ENV APP_ROOT=/app \
     COMPOSER_ALLOW_SUPERUSER=1
@@ -54,6 +54,7 @@ RUN apt-get update \
         procps \
         smbclient \
         supervisor \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' nginx-light)" ge 1.26.3-3+deb13u11 \
     && docker-php-ext-install -j"$(nproc)" \
         bcmath \
         mbstring \
