@@ -32,7 +32,7 @@ RUN set -eux; \
     install -m 0755 /tmp/mediamtx/mediamtx /usr/local/bin/mediamtx; \
     install -Dm 0644 /tmp/mediamtx/LICENSE /usr/share/doc/mediamtx/LICENSE
 
-FROM php:8.5-fpm-trixie AS runtime
+FROM php:8.6-fpm-trixie AS runtime
 
 # PHP is compiled into the base image; apt upgrades cannot update it.
 RUN php -r 'exit(version_compare(PHP_VERSION, "8.5.13", ">=") ? 0 : 1);'
